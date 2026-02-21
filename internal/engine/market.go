@@ -117,7 +117,7 @@ func demandedGoods(a *agents.Agent) []agents.GoodType {
 		needs = append(needs, agents.GoodGrain)
 	}
 
-	// Crafters need raw materials.
+	// Crafters need raw materials for all recipes.
 	if a.Occupation == agents.OccupationCrafter {
 		if a.Inventory[agents.GoodIronOre] < 2 {
 			needs = append(needs, agents.GoodIronOre)
@@ -125,12 +125,24 @@ func demandedGoods(a *agents.Agent) []agents.GoodType {
 		if a.Inventory[agents.GoodTimber] < 1 {
 			needs = append(needs, agents.GoodTimber)
 		}
+		if a.Inventory[agents.GoodCoal] < 1 {
+			needs = append(needs, agents.GoodCoal)
+		}
+		if a.Inventory[agents.GoodFurs] < 2 {
+			needs = append(needs, agents.GoodFurs)
+		}
+		if a.Inventory[agents.GoodGems] < 2 {
+			needs = append(needs, agents.GoodGems)
+		}
 	}
 
-	// Alchemists need herbs.
+	// Alchemists need herbs and exotics.
 	if a.Occupation == agents.OccupationAlchemist {
 		if a.Inventory[agents.GoodHerbs] < 2 {
 			needs = append(needs, agents.GoodHerbs)
+		}
+		if a.Inventory[agents.GoodExotics] < 2 {
+			needs = append(needs, agents.GoodExotics)
 		}
 	}
 
@@ -253,11 +265,23 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 				continue
 			}
 
-			// If merchant has cargo and a destination, sell it there.
+			// Merchant still traveling — decrement travel ticks.
+			if a.TravelTicksLeft > 0 {
+				// Decrement by one hour's worth of ticks.
+				if a.TravelTicksLeft <= TicksPerSimHour {
+					a.TravelTicksLeft = 0
+				} else {
+					a.TravelTicksLeft -= uint16(TicksPerSimHour)
+				}
+				continue
+			}
+
+			// If merchant has cargo and arrived at destination, sell it.
 			if a.TradeDestSett != nil && len(a.TradeCargo) > 0 {
 				destSett, ok := s.SettlementIndex[*a.TradeDestSett]
 				if ok && destSett.Market != nil {
 					sellMerchantCargo(a, destSett.Market)
+					s.Stats.TradeVolume++
 				}
 				a.TradeDestSett = nil
 				a.TradeCargo = nil
@@ -313,15 +337,84 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 				continue
 			}
 
-			// Load cargo and set destination.
+			// Load cargo and set destination with travel time.
 			destID := bestDest.ID
 			a.TradeDestSett = &destID
 			if a.TradeCargo == nil {
 				a.TradeCargo = make(map[agents.GoodType]int)
 			}
 			a.TradeCargo[bestGood] += buyQty
+
+			// Travel time based on terrain-aware route cost.
+			travelCost := routeCost(sett.Position, bestDest.Position, s.WorldMap)
+			if travelCost < 6 {
+				travelCost = 6 // Minimum 1 hex worth of travel
+			}
+			a.TravelTicksLeft = uint16(travelCost)
 		}
 	}
+}
+
+// terrainMoveCost returns the tick cost to traverse one hex of the given terrain.
+func terrainMoveCost(t world.Terrain) int {
+	switch t {
+	case world.TerrainPlains:
+		return 6
+	case world.TerrainForest:
+		return 8
+	case world.TerrainMountain:
+		return 12
+	case world.TerrainCoast:
+		return 6
+	case world.TerrainRiver:
+		return 3
+	case world.TerrainDesert:
+		return 8
+	case world.TerrainSwamp:
+		return 10
+	case world.TerrainTundra:
+		return 8
+	case world.TerrainOcean:
+		return 999 // Impassable
+	default:
+		return 6
+	}
+}
+
+// routeCost calculates the total tick cost to travel from one hex to another.
+// Uses straight-line hex stepping (not full A*) for performance.
+func routeCost(from, to world.HexCoord, worldMap *world.Map) int {
+	cost := 0
+	cur := from
+
+	for cur != to {
+		// Step toward destination: pick the neighbor closest to target.
+		best := cur
+		bestDist := world.Distance(cur, to)
+
+		for _, n := range cur.Neighbors() {
+			d := world.Distance(n, to)
+			if d < bestDist {
+				bestDist = d
+				best = n
+			}
+		}
+
+		if best == cur {
+			// Shouldn't happen, but prevent infinite loop.
+			break
+		}
+
+		cur = best
+		hex := worldMap.Get(cur)
+		if hex != nil {
+			cost += terrainMoveCost(hex.Terrain)
+		} else {
+			cost += 6 // Default if hex not found
+		}
+	}
+
+	return cost
 }
 
 // sellMerchantCargo sells a merchant's cargo at the destination market.

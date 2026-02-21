@@ -57,7 +57,12 @@ func (s *Simulation) processRelationships(tick uint64) {
 		// Family formation: adults with strong mutual bonds can pair up.
 		if simDay%7 == 0 { // Check weekly
 			s.formFamilies(sett, alive, tick)
+			s.processMentorship(sett, alive, tick)
+			s.processFactionRecruitment(alive, tick)
 		}
+
+		// Daily: check for rivalries.
+		s.processRivalries(alive)
 	}
 }
 
@@ -160,4 +165,119 @@ func boostRelationship(a *agents.Agent, targetID agents.AgentID, sentimentBoost,
 			return
 		}
 	}
+}
+
+// processMentorship pairs high-coherence agents with low-coherence agents for weekly mentoring.
+// Mentee gets coherence += Agnosis * 0.05 per week. Max 1 mentor per agent.
+func (s *Simulation) processMentorship(sett interface{}, alive []*agents.Agent, tick uint64) {
+	// Find potential mentors (coherence > 0.6) and mentees (coherence < 0.3).
+	var mentors, mentees []*agents.Agent
+	for _, a := range alive {
+		if a.Soul.CittaCoherence > 0.6 {
+			mentors = append(mentors, a)
+		} else if a.Soul.CittaCoherence < 0.3 {
+			mentees = append(mentees, a)
+		}
+	}
+
+	// Pair mentors with mentees (1:1, up to available mentors).
+	mentored := 0
+	for i, mentee := range mentees {
+		if i >= len(mentors) {
+			break
+		}
+		mentor := mentors[i]
+
+		// Apply mentorship effect.
+		growth := float32(phi.Agnosis * 0.05)
+		mentee.Soul.AdjustCoherence(growth)
+
+		// Strengthen bond between mentor and mentee.
+		strengthenBond(mentee, mentor)
+		strengthenBond(mentor, mentee)
+		mentored++
+	}
+	_ = mentored
+}
+
+// processRivalries checks for and applies rivalry effects daily.
+// Agents with negative sentiment (<-0.5) who are both wealthy (>100 crowns) become rivals.
+func (s *Simulation) processRivalries(alive []*agents.Agent) {
+	for _, a := range alive {
+		for _, rel := range a.Relationships {
+			if rel.Sentiment >= -0.5 {
+				continue
+			}
+			target, ok := s.AgentIndex[rel.TargetID]
+			if !ok || !target.Alive {
+				continue
+			}
+			if a.Wealth <= 100 || target.Wealth <= 100 {
+				continue
+			}
+
+			// Rivalry: competitive pressure gives skill growth but costs mood.
+			a.Skills.Trade += 0.002
+			a.Mood -= 0.02
+			if a.Mood < -1 {
+				a.Mood = -1
+			}
+		}
+	}
+}
+
+// processFactionRecruitment lets agents recruit relationship partners to their faction.
+// If sentiment > 0.6 and target has no faction, target joins.
+func (s *Simulation) processFactionRecruitment(alive []*agents.Agent, tick uint64) {
+	for _, a := range alive {
+		if a.FactionID == nil {
+			continue
+		}
+		for _, rel := range a.Relationships {
+			if rel.Sentiment <= 0.6 {
+				continue
+			}
+			target, ok := s.AgentIndex[rel.TargetID]
+			if !ok || !target.Alive || target.FactionID != nil {
+				continue
+			}
+			// Recruit target to recruiter's faction.
+			fid := *a.FactionID
+			target.FactionID = &fid
+
+			s.Events = append(s.Events, Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("%s recruited %s to their faction", a.Name, target.Name),
+				Category:    "social",
+			})
+		}
+	}
+}
+
+// ProcessBetrayalExpulsion expels a faction member who commits crime against another member
+// and worsens relations between their factions.
+func (s *Simulation) ProcessBetrayalExpulsion(criminal, victim *agents.Agent, tick uint64) {
+	if criminal.FactionID == nil || victim.FactionID == nil {
+		return
+	}
+	if *criminal.FactionID != *victim.FactionID {
+		return
+	}
+
+	// Expel the criminal from their faction.
+	factionName := ""
+	for _, f := range s.Factions {
+		if uint64(f.ID) == *criminal.FactionID {
+			factionName = f.Name
+			break
+		}
+	}
+
+	criminal.FactionID = nil
+
+	s.Events = append(s.Events, Event{
+		Tick:        tick,
+		Description: fmt.Sprintf("%s expelled from %s for betrayal against %s", criminal.Name, factionName, victim.Name),
+		Category:    "political",
+	})
 }

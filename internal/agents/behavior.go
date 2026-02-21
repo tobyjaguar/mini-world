@@ -28,11 +28,26 @@ const (
 	ActionSocialize                    // Interact with nearby agent
 )
 
+// Decide determines what an agent does this tick, routing by cognition tier.
+func Decide(a *Agent) Action {
+	switch a.Tier {
+	case Tier1:
+		return Tier1Decide(a)
+	default:
+		return Tier0Decide(a)
+	}
+}
+
 // Tier0Decide determines what a Tier 0 agent does this tick.
 // Pure rule-based: evaluate needs bottom-up, pick the most urgent action.
 func Tier0Decide(a *Agent) Action {
 	if !a.Alive {
 		return Action{AgentID: a.ID, Kind: ActionIdle}
+	}
+
+	// Merchants in transit skip normal decisions.
+	if a.TravelTicksLeft > 0 {
+		return Action{AgentID: a.ID, Kind: ActionTravel, Detail: a.Name + " travels with cargo"}
 	}
 
 	priority := a.Needs.Priority()
@@ -162,22 +177,69 @@ func applyWork(a *Agent) []string {
 		a.Skills.Combat += 0.001
 	case OccupationCrafter:
 		// Crafters convert raw materials to finished goods.
+		// Check recipes in priority order; execute the first one with materials.
+		crafted := false
 		if a.Inventory[GoodIronOre] >= 2 && a.Inventory[GoodTimber] >= 1 {
 			a.Inventory[GoodIronOre] -= 2
 			a.Inventory[GoodTimber]--
-			a.Inventory[GoodTools]++
+			produced := 1
+			if a.Skills.Crafting > 0.5 && a.ID%3 == 0 {
+				produced++
+			}
+			a.Inventory[GoodTools] += produced
 			a.Skills.Crafting += 0.002
-		} else {
+			crafted = true
+		} else if a.Inventory[GoodIronOre] >= 2 && a.Inventory[GoodCoal] >= 1 {
+			a.Inventory[GoodIronOre] -= 2
+			a.Inventory[GoodCoal]--
+			produced := 1
+			if a.Skills.Crafting > 0.5 && a.ID%3 == 0 {
+				produced++
+			}
+			a.Inventory[GoodWeapons] += produced
+			a.Skills.Crafting += 0.002
+			crafted = true
+		} else if a.Inventory[GoodFurs] >= 2 && a.Inventory[GoodTools] >= 1 {
+			a.Inventory[GoodFurs] -= 2
+			a.Inventory[GoodTools]--
+			produced := 1
+			if a.Skills.Crafting > 0.5 && a.ID%3 == 0 {
+				produced++
+			}
+			a.Inventory[GoodClothing] += produced
+			a.Skills.Crafting += 0.002
+			crafted = true
+		} else if a.Inventory[GoodGems] >= 2 && a.Inventory[GoodTools] >= 1 {
+			a.Inventory[GoodGems] -= 2
+			a.Inventory[GoodTools]--
+			produced := 1
+			if a.Skills.Crafting > 0.5 && a.ID%3 == 0 {
+				produced++
+			}
+			a.Inventory[GoodLuxuries] += produced
+			a.Skills.Crafting += 0.002
+			crafted = true
+		}
+		if !crafted {
 			// Journeyman labor when lacking materials.
 			a.Wealth += 1
 		}
 	case OccupationAlchemist:
+		crafted := false
 		if a.Inventory[GoodHerbs] >= 2 {
 			a.Inventory[GoodHerbs] -= 2
 			a.Inventory[GoodMedicine]++
 			a.Skills.Crafting += 0.002
-		} else {
-			// Journeyman labor when lacking herbs.
+			crafted = true
+		} else if a.Inventory[GoodExotics] >= 2 && a.Inventory[GoodHerbs] >= 1 {
+			a.Inventory[GoodExotics] -= 2
+			a.Inventory[GoodHerbs]--
+			a.Inventory[GoodLuxuries]++
+			a.Skills.Crafting += 0.002
+			crafted = true
+		}
+		if !crafted {
+			// Journeyman labor when lacking materials.
 			a.Wealth += 1
 		}
 	case OccupationLaborer:

@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/talgya/mini-world/internal/agents"
@@ -124,9 +125,13 @@ func (s *Simulation) updateFactionInfluence() {
 	}
 }
 
-// processWeeklyFactions runs weekly faction updates: influence shifts, relations drift.
+// processWeeklyFactions runs weekly faction updates: influence shifts, relations drift,
+// policy advocacy, faction dues, and inter-faction tension.
 func (s *Simulation) processWeeklyFactions(tick uint64) {
 	s.updateFactionInfluence()
+	s.collectFactionDues(tick)
+	s.applyFactionPolicies(tick)
+	s.checkFactionTensions(tick)
 
 	// Relations drift toward zero over time (grudges fade, alliances weaken).
 	for _, f := range s.Factions {
@@ -147,6 +152,148 @@ func (s *Simulation) processWeeklyFactions(tick uint64) {
 			"total_influence", int(totalInfluence),
 			"treasury", f.Treasury,
 		)
+	}
+}
+
+// collectFactionDues collects weekly dues from faction members.
+// Members contribute Wealth * Agnosis * 0.01 if they have >30 crowns.
+func (s *Simulation) collectFactionDues(tick uint64) {
+	factionIndex := make(map[social.FactionID]*social.Faction)
+	for _, f := range s.Factions {
+		factionIndex[f.ID] = f
+	}
+
+	for _, a := range s.Agents {
+		if !a.Alive || a.FactionID == nil || a.Wealth <= 30 {
+			continue
+		}
+		f, ok := factionIndex[social.FactionID(*a.FactionID)]
+		if !ok {
+			continue
+		}
+		dues := uint64(float64(a.Wealth) * phi.Agnosis * 0.01)
+		if dues < 1 {
+			dues = 1
+		}
+		if dues > a.Wealth {
+			dues = a.Wealth
+		}
+		a.Wealth -= dues
+		f.Treasury += dues
+	}
+}
+
+// applyFactionPolicies nudges settlement governance based on dominant faction preferences.
+func (s *Simulation) applyFactionPolicies(tick uint64) {
+	factionIndex := make(map[social.FactionID]*social.Faction)
+	for _, f := range s.Factions {
+		factionIndex[f.ID] = f
+	}
+
+	for _, sett := range s.Settlements {
+		// Find the dominant faction in this settlement.
+		var dominantFaction *social.Faction
+		highestInfluence := 0.0
+
+		for _, f := range s.Factions {
+			inf, ok := f.Influence[sett.ID]
+			if ok && inf > highestInfluence {
+				highestInfluence = inf
+				dominantFaction = f
+			}
+		}
+
+		if dominantFaction == nil || highestInfluence < 15 {
+			continue // No faction has meaningful influence
+		}
+
+		// Scale nudge by influence strength (0-100 → 0-1, then small multiplier).
+		strength := highestInfluence / 100.0 * phi.Agnosis * 0.1
+
+		// Tax nudge.
+		sett.TaxRate += dominantFaction.TaxPreference * strength
+		if sett.TaxRate < 0.01 {
+			sett.TaxRate = 0.01
+		}
+		if sett.TaxRate > 0.30 {
+			sett.TaxRate = 0.30
+		}
+
+		// Governance score nudge based on faction type.
+		switch dominantFaction.ID {
+		case 1: // Crown: +governance
+			sett.GovernanceScore += strength * 0.5
+		case 2: // Merchant's Compact: +market
+			if sett.MarketLevel < 5 && highestInfluence > 40 {
+				// Small chance to upgrade market level.
+				if tick%uint64(sett.MarketLevel+2) == 0 {
+					sett.MarketLevel++
+				}
+			}
+		case 3: // Iron Brotherhood: +governance
+			sett.GovernanceScore += strength * 0.3
+		case 4: // Verdant Circle: +governance, resist market growth
+			sett.GovernanceScore += strength * 0.4
+		case 5: // Ashen Path: -governance (corruption)
+			sett.GovernanceScore -= strength * 0.5
+		}
+
+		// Clamp governance score.
+		if sett.GovernanceScore < 0 {
+			sett.GovernanceScore = 0
+		}
+		if sett.GovernanceScore > 1 {
+			sett.GovernanceScore = 1
+		}
+	}
+}
+
+// checkFactionTensions logs tension events when two factions contest the same settlement.
+func (s *Simulation) checkFactionTensions(tick uint64) {
+	for _, sett := range s.Settlements {
+		// Find factions with >40 influence in this settlement.
+		var contesting []*social.Faction
+		for _, f := range s.Factions {
+			if inf, ok := f.Influence[sett.ID]; ok && inf > 40 {
+				contesting = append(contesting, f)
+			}
+		}
+
+		if len(contesting) < 2 {
+			continue
+		}
+
+		// Tension between the top two factions.
+		for i := 0; i < len(contesting)-1; i++ {
+			for j := i + 1; j < len(contesting); j++ {
+				f1, f2 := contesting[i], contesting[j]
+				// Accelerate relations decay.
+				f1.Relations[f2.ID] -= phi.Agnosis * 5
+				f2.Relations[f1.ID] -= phi.Agnosis * 5
+
+				s.Events = append(s.Events, Event{
+					Tick: tick,
+					Description: fmt.Sprintf("Tension rises between %s and %s in %s",
+						f1.Name, f2.Name, sett.Name),
+					Category: "political",
+				})
+			}
+		}
+	}
+}
+
+// adjustFactionInfluenceFromCrime boosts Ashen Path and reduces Crown influence
+// when crimes occur in a settlement.
+func (s *Simulation) adjustFactionInfluenceFromCrime(settID uint64) {
+	for _, f := range s.Factions {
+		switch f.ID {
+		case 1: // Crown loses credibility
+			if inf, ok := f.Influence[settID]; ok && inf > 1 {
+				f.Influence[settID] = inf - 0.5
+			}
+		case 5: // Ashen Path gains from chaos
+			f.Influence[settID] += 0.3
+		}
 	}
 }
 

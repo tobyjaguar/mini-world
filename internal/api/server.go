@@ -48,6 +48,8 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/stats", s.handleStats)
 	mux.HandleFunc("/api/v1/newspaper", s.handleNewspaper)
 	mux.HandleFunc("/api/v1/factions", s.handleFactions)
+	mux.HandleFunc("/api/v1/economy", s.handleEconomy)
+	mux.HandleFunc("/api/v1/social", s.handleSocial)
 
 	// Admin endpoints (POST, require bearer token).
 	mux.HandleFunc("/api/v1/speed", s.adminOnly(s.handleSpeed))
@@ -522,6 +524,294 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 			Influence: topInf,
 		})
 	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleEconomy(w http.ResponseWriter, r *http.Request) {
+	// Total crowns: agent wealth + settlement treasuries.
+	totalAgentWealth := uint64(0)
+	totalTreasury := uint64(0)
+	aliveCount := 0
+
+	// Collect all agent wealths for distribution calculation.
+	var wealths []uint64
+	for _, a := range s.Sim.Agents {
+		if a.Alive {
+			aliveCount++
+			totalAgentWealth += a.Wealth
+			wealths = append(wealths, a.Wealth)
+		}
+	}
+	for _, st := range s.Sim.Settlements {
+		totalTreasury += st.Treasury
+	}
+
+	// Wealth distribution: sort and compute shares.
+	sort.Slice(wealths, func(i, j int) bool { return wealths[i] < wealths[j] })
+
+	poorest50Share := 0.0
+	richest10Share := 0.0
+	if len(wealths) > 0 && totalAgentWealth > 0 {
+		mid := len(wealths) / 2
+		top := len(wealths) - len(wealths)/10
+
+		poorSum := uint64(0)
+		for _, w := range wealths[:mid] {
+			poorSum += w
+		}
+		richSum := uint64(0)
+		for _, w := range wealths[top:] {
+			richSum += w
+		}
+		poorest50Share = float64(poorSum) / float64(totalAgentWealth)
+		richest10Share = float64(richSum) / float64(totalAgentWealth)
+	}
+
+	// Market health and price deviations.
+	goodNames := map[agents.GoodType]string{
+		agents.GoodGrain: "Grain", agents.GoodTimber: "Timber", agents.GoodIronOre: "Iron Ore",
+		agents.GoodStone: "Stone", agents.GoodFish: "Fish", agents.GoodHerbs: "Herbs",
+		agents.GoodGems: "Gems", agents.GoodFurs: "Furs", agents.GoodCoal: "Coal",
+		agents.GoodExotics: "Exotics", agents.GoodTools: "Tools", agents.GoodWeapons: "Weapons",
+		agents.GoodClothing: "Clothing", agents.GoodMedicine: "Medicine", agents.GoodLuxuries: "Luxuries",
+	}
+
+	type priceDeviation struct {
+		Good       string  `json:"good"`
+		Settlement string  `json:"settlement"`
+		Price      float64 `json:"price"`
+		BasePrice  float64 `json:"base_price"`
+		Ratio      float64 `json:"ratio"`
+	}
+
+	var inflated, deflated []priceDeviation
+	totalHealth := 0.0
+	marketCount := 0
+
+	for _, st := range s.Sim.Settlements {
+		if st.Market == nil {
+			continue
+		}
+		marketCount++
+		// Average conjugate field health for this market.
+		settHealth := 0.0
+		entryCount := 0
+		for goodType, entry := range st.Market.Entries {
+			if entry.BasePrice <= 0 {
+				continue
+			}
+			ratio := entry.Price / entry.BasePrice
+			entryCount++
+
+			gn := goodNames[goodType]
+			if gn == "" {
+				gn = fmt.Sprintf("Good#%d", goodType)
+			}
+
+			pd := priceDeviation{
+				Good:       gn,
+				Settlement: st.Name,
+				Price:      entry.Price,
+				BasePrice:  entry.BasePrice,
+				Ratio:      ratio,
+			}
+			if ratio > 1.0 {
+				inflated = append(inflated, pd)
+			} else if ratio < 1.0 {
+				deflated = append(deflated, pd)
+			}
+
+			// Health: how close ratio is to 1.0 (perfect equilibrium).
+			dev := math.Abs(ratio - 1.0)
+			settHealth += 1.0 - dev
+		}
+		if entryCount > 0 {
+			totalHealth += settHealth / float64(entryCount)
+		}
+	}
+
+	avgMarketHealth := 0.0
+	if marketCount > 0 {
+		avgMarketHealth = totalHealth / float64(marketCount)
+	}
+
+	// Sort inflated descending by ratio, deflated ascending by ratio.
+	sort.Slice(inflated, func(i, j int) bool { return inflated[i].Ratio > inflated[j].Ratio })
+	sort.Slice(deflated, func(i, j int) bool { return deflated[i].Ratio < deflated[j].Ratio })
+
+	// Take top 5 of each.
+	if len(inflated) > 5 {
+		inflated = inflated[:5]
+	}
+	if len(deflated) > 5 {
+		deflated = deflated[:5]
+	}
+
+	result := map[string]any{
+		"total_crowns":       totalAgentWealth + totalTreasury,
+		"agent_wealth":       totalAgentWealth,
+		"treasury_wealth":    totalTreasury,
+		"avg_market_health":  avgMarketHealth,
+		"trade_volume":       s.Sim.Stats.TradeVolume,
+		"most_inflated":      inflated,
+		"most_deflated":      deflated,
+		"wealth_distribution": map[string]any{
+			"poorest_50_pct_share": poorest50Share,
+			"richest_10_pct_share": richest10Share,
+		},
+	}
+
+	writeJSON(w, result)
+}
+
+func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
+	// Faction summaries.
+	type factionInfo struct {
+		Name          string             `json:"name"`
+		Treasury      uint64             `json:"treasury"`
+		TotalMembers  int                `json:"total_members"`
+		TopSettlements map[string]float64 `json:"top_settlements"`
+	}
+
+	factionMembers := make(map[uint64]int)
+	for _, a := range s.Sim.Agents {
+		if a.Alive && a.FactionID != nil {
+			factionMembers[*a.FactionID]++
+		}
+	}
+
+	var factions []factionInfo
+	for _, f := range s.Sim.Factions {
+		topSetts := make(map[string]float64)
+		// Get top 3 settlements by influence.
+		type infEntry struct {
+			name string
+			inf  float64
+		}
+		var entries []infEntry
+		for settID, inf := range f.Influence {
+			if sett, ok := s.Sim.SettlementIndex[settID]; ok {
+				entries = append(entries, infEntry{sett.Name, inf})
+			}
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].inf > entries[j].inf })
+		for i, e := range entries {
+			if i >= 3 {
+				break
+			}
+			topSetts[e.name] = e.inf
+		}
+
+		factions = append(factions, factionInfo{
+			Name:          f.Name,
+			Treasury:      f.Treasury,
+			TotalMembers:  factionMembers[uint64(f.ID)],
+			TopSettlements: topSetts,
+		})
+	}
+
+	// Governance health.
+	totalGovScore := 0.0
+	var atRiskSettlements []string
+	for _, st := range s.Sim.Settlements {
+		totalGovScore += st.GovernanceScore
+		if st.GovernanceScore < 0.3 {
+			atRiskSettlements = append(atRiskSettlements, st.Name)
+		}
+	}
+	avgGovScore := 0.0
+	if len(s.Sim.Settlements) > 0 {
+		avgGovScore = totalGovScore / float64(len(s.Sim.Settlements))
+	}
+
+	// Relationship stats.
+	totalSentiment := float32(0)
+	relCount := 0
+	families := 0
+	rivalries := 0
+	for _, a := range s.Sim.Agents {
+		if !a.Alive {
+			continue
+		}
+		for _, rel := range a.Relationships {
+			totalSentiment += rel.Sentiment
+			relCount++
+			if rel.Sentiment > 0.7 && rel.Trust > 0.5 {
+				families++
+			}
+			if rel.Sentiment < -0.5 {
+				rivalries++
+			}
+		}
+	}
+	avgSentiment := float32(0)
+	if relCount > 0 {
+		avgSentiment = totalSentiment / float32(relCount)
+	}
+	// Families are double-counted (both sides), so halve.
+	families /= 2
+
+	// Tier distribution.
+	tier0, tier1, tier2 := 0, 0, 0
+	torment, wellBeing, liberation := 0, 0, 0
+	for _, a := range s.Sim.Agents {
+		if !a.Alive {
+			continue
+		}
+		switch a.Tier {
+		case agents.Tier0:
+			tier0++
+		case agents.Tier1:
+			tier1++
+		case agents.Tier2:
+			tier2++
+		}
+		switch a.Soul.State {
+		case agents.Torment:
+			torment++
+		case agents.WellBeing:
+			wellBeing++
+		case agents.Liberation:
+			liberation++
+		}
+	}
+
+	// Recent political events.
+	var politicalEvents []engine.Event
+	for _, e := range s.Sim.Events {
+		if e.Category == "political" {
+			politicalEvents = append(politicalEvents, e)
+		}
+	}
+	// Keep only last 20.
+	if len(politicalEvents) > 20 {
+		politicalEvents = politicalEvents[len(politicalEvents)-20:]
+	}
+
+	result := map[string]any{
+		"factions": factions,
+		"governance": map[string]any{
+			"avg_score":            avgGovScore,
+			"at_risk_settlements":  atRiskSettlements,
+		},
+		"relationships": map[string]any{
+			"avg_sentiment": avgSentiment,
+			"families":      families,
+			"rivalries":     rivalries,
+		},
+		"tier_distribution": map[string]int{
+			"tier_0": tier0,
+			"tier_1": tier1,
+			"tier_2": tier2,
+		},
+		"coherence_distribution": map[string]int{
+			"torment":    torment,
+			"well_being": wellBeing,
+			"liberation": liberation,
+		},
+		"recent_political_events": politicalEvents,
+	}
+
 	writeJSON(w, result)
 }
 

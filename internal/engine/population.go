@@ -66,6 +66,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 						Description: fmt.Sprintf("%s has died of old age at %d", a.Name, a.Age),
 						Category:    "death",
 					})
+					s.inheritWealth(a, tick)
 				}
 			}
 		}
@@ -81,6 +82,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 					Description: fmt.Sprintf("%s has died of illness", a.Name),
 					Category:    "death",
 				})
+				s.inheritWealth(a, tick)
 			}
 		}
 	}

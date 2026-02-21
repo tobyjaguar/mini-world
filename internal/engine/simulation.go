@@ -57,6 +57,7 @@ type SimStats struct {
 	Births          int     `json:"births"`
 	AvgMood         float32 `json:"avg_mood"`
 	AvgSurvival     float32 `json:"avg_survival"`
+	TradeVolume     uint64  `json:"trade_volume"` // Merchant trade completions
 }
 
 // NewSimulation creates a Simulation from generated components.
@@ -106,8 +107,11 @@ func (s *Simulation) TickMinute(tick uint64) {
 		agents.DecayNeeds(a)
 
 		// Agent decides and acts.
-		action := agents.Tier0Decide(a)
-		events := agents.ApplyAction(a, action)
+		action := agents.Decide(a)
+
+		// Resource-producing occupations draw from hex resources.
+		hex := s.WorldMap.Get(a.Position)
+		events := ResolveWork(a, action, hex)
 
 		// Record notable events.
 		for _, desc := range events {
@@ -118,13 +122,14 @@ func (s *Simulation) TickMinute(tick uint64) {
 			})
 		}
 
-		// Check for death.
+		// Check for death (starvation).
 		if !a.Alive {
 			s.Events = append(s.Events, Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s has died", a.Name),
 				Category:    "death",
 			})
+			s.inheritWealth(a, tick)
 		}
 	}
 }
@@ -142,6 +147,8 @@ func (s *Simulation) TickDay(tick uint64) {
 	s.processPopulation(tick)
 	s.processRelationships(tick)
 	s.processCrime(tick)
+	s.processTier1Growth()
+	s.processGovernance(tick)
 	s.updateStats()
 
 	// Count events by category since last report.
@@ -198,6 +205,65 @@ func (s *Simulation) TickWeek(tick uint64) {
 // TickSeason runs every sim-season: harvests, seasonal effects.
 func (s *Simulation) TickSeason(tick uint64) {
 	s.processSeason(tick)
+}
+
+// inheritWealth distributes a dead agent's wealth and inventory.
+// 50% of wealth goes to the settlement treasury, 50% to a living settlement member.
+// Inventory goods are added to the settlement market supply.
+func (s *Simulation) inheritWealth(a *agents.Agent, tick uint64) {
+	if a.Wealth == 0 && len(a.Inventory) == 0 {
+		return
+	}
+
+	var sett *social.Settlement
+	if a.HomeSettID != nil {
+		sett = s.SettlementIndex[*a.HomeSettID]
+	}
+
+	if sett != nil {
+		// Split wealth: 50% to treasury, 50% to a living agent.
+		treasuryShare := a.Wealth / 2
+		agentShare := a.Wealth - treasuryShare
+		sett.Treasury += treasuryShare
+
+		// Find a living agent in the same settlement to inherit.
+		settAgents := s.SettlementAgents[sett.ID]
+		for _, heir := range settAgents {
+			if heir.Alive && heir.ID != a.ID {
+				heir.Wealth += agentShare
+				agentShare = 0
+				break
+			}
+		}
+		// If no heir found, treasury gets everything.
+		if agentShare > 0 {
+			sett.Treasury += agentShare
+		}
+
+		// Inventory goods go to settlement market supply.
+		if sett.Market != nil {
+			for good, qty := range a.Inventory {
+				if qty > 0 {
+					if entry, ok := sett.Market.Entries[good]; ok {
+						entry.Supply += float64(qty)
+					}
+				}
+			}
+		}
+	}
+
+	// Zero out the dead agent's wealth and inventory.
+	a.Wealth = 0
+	for good := range a.Inventory {
+		a.Inventory[good] = 0
+	}
+}
+
+// processTier1Growth applies daily coherence growth for Tier 1 agents.
+func (s *Simulation) processTier1Growth() {
+	for _, a := range s.Agents {
+		agents.ApplyTier1CoherenceGrowth(a)
+	}
 }
 
 func (s *Simulation) updateStats() {

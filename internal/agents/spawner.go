@@ -385,6 +385,62 @@ func PromoteToTier2(agents []*Agent, count int) {
 	}
 }
 
+// PromoteToTier1 upgrades a fraction of Tier 0 agents to Tier 1 (archetype-guided).
+// Selects agents with medium coherence (0.3–0.6) who are adults.
+func PromoteToTier1(agents []*Agent, fraction float64) {
+	if fraction <= 0 || len(agents) == 0 {
+		return
+	}
+
+	// Collect eligible Tier 0 adults with medium coherence.
+	var eligible []*Agent
+	for _, a := range agents {
+		if a.Tier == Tier0 && a.Alive && a.Age >= 16 &&
+			a.Soul.CittaCoherence >= 0.15 && a.Soul.CittaCoherence <= 0.6 {
+			eligible = append(eligible, a)
+		}
+	}
+
+	count := int(float64(len(eligible)) * fraction)
+	if count <= 0 {
+		return
+	}
+	if count > len(eligible) {
+		count = len(eligible)
+	}
+
+	// Score by coherence distance from 0.4 (prefer mid-range) + gauss (ambition).
+	type scored struct {
+		agent *Agent
+		score float64
+	}
+	var scorable []scored
+	for _, a := range eligible {
+		// Prefer agents near 0.4 coherence with some drive.
+		dist := float64(a.Soul.CittaCoherence - 0.4)
+		if dist < 0 {
+			dist = -dist
+		}
+		s := (1.0 - dist) + float64(a.Soul.Gauss)*0.5
+		scorable = append(scorable, scored{a, s})
+	}
+
+	// Sort descending by score.
+	for i := 0; i < len(scorable)-1; i++ {
+		for j := i + 1; j < len(scorable); j++ {
+			if scorable[j].score > scorable[i].score {
+				scorable[i], scorable[j] = scorable[j], scorable[i]
+			}
+		}
+	}
+
+	for i := 0; i < count; i++ {
+		a := scorable[i].agent
+		a.Tier = Tier1
+		a.Archetype = AssignArchetype(a)
+	}
+}
+
 func clamp32(v, lo, hi float32) float32 {
 	if v < lo {
 		return lo

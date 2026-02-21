@@ -170,6 +170,7 @@ func main() {
 		}
 
 		agents.PromoteToTier2(allAgents, 30)
+		agents.PromoteToTier1(allAgents, 0.04) // 4% of remaining Tier 0 agents
 
 		for _, a := range allAgents {
 			if a.Tier == agents.Tier2 {
