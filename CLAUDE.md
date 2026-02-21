@@ -102,9 +102,9 @@ The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for 
 
 | Field | Value |
 |-------|-------|
-| Server | 208.113.165.198 (DreamCompute, Debian 12, 1GB RAM) |
-| API | http://208.113.165.198/api/v1/status |
-| SSH | `ssh -i ~/.ssh/jagkey2.pem debian@208.113.165.198` |
+| Server | See `deploy/config.local` (DreamCompute, Debian 12, 1GB RAM) |
+| API | `http://<server-ip>/api/v1/status` |
+| SSH | `ssh -i <your-key> debian@<server-ip>` |
 | Service | systemd `worldsim.service`, auto-restarts, starts on boot |
 | Database | `/opt/worldsim/data/crossroads.db` (SQLite, auto-saves daily) |
 | Security | UFW (ports 22+80 only), fail2ban, no root login, no passwords |

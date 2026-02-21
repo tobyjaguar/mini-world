@@ -169,10 +169,16 @@ func main() {
 	eng.OnSeason = sim.TickSeason
 
 	// ── HTTP API ──────────────────────────────────────────────────────
+	adminKey := os.Getenv("WORLDSIM_ADMIN_KEY")
+	if adminKey == "" {
+		slog.Warn("WORLDSIM_ADMIN_KEY not set — admin POST endpoints will be disabled")
+	}
+
 	apiServer := &api.Server{
-		Sim:  sim,
-		Eng:  eng,
-		Port: apiPort,
+		Sim:      sim,
+		Eng:      eng,
+		Port:     apiPort,
+		AdminKey: adminKey,
 	}
 	apiServer.Start()
 

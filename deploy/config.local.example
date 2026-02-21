@@ -1,0 +1,7 @@
+# Copy this file to config.local and fill in real values.
+# config.local is gitignored — never commit it.
+
+HOST=your-server-ip
+USER=debian
+KEY=$HOME/.ssh/your-key.pem
+ADMIN_KEY=your-secret-admin-key-here

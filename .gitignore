@@ -21,3 +21,4 @@ Thumbs.db
 # Environment / secrets
 .env
 *.key
+deploy/config.local
