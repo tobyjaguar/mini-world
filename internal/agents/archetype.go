@@ -172,6 +172,46 @@ func priorityWithOverrides(n *NeedsState, overrides map[NeedType]float32) NeedTy
 	return NeedPurpose
 }
 
+// UpdateArchetypeTemplate updates the behavior template for a given archetype.
+// Called weekly when LLM generates new behavioral parameters.
+func UpdateArchetypeTemplate(archetype string, overrides map[string]float32, preferredAction string) {
+	tmpl, ok := archetypeTemplates[archetype]
+	if !ok {
+		return
+	}
+
+	// Map string need names to NeedType for priority overrides.
+	needMap := map[string]NeedType{
+		"survival": NeedSurvival, "safety": NeedSafety,
+		"belonging": NeedBelonging, "esteem": NeedEsteem, "purpose": NeedPurpose,
+	}
+	for name, threshold := range overrides {
+		if need, ok := needMap[name]; ok {
+			tmpl.PriorityOverrides[need] = threshold
+		}
+	}
+
+	// Map string action to ActionKind.
+	actionMap := map[string]ActionKind{
+		"work": ActionWork, "trade": ActionTrade, "socialize": ActionSocialize,
+		"forage": ActionForage, "rest": ActionRest,
+	}
+	if action, ok := actionMap[preferredAction]; ok {
+		tmpl.PreferredAction = action
+	}
+
+	archetypeTemplates[archetype] = tmpl
+}
+
+// AllArchetypes returns the list of archetype names.
+func AllArchetypes() []string {
+	return []string{
+		ArchAmbitiousMerchant, ArchDevoutTraditionalist, ArchFrontierExplorer,
+		ArchDisgruntledLaborer, ArchSchemingNoble, ArchHealerSage,
+		ArchMilitantGuard, ArchCuriousScholar,
+	}
+}
+
 // ApplyTier1CoherenceGrowth gives Tier 1 agents their daily coherence bonus.
 func ApplyTier1CoherenceGrowth(a *Agent) {
 	if a.Tier != Tier1 || !a.Alive {

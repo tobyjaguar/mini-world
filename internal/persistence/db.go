@@ -99,9 +99,17 @@ func (db *DB) migrate() error {
 		value TEXT NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS memories (
+		agent_id INTEGER NOT NULL,
+		tick INTEGER NOT NULL,
+		content TEXT NOT NULL,
+		importance REAL NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_events_tick ON events(tick);
 	CREATE INDEX IF NOT EXISTS idx_agents_settlement ON agents(home_settlement_id);
 	CREATE INDEX IF NOT EXISTS idx_agents_alive ON agents(alive);
+	CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id);
 	`
 	_, err := db.conn.Exec(schema)
 	return err
@@ -236,6 +244,9 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	}
 	if err := db.SaveSettlements(sim.Settlements); err != nil {
 		return fmt.Errorf("save settlements: %w", err)
+	}
+	if err := db.SaveMemories(sim.Agents); err != nil {
+		return fmt.Errorf("save memories: %w", err)
 	}
 	if err := db.SaveEvents(sim.Events); err != nil {
 		return fmt.Errorf("save events: %w", err)
@@ -377,6 +388,64 @@ func (db *DB) LoadSettlements() ([]*social.Settlement, error) {
 	}
 
 	return result, nil
+}
+
+// SaveMemories writes all agent memories to the database (full replace).
+func (db *DB) SaveMemories(agentList []*agents.Agent) error {
+	tx, err := db.conn.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM memories"); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Preparex("INSERT INTO memories (agent_id, tick, content, importance) VALUES (?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, a := range agentList {
+		for _, m := range a.Memories {
+			if _, err := stmt.Exec(a.ID, m.Tick, m.Content, m.Importance); err != nil {
+				return fmt.Errorf("insert memory for agent %d: %w", a.ID, err)
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadMemories reads all memories and attaches them to agents by ID.
+func (db *DB) LoadMemories(agentIndex map[agents.AgentID]*agents.Agent) error {
+	type memRow struct {
+		AgentID    uint64  `db:"agent_id"`
+		Tick       uint64  `db:"tick"`
+		Content    string  `db:"content"`
+		Importance float32 `db:"importance"`
+	}
+
+	var rows []memRow
+	if err := db.conn.Select(&rows, "SELECT agent_id, tick, content, importance FROM memories"); err != nil {
+		// Table might not exist yet in old databases — not fatal.
+		return nil
+	}
+
+	for _, r := range rows {
+		a, ok := agentIndex[agents.AgentID(r.AgentID)]
+		if !ok {
+			continue
+		}
+		a.Memories = append(a.Memories, agents.Memory{
+			Tick:       r.Tick,
+			Content:    r.Content,
+			Importance: r.Importance,
+		})
+	}
+	return nil
 }
 
 // RecentEvents returns the most recent N events.

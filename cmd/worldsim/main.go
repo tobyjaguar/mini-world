@@ -13,10 +13,12 @@ import (
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/api"
 	"github.com/talgya/mini-world/internal/engine"
+	"github.com/talgya/mini-world/internal/entropy"
 	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/persistence"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
+	"github.com/talgya/mini-world/internal/weather"
 	"github.com/talgya/mini-world/internal/world"
 )
 
@@ -225,6 +227,44 @@ func main() {
 	sim.LastTick = startTick
 	sim.CurrentSeason = startSeason
 
+	// Load agent memories from database (if any exist).
+	if startTick > 0 {
+		if err := db.LoadMemories(sim.AgentIndex); err != nil {
+			slog.Warn("failed to load memories", "error", err)
+		}
+	}
+
+	// ── LLM Client ───────────────────────────────────────────────────
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	llmClient := llm.NewClient(anthropicKey)
+	if llmClient != nil {
+		slog.Info("LLM client enabled (Haiku)")
+		sim.LLM = llmClient
+	} else {
+		slog.Warn("ANTHROPIC_API_KEY not set — LLM features disabled (newspaper will use fallback)")
+	}
+
+	// ── Weather Client ────────────────────────────────────────────────
+	weatherKey := os.Getenv("WEATHER_API_KEY")
+	weatherLoc := os.Getenv("WEATHER_LOCATION")
+	weatherClient := weather.NewClient(weatherKey, weatherLoc)
+	if weatherClient != nil {
+		slog.Info("weather client enabled", "location", weatherLoc)
+		sim.WeatherClient = weatherClient
+	} else {
+		slog.Info("WEATHER_API_KEY not set — using seasonal weather defaults")
+	}
+
+	// ── Entropy Client ────────────────────────────────────────────────
+	randomOrgKey := os.Getenv("RANDOM_ORG_API_KEY")
+	entropyClient := entropy.NewClient(randomOrgKey)
+	if entropyClient != nil {
+		slog.Info("entropy client enabled (random.org)")
+		sim.Entropy = entropyClient
+	} else {
+		slog.Info("RANDOM_ORG_API_KEY not set — using crypto/rand for entropy")
+	}
+
 	// Save on fresh generation only (loaded worlds are already saved).
 	if startTick == 0 {
 		if err := db.SaveWorldState(sim); err != nil {
@@ -248,15 +288,6 @@ func main() {
 	}
 	eng.OnWeek = sim.TickWeek
 	eng.OnSeason = sim.TickSeason
-
-	// ── LLM Client ───────────────────────────────────────────────────
-	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	llmClient := llm.NewClient(anthropicKey)
-	if llmClient != nil {
-		slog.Info("LLM client enabled (Haiku)")
-	} else {
-		slog.Warn("ANTHROPIC_API_KEY not set — LLM features disabled (newspaper will use fallback)")
-	}
 
 	// ── HTTP API ──────────────────────────────────────────────────────
 	adminKey := os.Getenv("WORLDSIM_ADMIN_KEY")

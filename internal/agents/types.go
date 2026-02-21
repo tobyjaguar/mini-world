@@ -97,6 +97,9 @@ type Agent struct {
 	TradeCargo     map[GoodType]int `json:"trade_cargo,omitempty"`     // Goods being transported
 	TravelTicksLeft uint16          `json:"travel_ticks_left,omitempty"` // Ticks remaining to reach destination
 
+	// Memory stream (Tier 2 agents)
+	Memories []Memory `json:"memories,omitempty"`
+
 	// Metadata
 	BornTick uint64 `json:"born_tick"`
 	Alive    bool   `json:"alive"`

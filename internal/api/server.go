@@ -86,6 +86,11 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	weatherInfo := map[string]any{
+		"description":   s.Sim.CurrentWeather.Description,
+		"temp_modifier": s.Sim.CurrentWeather.TempModifier,
+	}
+
 	status := map[string]any{
 		"name":         "Crossroads",
 		"tick":         s.Sim.CurrentTick(),
@@ -100,6 +105,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"factions":     len(s.Sim.Factions),
 		"avg_mood":     s.Sim.Stats.AvgMood,
 		"total_wealth": s.Sim.Stats.TotalWealth,
+		"weather":      weatherInfo,
 	}
 	writeJSON(w, status)
 }
@@ -307,6 +313,9 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 		AvgMood:     s.Sim.Stats.AvgMood,
 	}
 
+	// Weather.
+	data.Weather = s.Sim.CurrentWeather.Description
+
 	// Collect recent events by category.
 	for _, e := range s.Sim.Events {
 		switch e.Category {
@@ -320,6 +329,8 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 			data.Social = append(data.Social, e.Description)
 		case "economy":
 			data.Economy = append(data.Economy, e.Description)
+		case "political":
+			data.Political = append(data.Political, e.Description)
 		}
 	}
 

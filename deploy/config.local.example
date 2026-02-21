@@ -5,3 +5,9 @@ HOST=your-server-ip
 USER=debian
 KEY=$HOME/.ssh/your-key.pem
 ADMIN_KEY=your-secret-admin-key-here
+
+# Phase 4: LLM & External Entropy
+ANTHROPIC_API_KEY=your-anthropic-api-key
+WEATHER_API_KEY=your-openweathermap-api-key
+WEATHER_LOCATION=San Diego,US
+RANDOM_ORG_API_KEY=your-random-org-api-key

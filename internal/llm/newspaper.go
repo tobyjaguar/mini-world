@@ -18,11 +18,13 @@ type NewspaperData struct {
 	AvgMood     float32
 
 	// Recent events by category.
-	Deaths  []string
-	Births  []string
-	Crimes  []string
-	Social  []string
-	Economy []string
+	Deaths    []string
+	Births    []string
+	Crimes    []string
+	Social    []string
+	Economy   []string
+	Political []string
+	Weather   string
 
 	// Top settlements by population.
 	TopSettlements []SettlementSummary
@@ -188,6 +190,21 @@ func buildNewspaperPrompt(data *NewspaperData) string {
 		b.WriteString("\n")
 	}
 
+	if data.Weather != "" {
+		fmt.Fprintf(&b, "WEATHER: %s\n\n", data.Weather)
+	}
+
+	if len(data.Political) > 0 {
+		fmt.Fprintf(&b, "POLITICAL AFFAIRS:\n")
+		for i, p := range data.Political {
+			if i >= 5 {
+				break
+			}
+			fmt.Fprintf(&b, "- %s\n", p)
+		}
+		b.WriteString("\n")
+	}
+
 	if len(data.FactionNews) > 0 {
 		fmt.Fprintf(&b, "FACTION DYNAMICS:\n")
 		for _, fn := range data.FactionNews {
@@ -266,6 +283,22 @@ func generateFallbackNewspaper(data *NewspaperData) string {
 		fmt.Fprintf(&b, "FACTION AFFAIRS\n")
 		for _, fn := range data.FactionNews {
 			fmt.Fprintf(&b, "- %s\n", fn)
+		}
+		b.WriteString("\n")
+	}
+
+	if data.Weather != "" {
+		fmt.Fprintf(&b, "WEATHER REPORT\n")
+		fmt.Fprintf(&b, "%s\n\n", data.Weather)
+	}
+
+	if len(data.Political) > 0 {
+		fmt.Fprintf(&b, "POLITICAL AFFAIRS\n")
+		for i, p := range data.Political {
+			if i >= 5 {
+				break
+			}
+			fmt.Fprintf(&b, "- %s\n", p)
 		}
 		b.WriteString("\n")
 	}

@@ -7,7 +7,10 @@ import (
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/economy"
+	"github.com/talgya/mini-world/internal/entropy"
+	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/social"
+	"github.com/talgya/mini-world/internal/weather"
 	"github.com/talgya/mini-world/internal/world"
 )
 
@@ -33,6 +36,16 @@ type Simulation struct {
 	// Season tracking (0=Spring, 1=Summer, 2=Autumn, 3=Winter).
 	CurrentSeason uint8
 
+	// LLM client for Tier 2 cognition and narration.
+	LLM *llm.Client
+
+	// Weather system.
+	WeatherClient  *weather.Client
+	CurrentWeather SimWeather
+
+	// Entropy source (random.org or crypto/rand fallback).
+	Entropy *entropy.Client
+
 	// Statistics tracked per day.
 	Stats SimStats
 }
@@ -44,9 +57,18 @@ func (s *Simulation) CurrentTick() uint64 {
 
 // Event is a notable occurrence in the world.
 type Event struct {
-	Tick        uint64 `json:"tick"`
-	Description string `json:"description"`
-	Category    string `json:"category"` // "economy", "social", "death", "birth", etc.
+	Tick                 uint64 `json:"tick"`
+	Description          string `json:"description"`
+	NarratedDescription  string `json:"narrated_description,omitempty"` // LLM-narrated prose (major events only)
+	Category             string `json:"category"` // "economy", "social", "death", "birth", "political", "disaster", "discovery", etc.
+}
+
+// SimWeather holds the current weather conditions for the simulation.
+type SimWeather struct {
+	TempModifier float32 `json:"temp_modifier"` // -1 cold to +1 hot
+	FoodDecayMod float32 `json:"food_decay_mod"` // Multiplier on food spoilage
+	TravelPenalty float32 `json:"travel_penalty"` // Multiplier on travel time
+	Description  string  `json:"description"`
 }
 
 // SimStats tracks aggregate world statistics.
@@ -124,12 +146,18 @@ func (s *Simulation) TickMinute(tick uint64) {
 
 		// Check for death (starvation).
 		if !a.Alive {
+			deathDesc := fmt.Sprintf("%s has died", a.Name)
 			s.Events = append(s.Events, Event{
 				Tick:        tick,
-				Description: fmt.Sprintf("%s has died", a.Name),
+				Description: deathDesc,
 				Category:    "death",
 			})
 			s.inheritWealth(a, tick)
+
+			// Create memories for nearby Tier 2 agents.
+			if a.HomeSettID != nil {
+				s.createSettlementMemories(*a.HomeSettID, tick, deathDesc, 0.6)
+			}
 		}
 	}
 }
@@ -139,6 +167,36 @@ func (s *Simulation) TickHour(tick uint64) {
 	s.resolveMarkets(tick)
 	s.resolveMerchantTrade(tick)
 	s.decayInventories()
+	s.updateWeather()
+}
+
+// updateWeather fetches real weather and maps it to simulation modifiers.
+func (s *Simulation) updateWeather() {
+	if s.WeatherClient == nil {
+		// Use seasonal defaults.
+		sw := weather.MapToSim(nil, s.CurrentSeason)
+		s.CurrentWeather = SimWeather{
+			TempModifier:  sw.TempModifier,
+			FoodDecayMod:  sw.FoodDecayMod,
+			TravelPenalty: sw.TravelPenalty,
+			Description:   sw.Description,
+		}
+		return
+	}
+
+	conditions, err := s.WeatherClient.Fetch()
+	if err != nil {
+		slog.Debug("weather fetch failed", "error", err)
+		return
+	}
+
+	sw := weather.MapToSim(conditions, s.CurrentSeason)
+	s.CurrentWeather = SimWeather{
+		TempModifier:  sw.TempModifier,
+		FoodDecayMod:  sw.FoodDecayMod,
+		TravelPenalty: sw.TravelPenalty,
+		Description:   sw.Description,
+	}
 }
 
 // TickDay runs every sim-day: statistics, daily summary.
@@ -149,6 +207,7 @@ func (s *Simulation) TickDay(tick uint64) {
 	s.processCrime(tick)
 	s.processTier1Growth()
 	s.processGovernance(tick)
+	s.processTier2Decisions(tick)
 	s.updateStats()
 
 	// Count events by category since last report.
@@ -166,6 +225,7 @@ func (s *Simulation) TickDay(tick uint64) {
 		"avg_mood", fmt.Sprintf("%.3f", s.Stats.AvgMood),
 		"avg_survival", fmt.Sprintf("%.3f", s.Stats.AvgSurvival),
 		"total_wealth", s.Stats.TotalWealth,
+		"weather", s.CurrentWeather.Description,
 		"events_death", eventCounts["death"],
 		"events_birth", eventCounts["birth"],
 		"events_crime", eventCounts["crime"],
@@ -185,11 +245,14 @@ func (s *Simulation) TickDay(tick uint64) {
 	}
 }
 
-// TickWeek runs every sim-week: faction updates, diplomatic cycles.
+// TickWeek runs every sim-week: faction updates, diplomatic cycles, LLM updates.
 func (s *Simulation) TickWeek(tick uint64) {
 	s.processWeeklyFactions(tick)
 	s.processAntiStagnation(tick)
 	s.processSeasonalMigration(tick)
+	s.updateArchetypeTemplates(tick)
+	s.processRandomEvents(tick)
+	s.narrateRecentMajorEvents(tick)
 
 	slog.Info("weekly summary",
 		"tick", tick,
@@ -256,6 +319,169 @@ func (s *Simulation) inheritWealth(a *agents.Agent, tick uint64) {
 	a.Wealth = 0
 	for good := range a.Inventory {
 		a.Inventory[good] = 0
+	}
+}
+
+// processRandomEvents uses true randomness to trigger rare world events.
+func (s *Simulation) processRandomEvents(tick uint64) {
+	randFloat := func() float64 {
+		return entropy.FloatFromSource(s.Entropy)
+	}
+
+	// Natural disaster: 2% chance per week.
+	if randFloat() < 0.02 && len(s.Settlements) > 0 {
+		idx := int(randFloat() * float64(len(s.Settlements)))
+		if idx >= len(s.Settlements) {
+			idx = len(s.Settlements) - 1
+		}
+		sett := s.Settlements[idx]
+
+		disasters := []string{"a fierce storm", "an earthquake", "a flood"}
+		dIdx := int(randFloat() * float64(len(disasters)))
+		if dIdx >= len(disasters) {
+			dIdx = 0
+		}
+
+		// Damage: reduce treasury and health.
+		damage := sett.Treasury / 5
+		sett.Treasury -= damage
+		for _, a := range s.SettlementAgents[sett.ID] {
+			if a.Alive {
+				a.Health -= 0.1
+				a.Mood -= 0.2
+				if a.Health < 0 {
+					a.Health = 0
+				}
+			}
+		}
+
+		desc := fmt.Sprintf("%s strikes %s! Treasury loses %d crowns", disasters[dIdx], sett.Name, damage)
+		s.Events = append(s.Events, Event{
+			Tick:        tick,
+			Description: desc,
+			Category:    "disaster",
+		})
+		s.createSettlementMemories(sett.ID, tick, desc, 0.9)
+		slog.Info("random event: disaster", "settlement", sett.Name, "type", disasters[dIdx])
+	}
+
+	// Discovery: 5% chance per week.
+	if randFloat() < 0.05 && len(s.Settlements) > 0 {
+		idx := int(randFloat() * float64(len(s.Settlements)))
+		if idx >= len(s.Settlements) {
+			idx = len(s.Settlements) - 1
+		}
+		sett := s.Settlements[idx]
+
+		discoveries := []string{
+			"a rich mineral deposit", "ancient ruins", "a medicinal spring",
+			"a hidden trade route", "a vein of precious gems",
+		}
+		dIdx := int(randFloat() * float64(len(discoveries)))
+		if dIdx >= len(discoveries) {
+			dIdx = 0
+		}
+
+		// Benefit: boost treasury.
+		bonus := uint64(50 + int(randFloat()*100))
+		sett.Treasury += bonus
+
+		desc := fmt.Sprintf("Discovery near %s: %s found! Treasury gains %d crowns", sett.Name, discoveries[dIdx], bonus)
+		s.Events = append(s.Events, Event{
+			Tick:        tick,
+			Description: desc,
+			Category:    "discovery",
+		})
+		s.createSettlementMemories(sett.ID, tick, desc, 0.7)
+		slog.Info("random event: discovery", "settlement", sett.Name, "type", discoveries[dIdx])
+	}
+
+	// Alchemical breakthrough: 3% chance per week.
+	if randFloat() < 0.03 {
+		// Find an alchemist to credit.
+		var alchemist *agents.Agent
+		for _, a := range s.Agents {
+			if a.Alive && a.Occupation == agents.OccupationAlchemist {
+				alchemist = a
+				break
+			}
+		}
+		if alchemist != nil {
+			alchemist.Soul.AdjustCoherence(0.05)
+			alchemist.Inventory[agents.GoodExotics] += 5
+			desc := fmt.Sprintf("Alchemical breakthrough: %s discovers a new transmutation technique", alchemist.Name)
+			s.Events = append(s.Events, Event{
+				Tick:        tick,
+				Description: desc,
+				Category:    "discovery",
+			})
+			if alchemist.Tier == agents.Tier2 {
+				agents.AddMemory(alchemist, tick, desc, 0.8)
+			}
+		}
+	}
+}
+
+// narrateRecentMajorEvents narrates major events (disasters, discoveries, political) via LLM.
+// Caps at 5 narrations per call to stay within the call budget.
+func (s *Simulation) narrateRecentMajorEvents(tick uint64) {
+	if s.LLM == nil || !s.LLM.Enabled() {
+		return
+	}
+
+	worldContext := fmt.Sprintf("Season: %s. Population: %d. Weather: %s.",
+		SeasonName(s.CurrentSeason), s.Stats.TotalPopulation, s.CurrentWeather.Description)
+
+	narrated := 0
+	for i := len(s.Events) - 1; i >= 0 && narrated < 5; i-- {
+		e := &s.Events[i]
+		if e.Tick != tick || e.NarratedDescription != "" {
+			continue
+		}
+
+		// Only narrate major event categories.
+		switch e.Category {
+		case "disaster", "discovery", "political":
+			text, err := llm.NarrateEvent(s.LLM, e.Description, worldContext)
+			if err != nil {
+				slog.Debug("narration failed", "error", err)
+				continue
+			}
+			e.NarratedDescription = text
+			narrated++
+		}
+	}
+}
+
+// updateArchetypeTemplates uses LLM to regenerate behavioral templates weekly.
+func (s *Simulation) updateArchetypeTemplates(tick uint64) {
+	if s.LLM == nil || !s.LLM.Enabled() {
+		return
+	}
+
+	worldSummary := fmt.Sprintf(
+		"Season: %s. Population: %d. Average mood: %.2f. Average survival: %.2f. Total wealth: %d crowns. Settlements: %d.",
+		SeasonName(s.CurrentSeason), s.Stats.TotalPopulation,
+		s.Stats.AvgMood, s.Stats.AvgSurvival, s.Stats.TotalWealth, len(s.Settlements),
+	)
+
+	for _, archetype := range agents.AllArchetypes() {
+		update, err := llm.GenerateArchetypeUpdate(s.LLM, archetype, worldSummary)
+		if err != nil {
+			slog.Debug("archetype update failed, keeping defaults", "archetype", archetype, "error", err)
+			continue
+		}
+		agents.UpdateArchetypeTemplate(archetype, update.PriorityShifts, update.PreferredAction)
+		slog.Debug("archetype updated", "archetype", archetype, "motto", update.Motto)
+	}
+}
+
+// createSettlementMemories adds a memory to all Tier 2 agents in a settlement.
+func (s *Simulation) createSettlementMemories(settID uint64, tick uint64, content string, importance float32) {
+	for _, a := range s.SettlementAgents[settID] {
+		if a.Alive && a.Tier == agents.Tier2 {
+			agents.AddMemory(a, tick, content, importance)
+		}
 	}
 }
 
