@@ -110,6 +110,24 @@ func main() {
 		}
 		spawner.SetNextID(maxID + 1)
 
+		// Promote Tier 1 agents if none exist yet (backfill for existing worlds).
+		tier1Count := 0
+		for _, a := range allAgents {
+			if a.Tier == agents.Tier1 {
+				tier1Count++
+			}
+		}
+		if tier1Count == 0 {
+			agents.PromoteToTier1(allAgents, 0.04)
+			promoted := 0
+			for _, a := range allAgents {
+				if a.Tier == agents.Tier1 {
+					promoted++
+				}
+			}
+			slog.Info("backfilled Tier 1 agents", "promoted", promoted)
+		}
+
 		slog.Info("world state restored",
 			"agents", len(allAgents),
 			"settlements", len(allSettlements),
