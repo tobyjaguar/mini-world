@@ -119,52 +119,72 @@ func (s *Spawner) occupationForTerrain(terrain world.Terrain) Occupation {
 	r := s.rng.Float32()
 	switch terrain {
 	case world.TerrainPlains, world.TerrainRiver:
-		if r < 0.50 {
+		if r < 0.45 {
 			return OccupationFarmer
-		} else if r < 0.70 {
+		} else if r < 0.62 {
 			return OccupationLaborer
-		} else if r < 0.85 {
+		} else if r < 0.77 {
 			return OccupationCrafter
-		} else {
+		} else if r < 0.88 {
 			return OccupationMerchant
+		} else if r < 0.94 {
+			return OccupationSoldier
+		} else {
+			return OccupationScholar
 		}
 	case world.TerrainMountain:
-		if r < 0.45 {
+		if r < 0.40 {
 			return OccupationMiner
-		} else if r < 0.70 {
+		} else if r < 0.60 {
 			return OccupationLaborer
-		} else if r < 0.85 {
+		} else if r < 0.75 {
 			return OccupationCrafter
-		} else {
+		} else if r < 0.85 {
 			return OccupationMerchant
+		} else if r < 0.95 {
+			return OccupationSoldier
+		} else {
+			return OccupationScholar
 		}
 	case world.TerrainCoast:
-		if r < 0.40 {
+		if r < 0.35 {
 			return OccupationFisher
-		} else if r < 0.60 {
+		} else if r < 0.55 {
 			return OccupationMerchant
-		} else if r < 0.80 {
+		} else if r < 0.72 {
 			return OccupationCrafter
-		} else {
+		} else if r < 0.85 {
 			return OccupationLaborer
+		} else if r < 0.93 {
+			return OccupationSoldier
+		} else {
+			return OccupationScholar
 		}
 	case world.TerrainForest:
-		if r < 0.30 {
+		if r < 0.28 {
 			return OccupationHunter
-		} else if r < 0.55 {
+		} else if r < 0.50 {
 			return OccupationFarmer
-		} else if r < 0.75 {
+		} else if r < 0.68 {
 			return OccupationLaborer
-		} else {
+		} else if r < 0.82 {
 			return OccupationCrafter
+		} else if r < 0.92 {
+			return OccupationSoldier
+		} else {
+			return OccupationScholar
 		}
 	case world.TerrainSwamp:
-		if r < 0.40 {
+		if r < 0.35 {
 			return OccupationAlchemist
-		} else if r < 0.70 {
+		} else if r < 0.60 {
 			return OccupationHunter
-		} else {
+		} else if r < 0.80 {
 			return OccupationLaborer
+		} else if r < 0.92 {
+			return OccupationSoldier
+		} else {
+			return OccupationScholar
 		}
 	default:
 		return OccupationLaborer

@@ -50,6 +50,7 @@ func (s *Simulation) initFactions() {
 // factionForAgent determines which faction an agent naturally belongs to.
 // Not all agents join factions (~60% do).
 func factionForAgent(a *agents.Agent) social.FactionID {
+	// Occupation-based primary assignment.
 	switch a.Occupation {
 	case agents.OccupationSoldier:
 		return 3 // Iron Brotherhood
@@ -62,16 +63,38 @@ func factionForAgent(a *agents.Agent) social.FactionID {
 			return 5 // Ashen Path — mystics and nihilists
 		}
 		return 4 // Verdant Circle — regular alchemists
+	case agents.OccupationHunter:
+		// Hunters with high combat lean military, others unaffiliated.
+		if a.Skills.Combat > 0.4 {
+			return 3 // Iron Brotherhood
+		}
+		return 0
 	default:
-		// Common folk: some join Crown loyalists, most are unaffiliated.
+		// Trait-based secondary assignment for common folk.
 		switch a.Soul.Class {
 		case agents.Devotionalist:
 			if a.Role == agents.RoleNoble || a.Role == agents.RoleLeader {
 				return 1 // Crown
 			}
+			// Devout high-coherence farmers/crafters → Verdant Circle.
+			if a.Soul.CittaCoherence > 0.35 {
+				return 4 // Verdant Circle
+			}
+			return 0 // Unaffiliated
+		case agents.Ritualist:
+			// Ritualists with high combat → Iron Brotherhood.
+			if a.Skills.Combat > 0.3 {
+				return 3 // Iron Brotherhood
+			}
+			// Ritualists with wealth → Crown loyalists.
+			if a.Wealth > 150 && a.Soul.CittaCoherence > 0.3 {
+				return 1 // Crown
+			}
 			return 0 // Unaffiliated
 		case agents.Nihilist:
 			return 5 // Ashen Path
+		case agents.Transcendentalist:
+			return 4 // Verdant Circle — seekers
 		default:
 			return 0 // Unaffiliated
 		}
