@@ -64,8 +64,8 @@ func factionForAgent(a *agents.Agent) social.FactionID {
 		}
 		return 4 // Verdant Circle — regular alchemists
 	case agents.OccupationHunter:
-		// Hunters with high combat lean military, others unaffiliated.
-		if a.Skills.Combat > 0.4 {
+		// Hunters with combat skill lean military, others unaffiliated.
+		if a.Skills.Combat > 0.15 {
 			return 3 // Iron Brotherhood
 		}
 		return 0
@@ -82,8 +82,8 @@ func factionForAgent(a *agents.Agent) social.FactionID {
 			}
 			return 0 // Unaffiliated
 		case agents.Ritualist:
-			// Ritualists with high combat → Iron Brotherhood.
-			if a.Skills.Combat > 0.3 {
+			// Ritualists with combat aptitude → Iron Brotherhood.
+			if a.Skills.Combat > 0.12 {
 				return 3 // Iron Brotherhood
 			}
 			// Ritualists with wealth → Crown loyalists.
