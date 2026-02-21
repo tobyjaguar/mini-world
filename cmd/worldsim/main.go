@@ -281,6 +281,23 @@ func main() {
 	eng.OnHour = sim.TickHour
 	eng.OnDay = func(tick uint64) {
 		sim.TickDay(tick)
+		// Save daily stats snapshot.
+		statsRow := persistence.StatsRow{
+			Tick:            tick,
+			Population:      sim.Stats.TotalPopulation,
+			TotalWealth:     sim.Stats.TotalWealth,
+			AvgMood:         float64(sim.Stats.AvgMood),
+			AvgSurvival:     float64(sim.Stats.AvgSurvival),
+			Births:          sim.Stats.Births,
+			Deaths:          sim.Stats.Deaths,
+			TradeVolume:     sim.Stats.TradeVolume,
+			AvgCoherence:    sim.AvgCoherence(),
+			SettlementCount: len(sim.Settlements),
+			Gini:            sim.GiniCoefficient(),
+		}
+		if err := db.SaveStatsSnapshot(statsRow); err != nil {
+			slog.Error("stats snapshot failed", "error", err)
+		}
 		// Auto-save daily.
 		if err := db.SaveWorldState(sim); err != nil {
 			slog.Error("daily save failed", "error", err)
@@ -299,6 +316,7 @@ func main() {
 		Sim:      sim,
 		Eng:      eng,
 		LLM:      llmClient,
+		DB:       db,
 		Port:     apiPort,
 		AdminKey: adminKey,
 	}

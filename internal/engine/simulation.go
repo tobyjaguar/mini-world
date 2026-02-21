@@ -4,6 +4,7 @@ package engine
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/economy"
@@ -47,6 +48,9 @@ type Simulation struct {
 	// Entropy source (random.org or crypto/rand fallback).
 	Entropy *entropy.Client
 
+	// Settlement abandonment tracking (settlement ID → consecutive weeks with 0 pop).
+	AbandonedWeeks map[uint64]int
+
 	// Statistics tracked per day.
 	Stats SimStats
 }
@@ -58,10 +62,10 @@ func (s *Simulation) CurrentTick() uint64 {
 
 // Event is a notable occurrence in the world.
 type Event struct {
-	Tick                 uint64 `json:"tick"`
-	Description          string `json:"description"`
-	NarratedDescription  string `json:"narrated_description,omitempty"` // LLM-narrated prose (major events only)
-	Category             string `json:"category"` // "economy", "social", "death", "birth", "political", "disaster", "discovery", etc.
+	Tick                 uint64 `json:"tick" db:"tick"`
+	Description          string `json:"description" db:"description"`
+	NarratedDescription  string `json:"narrated_description,omitempty" db:"narrated"` // LLM-narrated prose (major events only)
+	Category             string `json:"category" db:"category"` // "economy", "social", "death", "birth", "political", "disaster", "discovery", etc.
 }
 
 // SimWeather holds the current weather conditions for the simulation.
@@ -112,6 +116,7 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 		Settlements:      setts,
 		SettlementIndex:  settIndex,
 		SettlementAgents: settAgents,
+		AbandonedWeeks:   make(map[uint64]int),
 	}
 	sim.initFactions()
 	sim.updateStats()
@@ -260,6 +265,8 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processWeeklyFactions(tick)
 	s.processAntiStagnation(tick)
 	s.processSeasonalMigration(tick)
+	s.processSettlementOvermass(tick)
+	s.processSettlementAbandonment(tick)
 	s.updateArchetypeTemplates(tick)
 	s.processRandomEvents(tick)
 	s.narrateRecentMajorEvents(tick)
@@ -392,11 +399,48 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			dIdx = 0
 		}
 
-		// Benefit: boost treasury.
+		// Benefit: add resources to the hex and boost treasury.
 		bonus := uint64(50 + int(randFloat()*100))
 		sett.Treasury += bonus
 
-		desc := fmt.Sprintf("Discovery near %s: %s found! Treasury gains %d crowns", sett.Name, discoveries[dIdx], bonus)
+		hex := s.WorldMap.Get(sett.Position)
+		var desc string
+		switch discoveries[dIdx] {
+		case "a rich mineral deposit":
+			amount := 50.0 + randFloat()*50.0
+			if hex != nil {
+				if hex.Resources == nil {
+					hex.Resources = make(map[world.ResourceType]float64)
+				}
+				hex.Resources[world.ResourceStone] += amount
+				hex.Resources[world.ResourceIronOre] += amount * 0.6
+			}
+			desc = fmt.Sprintf("Discovery near %s: %s found! +%.0f stone, +%.0f iron ore, treasury gains %d crowns",
+				sett.Name, discoveries[dIdx], amount, amount*0.6, bonus)
+		case "a medicinal spring":
+			amount := 20.0 + randFloat()*30.0
+			if hex != nil {
+				if hex.Resources == nil {
+					hex.Resources = make(map[world.ResourceType]float64)
+				}
+				hex.Resources[world.ResourceHerbs] += amount
+			}
+			desc = fmt.Sprintf("Discovery near %s: %s found! +%.0f herbs, treasury gains %d crowns",
+				sett.Name, discoveries[dIdx], amount, bonus)
+		case "a vein of precious gems":
+			amount := 30.0 + randFloat()*30.0
+			if hex != nil {
+				if hex.Resources == nil {
+					hex.Resources = make(map[world.ResourceType]float64)
+				}
+				hex.Resources[world.ResourceGems] += amount
+			}
+			desc = fmt.Sprintf("Discovery near %s: %s found! +%.0f gems, treasury gains %d crowns",
+				sett.Name, discoveries[dIdx], amount, bonus)
+		default:
+			desc = fmt.Sprintf("Discovery near %s: %s found! Treasury gains %d crowns", sett.Name, discoveries[dIdx], bonus)
+		}
+
 		s.Events = append(s.Events, Event{
 			Tick:        tick,
 			Description: desc,
@@ -517,6 +561,48 @@ func (s *Simulation) processBaselineCoherence() {
 			a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.001))
 		}
 	}
+}
+
+// GiniCoefficient computes wealth inequality from agent wealth distribution.
+// Uses sorted formula: G = (2*Σ(i*wᵢ))/(n*Σwᵢ) - (n+1)/n
+func (s *Simulation) GiniCoefficient() float64 {
+	var wealths []uint64
+	for _, a := range s.Agents {
+		if a.Alive {
+			wealths = append(wealths, a.Wealth)
+		}
+	}
+	n := len(wealths)
+	if n < 2 {
+		return 0
+	}
+	sort.Slice(wealths, func(i, j int) bool { return wealths[i] < wealths[j] })
+	totalWealth := uint64(0)
+	weightedSum := uint64(0)
+	for i, w := range wealths {
+		totalWealth += w
+		weightedSum += uint64(i+1) * w
+	}
+	if totalWealth == 0 {
+		return 0
+	}
+	return (2.0*float64(weightedSum))/(float64(n)*float64(totalWealth)) - float64(n+1)/float64(n)
+}
+
+// AvgCoherence computes average citta coherence of living agents.
+func (s *Simulation) AvgCoherence() float64 {
+	total := float64(0)
+	count := 0
+	for _, a := range s.Agents {
+		if a.Alive {
+			total += float64(a.Soul.CittaCoherence)
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return total / float64(count)
 }
 
 func (s *Simulation) updateStats() {

@@ -91,7 +91,8 @@ func (db *DB) migrate() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		tick INTEGER NOT NULL,
 		description TEXT NOT NULL,
-		category TEXT NOT NULL
+		category TEXT NOT NULL,
+		narrated TEXT NOT NULL DEFAULT ''
 	);
 
 	CREATE TABLE IF NOT EXISTS world_meta (
@@ -106,13 +107,40 @@ func (db *DB) migrate() error {
 		importance REAL NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS stats_history (
+		tick INTEGER PRIMARY KEY,
+		population INTEGER NOT NULL,
+		total_wealth INTEGER NOT NULL,
+		avg_mood REAL NOT NULL,
+		avg_survival REAL NOT NULL,
+		births INTEGER NOT NULL,
+		deaths INTEGER NOT NULL,
+		trade_volume INTEGER NOT NULL,
+		avg_coherence REAL NOT NULL,
+		settlement_count INTEGER NOT NULL,
+		gini REAL NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_events_tick ON events(tick);
 	CREATE INDEX IF NOT EXISTS idx_agents_settlement ON agents(home_settlement_id);
 	CREATE INDEX IF NOT EXISTS idx_agents_alive ON agents(alive);
 	CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id);
 	`
 	_, err := db.conn.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Add columns that may not exist in older databases.
+	migrations := []string{
+		"ALTER TABLE events ADD COLUMN narrated TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE settlements ADD COLUMN abandoned INTEGER NOT NULL DEFAULT 0",
+	}
+	for _, m := range migrations {
+		db.conn.Exec(m) // Ignore errors — column may already exist.
+	}
+
+	return nil
 }
 
 // SaveAgents writes all agents to the database (full replace).
@@ -208,8 +236,8 @@ func (db *DB) SaveEvents(events []engine.Event) error {
 
 	for _, e := range events {
 		_, err := tx.Exec(
-			"INSERT INTO events (tick, description, category) VALUES (?, ?, ?)",
-			e.Tick, e.Description, e.Category,
+			"INSERT INTO events (tick, description, category, narrated) VALUES (?, ?, ?, ?)",
+			e.Tick, e.Description, e.Category, e.NarratedDescription,
 		)
 		if err != nil {
 			return err
@@ -359,6 +387,7 @@ func (db *DB) LoadSettlements() ([]*social.Settlement, error) {
 		WallLevel         uint8   `db:"wall_level"`
 		RoadLevel         uint8   `db:"road_level"`
 		MarketLevel       uint8   `db:"market_level"`
+		Abandoned         int     `db:"abandoned"`
 	}
 
 	var rows []settRow
@@ -452,8 +481,53 @@ func (db *DB) LoadMemories(agentIndex map[agents.AgentID]*agents.Agent) error {
 func (db *DB) RecentEvents(limit int) ([]engine.Event, error) {
 	var events []engine.Event
 	err := db.conn.Select(&events,
-		"SELECT tick, description, category FROM events ORDER BY id DESC LIMIT ?",
+		"SELECT tick, description, category, narrated FROM events ORDER BY id DESC LIMIT ?",
 		limit,
 	)
 	return events, err
+}
+
+// StatsRow represents a single historical stats snapshot.
+type StatsRow struct {
+	Tick            uint64  `json:"tick" db:"tick"`
+	Population      int     `json:"population" db:"population"`
+	TotalWealth     uint64  `json:"total_wealth" db:"total_wealth"`
+	AvgMood         float64 `json:"avg_mood" db:"avg_mood"`
+	AvgSurvival     float64 `json:"avg_survival" db:"avg_survival"`
+	Births          int     `json:"births" db:"births"`
+	Deaths          int     `json:"deaths" db:"deaths"`
+	TradeVolume     uint64  `json:"trade_volume" db:"trade_volume"`
+	AvgCoherence    float64 `json:"avg_coherence" db:"avg_coherence"`
+	SettlementCount int     `json:"settlement_count" db:"settlement_count"`
+	Gini            float64 `json:"gini" db:"gini"`
+}
+
+// SaveStatsSnapshot records a daily statistics snapshot.
+func (db *DB) SaveStatsSnapshot(row StatsRow) error {
+	_, err := db.conn.Exec(
+		`INSERT OR REPLACE INTO stats_history
+		(tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
+		 trade_volume, avg_coherence, settlement_count, gini)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		row.Tick, row.Population, row.TotalWealth, row.AvgMood, row.AvgSurvival,
+		row.Births, row.Deaths, row.TradeVolume, row.AvgCoherence,
+		row.SettlementCount, row.Gini,
+	)
+	return err
+}
+
+// LoadStatsHistory returns stats snapshots within a tick range.
+func (db *DB) LoadStatsHistory(fromTick, toTick uint64, limit int) ([]StatsRow, error) {
+	var rows []StatsRow
+	if limit <= 0 {
+		limit = 30
+	}
+	err := db.conn.Select(&rows,
+		`SELECT tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
+		 trade_volume, avg_coherence, settlement_count, gini
+		 FROM stats_history WHERE tick >= ? AND tick <= ?
+		 ORDER BY tick DESC LIMIT ?`,
+		fromTick, toTick, limit,
+	)
+	return rows, err
 }

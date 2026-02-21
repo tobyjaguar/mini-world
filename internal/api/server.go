@@ -18,7 +18,9 @@ import (
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/engine"
 	"github.com/talgya/mini-world/internal/llm"
+	"github.com/talgya/mini-world/internal/persistence"
 	"github.com/talgya/mini-world/internal/social"
+	"github.com/talgya/mini-world/internal/world"
 )
 
 // Server serves the world state over HTTP.
@@ -26,6 +28,7 @@ type Server struct {
 	Sim      *engine.Simulation
 	Eng      *engine.Engine
 	LLM      *llm.Client
+	DB       *persistence.DB
 	Port     int
 	AdminKey string // Bearer token for POST endpoints. Empty = POST disabled.
 
@@ -33,6 +36,15 @@ type Server struct {
 	newspaperMu    sync.Mutex
 	cachedPaper    *llm.Newspaper
 	lastPaperTick  uint64
+
+	// Cached biographies (agent ID → cached bio).
+	bioMu    sync.Mutex
+	bioCache map[agents.AgentID]cachedBio
+}
+
+type cachedBio struct {
+	Biography   string `json:"biography"`
+	GeneratedAt string `json:"generated_at"`
 }
 
 // Start begins serving the HTTP API in a goroutine.
@@ -43,7 +55,7 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/settlements", s.handleSettlements)
 	mux.HandleFunc("/api/v1/agents", s.handleAgents)
-	mux.HandleFunc("/api/v1/agent/", s.handleAgent)
+	mux.HandleFunc("/api/v1/agent/", s.handleAgentRoutes)
 	mux.HandleFunc("/api/v1/events", s.handleEvents)
 	mux.HandleFunc("/api/v1/stats", s.handleStats)
 	mux.HandleFunc("/api/v1/newspaper", s.handleNewspaper)
@@ -51,8 +63,16 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/economy", s.handleEconomy)
 	mux.HandleFunc("/api/v1/social", s.handleSocial)
 
+	// Detail endpoints.
+	mux.HandleFunc("/api/v1/settlement/", s.handleSettlementDetail)
+	mux.HandleFunc("/api/v1/faction/", s.handleFactionDetail)
+	mux.HandleFunc("/api/v1/map/", s.handleHexDetail)
+	mux.HandleFunc("/api/v1/stats/history", s.handleStatsHistory)
+
 	// Admin endpoints (POST, require bearer token).
 	mux.HandleFunc("/api/v1/speed", s.adminOnly(s.handleSpeed))
+	mux.HandleFunc("/api/v1/snapshot", s.adminOnly(s.handleSnapshot))
+	mux.HandleFunc("/api/v1/intervention", s.adminOnly(s.handleIntervention))
 
 	addr := fmt.Sprintf(":%d", s.Port)
 	slog.Info("HTTP API starting", "addr", addr, "admin_auth", s.AdminKey != "")
@@ -191,14 +211,13 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
-func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentRoutes(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
 	if len(parts) < 5 {
 		http.Error(w, "missing agent id", http.StatusBadRequest)
 		return
 	}
-	idStr := parts[4]
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	id, err := strconv.ParseUint(parts[4], 10, 64)
 	if err != nil {
 		http.Error(w, "invalid agent id", http.StatusBadRequest)
 		return
@@ -210,7 +229,127 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Route to /agent/:id/story if requested.
+	if len(parts) >= 6 && parts[5] == "story" {
+		s.handleAgentStory(w, r, agent)
+		return
+	}
+
 	writeJSON(w, agent)
+}
+
+func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent *agents.Agent) {
+	refresh := r.URL.Query().Get("refresh") == "true"
+
+	// Check cache.
+	s.bioMu.Lock()
+	if s.bioCache == nil {
+		s.bioCache = make(map[agents.AgentID]cachedBio)
+	}
+	cached, hasCached := s.bioCache[agent.ID]
+	s.bioMu.Unlock()
+
+	if hasCached && !refresh {
+		writeJSON(w, map[string]any{
+			"name":         agent.Name,
+			"biography":    cached.Biography,
+			"generated_at": cached.GeneratedAt,
+		})
+		return
+	}
+
+	occNames := []string{
+		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
+		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
+	}
+	stateNames := map[agents.StateOfBeing]string{
+		agents.Embodied: "Embodied", agents.Centered: "Centered", agents.Liberated: "Liberated",
+	}
+	elementNames := map[agents.ElementType]string{
+		agents.ElementHelium: "Helium", agents.ElementHydrogen: "Hydrogen",
+		agents.ElementGold: "Gold", agents.ElementUranium: "Uranium",
+	}
+
+	occName := "Unknown"
+	if int(agent.Occupation) < len(occNames) {
+		occName = occNames[agent.Occupation]
+	}
+
+	ctx := llm.BiographyContext{
+		Name:      agent.Name,
+		Age:       agent.Age,
+		Occupation: occName,
+		Wealth:    agent.Wealth,
+		Coherence: agent.Soul.CittaCoherence,
+		State:     stateNames[agent.Soul.State],
+		Element:   elementNames[agent.Soul.Element()],
+		Archetype: agent.Archetype,
+		Mood:      agent.Mood,
+	}
+
+	// Settlement name.
+	if agent.HomeSettID != nil {
+		if sett, ok := s.Sim.SettlementIndex[*agent.HomeSettID]; ok {
+			ctx.Settlement = sett.Name
+		}
+	}
+
+	// Faction name.
+	if agent.FactionID != nil {
+		for _, f := range s.Sim.Factions {
+			if uint64(f.ID) == *agent.FactionID {
+				ctx.Faction = f.Name
+				break
+			}
+		}
+	}
+
+	// Top relationships.
+	for i, rel := range agent.Relationships {
+		if i >= 5 {
+			break
+		}
+		if target, ok := s.Sim.AgentIndex[rel.TargetID]; ok {
+			sentiment := "neutral toward"
+			if rel.Sentiment > 0.5 {
+				sentiment = "close to"
+			} else if rel.Sentiment < -0.3 {
+				sentiment = "hostile toward"
+			}
+			ctx.Relationships = append(ctx.Relationships, fmt.Sprintf("%s %s", sentiment, target.Name))
+		}
+	}
+
+	// Top memories by importance.
+	if len(agent.Memories) > 0 {
+		sorted := make([]agents.Memory, len(agent.Memories))
+		copy(sorted, agent.Memories)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].Importance > sorted[j].Importance })
+		for i, m := range sorted {
+			if i >= 10 {
+				break
+			}
+			ctx.Memories = append(ctx.Memories, m.Content)
+		}
+	}
+
+	bio, err := llm.GenerateBiography(s.LLM, ctx)
+	if err != nil {
+		slog.Error("biography generation failed", "error", err, "agent", agent.Name)
+		http.Error(w, "biography generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	genTime := engine.SimTime(s.Sim.CurrentTick())
+	s.bioMu.Lock()
+	s.bioCache[agent.ID] = cachedBio{Biography: bio, GeneratedAt: genTime}
+	s.bioMu.Unlock()
+
+	writeJSON(w, map[string]any{
+		"name":         agent.Name,
+		"biography":    bio,
+		"generated_at": genTime,
+	})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -824,6 +963,531 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, result)
+}
+
+func (s *Server) handleStatsHistory(w http.ResponseWriter, r *http.Request) {
+	if s.DB == nil {
+		http.Error(w, "database not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	fromTick := uint64(0)
+	toTick := uint64(^uint64(0))
+	limit := 30
+
+	if f := r.URL.Query().Get("from"); f != "" {
+		if v, err := strconv.ParseUint(f, 10, 64); err == nil {
+			fromTick = v
+		}
+	}
+	if t := r.URL.Query().Get("to"); t != "" {
+		if v, err := strconv.ParseUint(t, 10, 64); err == nil {
+			toTick = v
+		}
+	}
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 1000 {
+			limit = v
+		}
+	}
+
+	rows, err := s.DB.LoadStatsHistory(fromTick, toTick, limit)
+	if err != nil {
+		http.Error(w, "failed to load stats history", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, rows)
+}
+
+func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		http.Error(w, "missing settlement id", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseUint(parts[4], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid settlement id", http.StatusBadRequest)
+		return
+	}
+
+	sett, ok := s.Sim.SettlementIndex[id]
+	if !ok {
+		http.Error(w, "settlement not found", http.StatusNotFound)
+		return
+	}
+
+	govNames := map[uint8]string{0: "Monarchy", 1: "Council", 2: "Merchant Republic", 3: "Commune"}
+
+	// Market data.
+	goodNames := map[agents.GoodType]string{
+		agents.GoodGrain: "Grain", agents.GoodTimber: "Timber", agents.GoodIronOre: "Iron Ore",
+		agents.GoodStone: "Stone", agents.GoodFish: "Fish", agents.GoodHerbs: "Herbs",
+		agents.GoodGems: "Gems", agents.GoodFurs: "Furs", agents.GoodCoal: "Coal",
+		agents.GoodExotics: "Exotics", agents.GoodTools: "Tools", agents.GoodWeapons: "Weapons",
+		agents.GoodClothing: "Clothing", agents.GoodMedicine: "Medicine", agents.GoodLuxuries: "Luxuries",
+	}
+
+	type marketEntry struct {
+		Good   string  `json:"good"`
+		Price  float64 `json:"price"`
+		Supply float64 `json:"supply"`
+		Demand float64 `json:"demand"`
+	}
+	var market []marketEntry
+	if sett.Market != nil {
+		for goodType, entry := range sett.Market.Entries {
+			gn := goodNames[goodType]
+			if gn == "" {
+				gn = fmt.Sprintf("Good#%d", goodType)
+			}
+			market = append(market, marketEntry{
+				Good:   gn,
+				Price:  entry.Price,
+				Supply: entry.Supply,
+				Demand: entry.Demand,
+			})
+		}
+	}
+
+	// Top 5 agents by wealth.
+	type agentBrief struct {
+		ID     agents.AgentID `json:"id"`
+		Name   string         `json:"name"`
+		Wealth uint64         `json:"wealth"`
+	}
+	settAgents := s.Sim.SettlementAgents[id]
+	var aliveAgents []*agents.Agent
+	for _, a := range settAgents {
+		if a.Alive {
+			aliveAgents = append(aliveAgents, a)
+		}
+	}
+	sort.Slice(aliveAgents, func(i, j int) bool { return aliveAgents[i].Wealth > aliveAgents[j].Wealth })
+	var topAgents []agentBrief
+	for i, a := range aliveAgents {
+		if i >= 5 {
+			break
+		}
+		topAgents = append(topAgents, agentBrief{ID: a.ID, Name: a.Name, Wealth: a.Wealth})
+	}
+
+	// Faction presence.
+	factionCounts := make(map[string]int)
+	for _, a := range settAgents {
+		if a.Alive && a.FactionID != nil {
+			for _, f := range s.Sim.Factions {
+				if uint64(f.ID) == *a.FactionID {
+					factionCounts[f.Name]++
+					break
+				}
+			}
+		}
+	}
+
+	// Recent events mentioning this settlement.
+	var recentEvents []engine.Event
+	for _, e := range s.Sim.Events {
+		if strings.Contains(e.Description, sett.Name) {
+			recentEvents = append(recentEvents, e)
+		}
+	}
+	if len(recentEvents) > 20 {
+		recentEvents = recentEvents[len(recentEvents)-20:]
+	}
+
+	result := map[string]any{
+		"id":               sett.ID,
+		"name":             sett.Name,
+		"q":                sett.Position.Q,
+		"r":                sett.Position.R,
+		"population":       sett.Population,
+		"governance":       govNames[uint8(sett.Governance)],
+		"treasury":         sett.Treasury,
+		"health":           sett.Health(),
+		"governance_score": sett.GovernanceScore,
+		"tax_rate":         sett.TaxRate,
+		"culture": map[string]any{
+			"tradition":  sett.CultureTradition,
+			"openness":   sett.CultureOpenness,
+			"militarism": sett.CultureMilitarism,
+			"memory":     sett.CulturalMemory,
+		},
+		"infrastructure": map[string]any{
+			"wall_level":   sett.WallLevel,
+			"road_level":   sett.RoadLevel,
+			"market_level": sett.MarketLevel,
+		},
+		"market":          market,
+		"top_agents":      topAgents,
+		"faction_presence": factionCounts,
+		"recent_events":   recentEvents,
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleFactionDetail(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		http.Error(w, "missing faction id", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseUint(parts[4], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid faction id", http.StatusBadRequest)
+		return
+	}
+
+	var faction *social.Faction
+	for _, f := range s.Sim.Factions {
+		if uint64(f.ID) == id {
+			faction = f
+			break
+		}
+	}
+	if faction == nil {
+		http.Error(w, "faction not found", http.StatusNotFound)
+		return
+	}
+
+	kindNames := []string{"Political", "Economic", "Military", "Religious", "Criminal"}
+	kindName := "Unknown"
+	if int(faction.Kind) < len(kindNames) {
+		kindName = kindNames[faction.Kind]
+	}
+
+	occNames := []string{
+		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
+		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
+	}
+
+	// Member list.
+	type memberInfo struct {
+		ID         agents.AgentID `json:"id"`
+		Name       string         `json:"name"`
+		Tier       int            `json:"tier"`
+		Occupation string         `json:"occupation"`
+	}
+	var members []memberInfo
+	for _, a := range s.Sim.Agents {
+		if a.Alive && a.FactionID != nil && *a.FactionID == id {
+			occName := "Unknown"
+			if int(a.Occupation) < len(occNames) {
+				occName = occNames[a.Occupation]
+			}
+			members = append(members, memberInfo{
+				ID:         a.ID,
+				Name:       a.Name,
+				Tier:       int(a.Tier),
+				Occupation: occName,
+			})
+		}
+	}
+
+	// Top influence settlements.
+	type infEntry struct {
+		Name      string  `json:"name"`
+		Influence float64 `json:"influence"`
+	}
+	var topInfluence []infEntry
+	for settID, inf := range faction.Influence {
+		if sett, ok := s.Sim.SettlementIndex[settID]; ok {
+			topInfluence = append(topInfluence, infEntry{Name: sett.Name, Influence: inf})
+		}
+	}
+	sort.Slice(topInfluence, func(i, j int) bool { return topInfluence[i].Influence > topInfluence[j].Influence })
+	if len(topInfluence) > 10 {
+		topInfluence = topInfluence[:10]
+	}
+
+	// Relations.
+	type relEntry struct {
+		Name     string  `json:"name"`
+		Relation float64 `json:"relation"`
+	}
+	var relations []relEntry
+	for otherID, rel := range faction.Relations {
+		for _, other := range s.Sim.Factions {
+			if other.ID == otherID {
+				relations = append(relations, relEntry{Name: other.Name, Relation: rel})
+				break
+			}
+		}
+	}
+
+	// Recent faction events.
+	var recentEvents []engine.Event
+	for _, e := range s.Sim.Events {
+		if strings.Contains(e.Description, faction.Name) {
+			recentEvents = append(recentEvents, e)
+		}
+	}
+	if len(recentEvents) > 20 {
+		recentEvents = recentEvents[len(recentEvents)-20:]
+	}
+
+	result := map[string]any{
+		"id":             faction.ID,
+		"name":           faction.Name,
+		"kind":           kindName,
+		"treasury":       faction.Treasury,
+		"members":        members,
+		"member_count":   len(members),
+		"top_influence":  topInfluence,
+		"relations":      relations,
+		"policies": map[string]any{
+			"tax_preference":      faction.TaxPreference,
+			"trade_preference":    faction.TradePreference,
+			"military_preference": faction.MilitaryPreference,
+		},
+		"recent_events": recentEvents,
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleHexDetail(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 6 {
+		http.Error(w, "usage: /api/v1/map/:q/:r", http.StatusBadRequest)
+		return
+	}
+	q, err1 := strconv.Atoi(parts[4])
+	rr, err2 := strconv.Atoi(parts[5])
+	if err1 != nil || err2 != nil {
+		http.Error(w, "invalid coordinates", http.StatusBadRequest)
+		return
+	}
+
+	coord := world.HexCoord{Q: q, R: rr}
+	hex := s.Sim.WorldMap.Get(coord)
+	if hex == nil {
+		http.Error(w, "hex not found", http.StatusNotFound)
+		return
+	}
+
+	terrainNames := []string{
+		"Plains", "Forest", "Mountain", "Coast", "River",
+		"Desert", "Swamp", "Tundra", "Ocean",
+	}
+	terrainName := "Unknown"
+	if int(hex.Terrain) < len(terrainNames) {
+		terrainName = terrainNames[hex.Terrain]
+	}
+
+	// Resources.
+	resNames := map[world.ResourceType]string{
+		world.ResourceGrain: "Grain", world.ResourceTimber: "Timber",
+		world.ResourceIronOre: "Iron Ore", world.ResourceStone: "Stone",
+		world.ResourceFish: "Fish", world.ResourceHerbs: "Herbs",
+		world.ResourceGems: "Gems", world.ResourceFurs: "Furs",
+		world.ResourceCoal: "Coal", world.ResourceExotics: "Exotics",
+	}
+	resources := make(map[string]float64)
+	for rt, amount := range hex.Resources {
+		name := resNames[rt]
+		if name == "" {
+			name = fmt.Sprintf("Resource#%d", rt)
+		}
+		resources[name] = amount
+	}
+
+	// Settlement on hex.
+	var settlement *map[string]any
+	if hex.SettlementID != nil {
+		if sett, ok := s.Sim.SettlementIndex[*hex.SettlementID]; ok {
+			m := map[string]any{
+				"id":         sett.ID,
+				"name":       sett.Name,
+				"population": sett.Population,
+			}
+			settlement = &m
+		}
+	}
+
+	// Agents on hex.
+	var agentCount int
+	type agentBrief struct {
+		ID   agents.AgentID `json:"id"`
+		Name string         `json:"name"`
+	}
+	var agentsOnHex []agentBrief
+	for _, a := range s.Sim.Agents {
+		if a.Alive && a.Position.Q == q && a.Position.R == rr {
+			agentCount++
+			if len(agentsOnHex) < 20 {
+				agentsOnHex = append(agentsOnHex, agentBrief{ID: a.ID, Name: a.Name})
+			}
+		}
+	}
+
+	// Neighbors.
+	type neighborInfo struct {
+		Q       int    `json:"q"`
+		R       int    `json:"r"`
+		Terrain string `json:"terrain"`
+	}
+	var neighbors []neighborInfo
+	for _, nc := range coord.Neighbors() {
+		nh := s.Sim.WorldMap.Get(nc)
+		if nh == nil {
+			continue
+		}
+		tn := "Unknown"
+		if int(nh.Terrain) < len(terrainNames) {
+			tn = terrainNames[nh.Terrain]
+		}
+		neighbors = append(neighbors, neighborInfo{Q: nc.Q, R: nc.R, Terrain: tn})
+	}
+
+	result := map[string]any{
+		"q":           q,
+		"r":           rr,
+		"terrain":     terrainName,
+		"elevation":   hex.Elevation,
+		"rainfall":    hex.Rainfall,
+		"temperature": hex.Temperature,
+		"resources":   resources,
+		"settlement":  settlement,
+		"agent_count": agentCount,
+		"agents":      agentsOnHex,
+		"neighbors":   neighbors,
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.DB == nil {
+		http.Error(w, "database not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := s.DB.SaveWorldState(s.Sim); err != nil {
+		slog.Error("snapshot save failed", "error", err)
+		http.Error(w, "snapshot failed", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, map[string]any{
+		"tick":    s.Sim.CurrentTick(),
+		"message": "snapshot saved",
+	})
+}
+
+func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Type        string `json:"type"`
+		Description string `json:"description,omitempty"`
+		Category    string `json:"category,omitempty"`
+		Settlement  string `json:"settlement,omitempty"`
+		Amount      int64  `json:"amount,omitempty"`
+		Count       int    `json:"count,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	tick := s.Sim.CurrentTick()
+
+	switch req.Type {
+	case "event":
+		if req.Description == "" {
+			http.Error(w, "description required for event type", http.StatusBadRequest)
+			return
+		}
+		cat := req.Category
+		if cat == "" {
+			cat = "intervention"
+		}
+		s.Sim.Events = append(s.Sim.Events, engine.Event{
+			Tick:        tick,
+			Description: req.Description,
+			Category:    cat,
+		})
+		writeJSON(w, map[string]any{"success": true, "details": "event injected"})
+
+	case "wealth":
+		if req.Settlement == "" {
+			http.Error(w, "settlement required for wealth type", http.StatusBadRequest)
+			return
+		}
+		var found *social.Settlement
+		for _, st := range s.Sim.Settlements {
+			if st.Name == req.Settlement {
+				found = st
+				break
+			}
+		}
+		if found == nil {
+			http.Error(w, "settlement not found", http.StatusNotFound)
+			return
+		}
+		if req.Amount < 0 && uint64(-req.Amount) > found.Treasury {
+			found.Treasury = 0
+		} else {
+			found.Treasury = uint64(int64(found.Treasury) + req.Amount)
+		}
+		writeJSON(w, map[string]any{
+			"success": true,
+			"details": fmt.Sprintf("treasury of %s adjusted by %d (now %d)", found.Name, req.Amount, found.Treasury),
+		})
+
+	case "spawn":
+		if req.Settlement == "" || req.Count <= 0 {
+			http.Error(w, "settlement and count required for spawn type", http.StatusBadRequest)
+			return
+		}
+		if req.Count > 100 {
+			http.Error(w, "max 100 agents per spawn", http.StatusBadRequest)
+			return
+		}
+		var found *social.Settlement
+		for _, st := range s.Sim.Settlements {
+			if st.Name == req.Settlement {
+				found = st
+				break
+			}
+		}
+		if found == nil {
+			http.Error(w, "settlement not found", http.StatusNotFound)
+			return
+		}
+		if s.Sim.Spawner == nil {
+			http.Error(w, "spawner not available", http.StatusServiceUnavailable)
+			return
+		}
+		hex := s.Sim.WorldMap.Get(found.Position)
+		terrain := world.TerrainPlains
+		if hex != nil {
+			terrain = hex.Terrain
+		}
+		immigrants := s.Sim.Spawner.SpawnPopulation(uint32(req.Count), found.Position, found.ID, terrain)
+		for _, a := range immigrants {
+			a.BornTick = tick
+			s.Sim.Agents = append(s.Sim.Agents, a)
+			s.Sim.AgentIndex[a.ID] = a
+			if a.HomeSettID != nil {
+				s.Sim.SettlementAgents[*a.HomeSettID] = append(s.Sim.SettlementAgents[*a.HomeSettID], a)
+			}
+		}
+		found.Population += uint32(req.Count)
+		writeJSON(w, map[string]any{
+			"success": true,
+			"details": fmt.Sprintf("%d immigrants arrived in %s", req.Count, found.Name),
+		})
+
+	default:
+		http.Error(w, "unknown intervention type (use: event, wealth, spawn)", http.StatusBadRequest)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, data any) {
