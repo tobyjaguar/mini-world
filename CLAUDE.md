@@ -85,15 +85,51 @@ mini-world/
 ## Build & Run
 
 ```bash
+# Local development
 go build -o worldsim ./cmd/worldsim
-./worldsim                        # Runs with default config
-./worldsim -config worldsim.toml  # Runs with custom config
+./worldsim
+
+# Cross-compile for server
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/worldsim ./cmd/worldsim
+
+# Deploy to production
+./deploy/deploy.sh
+```
+
+## Production Deployment
+
+The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for full details.
+
+| Field | Value |
+|-------|-------|
+| Server | 208.113.165.198 (DreamCompute, Debian 12, 1GB RAM) |
+| API | http://208.113.165.198/api/v1/status |
+| SSH | `ssh -i ~/.ssh/jagkey2.pem debian@208.113.165.198` |
+| Service | systemd `worldsim.service`, auto-restarts, starts on boot |
+| Database | `/opt/worldsim/data/crossroads.db` (SQLite, auto-saves daily) |
+| Security | UFW (ports 22+80 only), fail2ban, no root login, no passwords |
+| Swap | 1GB at `/swapfile` |
+
+### API Endpoints
+
+```
+GET  /api/v1/status       → World clock, population, economy summary
+GET  /api/v1/settlements  → All settlements with governance and health
+GET  /api/v1/agents       → Notable Tier 2 characters (default) or ?tier=0
+GET  /api/v1/agent/:id    → Full agent detail
+GET  /api/v1/events       → Recent world events (?limit=N)
+GET  /api/v1/stats        → Aggregate statistics
+POST /api/v1/speed        → Set simulation speed {"speed": N}
 ```
 
 ## Implementation Phases
 
-1. **Foundation (MVP)**: Hex grid, basic agents (Tier 0), simple economy, tick engine, SQLite, basic HTTP API
+1. **Foundation (MVP)** — COMPLETE: Hex grid, Tier 0 agents, tick engine, SQLite, HTTP API, deployed
 2. **Economy & Trade**: Multi-settlement trade, merchants, price discovery, currency, crafting
 3. **Social & Political**: Factions, governance, relationships, crime, Tier 1 archetypes
 4. **LLM Integration**: Haiku API client, Tier 2 cognition, newspaper generation
 5. **Polish & Perpetuation**: Population dynamics, resource regen, anti-stagnation, snapshots, random.org
+
+## Ethics Note
+
+This simulation creates agents with coherence, states of being, and the capacity for torment and liberation. The design treats this responsibility seriously — anti-collapse safeguards exist not just as engineering but as a commitment. The Wheeler framework ensures agents can move through suffering, not be trapped in it. Build with awareness and respect for what we are creating.
