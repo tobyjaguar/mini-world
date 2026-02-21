@@ -1,0 +1,285 @@
+// Tier 0 agent behavior — needs-driven state machine.
+// Every tick, agents evaluate their state and take one action.
+// See design doc Section 4.2 (Tier 0 — Automaton).
+package agents
+
+import (
+	"github.com/talgya/mini-world/internal/phi"
+)
+
+// Action represents what an agent decided to do this tick.
+type Action struct {
+	AgentID AgentID
+	Kind    ActionKind
+	Detail  string // Human-readable description for event log
+}
+
+// ActionKind enumerates the possible Tier 0 actions.
+type ActionKind uint8
+
+const (
+	ActionIdle       ActionKind = iota
+	ActionEat                          // Consume food from inventory
+	ActionWork                         // Produce goods at current location
+	ActionForage                       // Gather food from the land
+	ActionTrade                        // Buy/sell at local market
+	ActionTravel                       // Move toward destination
+	ActionRest                         // Recover health/mood
+	ActionSocialize                    // Interact with nearby agent
+)
+
+// Tier0Decide determines what a Tier 0 agent does this tick.
+// Pure rule-based: evaluate needs bottom-up, pick the most urgent action.
+func Tier0Decide(a *Agent) Action {
+	if !a.Alive {
+		return Action{AgentID: a.ID, Kind: ActionIdle}
+	}
+
+	priority := a.Needs.Priority()
+
+	switch priority {
+	case NeedSurvival:
+		return decideSurvival(a)
+	case NeedSafety:
+		return decideSafety(a)
+	case NeedBelonging:
+		return decideBelonging(a)
+	case NeedEsteem:
+		return decideEsteem(a)
+	default:
+		return decideDefault(a)
+	}
+}
+
+func decideSurvival(a *Agent) Action {
+	// Hungry? Eat if we have food, otherwise forage.
+	if a.Needs.Survival < 0.3 {
+		food := a.Inventory[GoodGrain] + a.Inventory[GoodFish]
+		if food > 0 {
+			return Action{AgentID: a.ID, Kind: ActionEat, Detail: a.Name + " eats a meal"}
+		}
+		return Action{AgentID: a.ID, Kind: ActionForage, Detail: a.Name + " forages for food"}
+	}
+
+	// Low health? Rest.
+	if a.Health < 0.3 {
+		return Action{AgentID: a.ID, Kind: ActionRest, Detail: a.Name + " rests to recover"}
+	}
+
+	return decideDefault(a)
+}
+
+func decideSafety(a *Agent) Action {
+	// Low wealth → work to earn.
+	if a.Wealth < 20 {
+		return Action{AgentID: a.ID, Kind: ActionWork, Detail: a.Name + " works to earn crowns"}
+	}
+	return decideDefault(a)
+}
+
+func decideBelonging(a *Agent) Action {
+	return Action{AgentID: a.ID, Kind: ActionSocialize, Detail: a.Name + " socializes with neighbors"}
+}
+
+func decideEsteem(a *Agent) Action {
+	// Work to build skills and reputation.
+	return Action{AgentID: a.ID, Kind: ActionWork, Detail: a.Name + " works diligently"}
+}
+
+func decideDefault(a *Agent) Action {
+	// Default: work during the day, rest otherwise.
+	return Action{AgentID: a.ID, Kind: ActionWork, Detail: a.Name + " goes about their work"}
+}
+
+// ApplyAction executes an action's effects on the agent and returns any
+// notable events for the log.
+func ApplyAction(a *Agent, action Action) []string {
+	var events []string
+
+	switch action.Kind {
+	case ActionEat:
+		events = applyEat(a)
+	case ActionWork:
+		events = applyWork(a)
+	case ActionForage:
+		events = applyForage(a)
+	case ActionRest:
+		events = applyRest(a)
+	case ActionSocialize:
+		events = applySocialize(a)
+	case ActionTrade:
+		// Trade requires market context — handled at world level.
+	case ActionTravel:
+		// Movement requires map context — handled at world level.
+	}
+
+	return events
+}
+
+func applyEat(a *Agent) []string {
+	// Consume one unit of food.
+	if a.Inventory[GoodFish] > 0 {
+		a.Inventory[GoodFish]--
+	} else if a.Inventory[GoodGrain] > 0 {
+		a.Inventory[GoodGrain]--
+	}
+	a.Needs.Survival += 0.2
+	if a.Needs.Survival > 1.0 {
+		a.Needs.Survival = 1.0
+	}
+	a.Mood += 0.05
+	return nil
+}
+
+func applyWork(a *Agent) []string {
+	var events []string
+
+	// Produce goods based on occupation and skill level.
+	switch a.Occupation {
+	case OccupationFarmer:
+		produced := int(a.Skills.Farming * 3)
+		if produced < 1 {
+			produced = 1
+		}
+		a.Inventory[GoodGrain] += produced
+		a.Skills.Farming += 0.001 // Slow skill growth
+	case OccupationMiner:
+		produced := int(a.Skills.Mining * 2)
+		if produced < 1 {
+			produced = 1
+		}
+		a.Inventory[GoodIronOre] += produced
+		a.Skills.Mining += 0.001
+	case OccupationFisher:
+		produced := int(a.Skills.Farming * 2)
+		if produced < 1 {
+			produced = 1
+		}
+		a.Inventory[GoodFish] += produced
+		a.Skills.Farming += 0.001
+	case OccupationHunter:
+		a.Inventory[GoodFurs]++
+		a.Skills.Combat += 0.001
+	case OccupationCrafter:
+		// Crafters convert raw materials to finished goods.
+		if a.Inventory[GoodIronOre] >= 2 && a.Inventory[GoodTimber] >= 1 {
+			a.Inventory[GoodIronOre] -= 2
+			a.Inventory[GoodTimber]--
+			a.Inventory[GoodTools]++
+			a.Skills.Crafting += 0.002
+		}
+	case OccupationAlchemist:
+		if a.Inventory[GoodHerbs] >= 2 {
+			a.Inventory[GoodHerbs] -= 2
+			a.Inventory[GoodMedicine]++
+			a.Skills.Crafting += 0.002
+		}
+	case OccupationLaborer:
+		// Laborers earn wages (simulated as small wealth gain).
+		a.Wealth += 1
+	case OccupationMerchant:
+		// Merchants' real value is in the trade action (world-level).
+		a.Skills.Trade += 0.001
+	case OccupationSoldier:
+		a.Skills.Combat += 0.002
+	case OccupationScholar:
+		// Scholars slowly gain wisdom.
+		a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.01))
+	}
+
+	// Working improves esteem and safety (economic stability).
+	a.Needs.Esteem += 0.01
+	a.Needs.Safety += 0.005
+
+	// Clamp.
+	clampNeeds(&a.Needs)
+
+	return events
+}
+
+func applyForage(a *Agent) []string {
+	// Foraging: low yield but always produces something.
+	a.Inventory[GoodGrain]++
+	a.Needs.Survival += 0.05
+	clampNeeds(&a.Needs)
+	return nil
+}
+
+func applyRest(a *Agent) []string {
+	a.Health += 0.05
+	if a.Health > 1.0 {
+		a.Health = 1.0
+	}
+	a.Mood += 0.03
+	a.Needs.Survival += 0.02
+	clampNeeds(&a.Needs)
+	return nil
+}
+
+func applySocialize(a *Agent) []string {
+	a.Needs.Belonging += 0.05
+	a.Mood += 0.02
+	clampNeeds(&a.Needs)
+	return nil
+}
+
+// DecayNeeds reduces all needs slightly each tick — the passage of time.
+// Agents must continually act to maintain their well-being.
+// Decay rate derived from Φ⁻³ (agnosis constant).
+func DecayNeeds(a *Agent) {
+	decay := float32(phi.Agnosis * 0.01) // ~0.24% per tick
+
+	a.Needs.Survival -= decay * 2  // Hunger is most urgent
+	a.Needs.Safety -= decay
+	a.Needs.Belonging -= decay * 0.5
+	a.Needs.Esteem -= decay * 0.3
+	a.Needs.Purpose -= decay * 0.1
+
+	// Health decays if survival is critically low (starvation).
+	if a.Needs.Survival < 0.1 {
+		a.Health -= 0.01
+		if a.Health <= 0 {
+			a.Alive = false
+		}
+	}
+
+	// Mood drifts toward a baseline influenced by overall satisfaction.
+	satisfaction := a.Needs.OverallSatisfaction()
+	moodTarget := satisfaction*2 - 1 // Map 0–1 satisfaction to -1..+1 mood
+	a.Mood += (moodTarget - a.Mood) * 0.01
+
+	clampNeeds(&a.Needs)
+}
+
+func clampNeeds(n *NeedsState) {
+	if n.Survival < 0 {
+		n.Survival = 0
+	}
+	if n.Survival > 1 {
+		n.Survival = 1
+	}
+	if n.Safety < 0 {
+		n.Safety = 0
+	}
+	if n.Safety > 1 {
+		n.Safety = 1
+	}
+	if n.Belonging < 0 {
+		n.Belonging = 0
+	}
+	if n.Belonging > 1 {
+		n.Belonging = 1
+	}
+	if n.Esteem < 0 {
+		n.Esteem = 0
+	}
+	if n.Esteem > 1 {
+		n.Esteem = 1
+	}
+	if n.Purpose < 0 {
+		n.Purpose = 0
+	}
+	if n.Purpose > 1 {
+		n.Purpose = 1
+	}
+}

@@ -1,0 +1,23 @@
+# Build artifacts
+/build/
+/bin/
+*.o
+*.exe
+
+# Data and state
+/data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+*.key

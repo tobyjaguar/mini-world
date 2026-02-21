@@ -1,0 +1,29 @@
+[Unit]
+Description=SYNTHESIS / Crossroads — Autonomous World Simulation
+After=network.target
+
+[Service]
+Type=simple
+User=worldsim
+Group=worldsim
+WorkingDirectory=/opt/worldsim
+ExecStart=/opt/worldsim/worldsim
+Restart=always
+RestartSec=5
+
+# Allow binding to port 80 without root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# Logging goes to journald.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=worldsim
+
+# Security hardening.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/worldsim/data
+
+[Install]
+WantedBy=multi-user.target
