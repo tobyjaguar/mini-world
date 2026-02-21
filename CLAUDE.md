@@ -53,31 +53,56 @@ The full design specification lives in `docs/worldsim-design.md` (~1,500 lines, 
 - **Weather API** (OpenWeatherMap or similar): Real weather → in-world weather
 - **random.org API**: True randomness for critical stochastic events
 
+## Repository
+
+**GitHub**: https://github.com/tobyjaguar/mini-world (public)
+
+Secrets and connection details live in `deploy/config.local` (gitignored). Copy `deploy/config.local.example` to get started.
+
 ## Directory Structure
 
 ```
 mini-world/
 ├── CLAUDE.md                    # This file — project guide
-├── docs/                        # Design documents, research, progress
+├── docs/
 │   ├── worldsim-design.md       # Complete design spec (source of truth)
-│   └── CLAUDE_CODE_PROMPT.md    # Implementation guide
-├── cmd/
-│   └── worldsim/
-│       └── main.go              # Entry point
+│   ├── CLAUDE_CODE_PROMPT.md    # Implementation guide
+│   ├── 00-project-vision.md     # Project vision and design pillars
+│   ├── 01-language-decision.md  # Go language rationale
+│   ├── 02-operations.md         # Server ops, API reference, security
+│   └── 03-next-steps.md         # Phase 2+ roadmap and priorities
+├── cmd/worldsim/
+│   └── main.go                  # Entry point
 ├── internal/
 │   ├── phi/                     # Emanation constants (Φ-derived)
-│   ├── world/                   # Hex grid, terrain, weather, map generation
-│   ├── agents/                  # Agent types, needs, cognition tiers, memory
-│   ├── economy/                 # Markets, goods, trade, currency, balance
-│   ├── social/                  # Factions, governance, relationships, conflict
-│   ├── events/                  # Event detection, news generation, newspaper
+│   │   ├── constants.go         #   Golden ratio powers, growth angle
+│   │   └── field.go             #   ConjugateField interface
+│   ├── world/                   # Hex grid, terrain, map generation
+│   │   ├── hex.go               #   HexCoord, terrain types, neighbors
+│   │   ├── map.go               #   Map container
+│   │   ├── generation.go        #   Simplex noise world generation
+│   │   └── settlement_placer.go #   Settlement scoring and placement
+│   ├── agents/                  # Agent types, needs, cognition tiers
+│   │   ├── types.go             #   Agent struct, goods, skills, relationships
+│   │   ├── soul.go              #   Wheeler coherence model
+│   │   ├── needs.go             #   Maslow needs hierarchy
+│   │   ├── behavior.go          #   Tier 0 state machine
+│   │   └── spawner.go           #   Population generation, Tier 2 promotion
+│   ├── economy/goods.go         # Good types and market mechanics
+│   ├── social/settlement.go     # Settlement type and governance
+│   ├── events/                  # Event detection (placeholder)
 │   ├── engine/                  # Tick engine, simulation loop
-│   ├── persistence/             # SQLite database, snapshots
-│   └── api/                     # HTTP API routes and handlers
-├── external/                    # API clients (Haiku, weather, random.org)
-├── config/                      # Configuration loading, worldsim.toml
-├── prompts/                     # LLM prompt templates (TOML)
-├── data/                        # Runtime: world state, event logs (gitignored)
+│   │   ├── tick.go              #   Layered tick schedule, sim time
+│   │   └── simulation.go        #   World state, tick callbacks, stats
+│   ├── persistence/db.go        # SQLite save/load (WAL mode)
+│   └── api/server.go            # HTTP API (public GET, auth POST)
+├── deploy/
+│   ├── deploy.sh                # Build, upload, restart
+│   ├── worldsim.service         # systemd unit file
+│   ├── config.local.example     # Template for connection details
+│   └── config.local             # Real values (gitignored)
+├── data/                        # Runtime SQLite DB (gitignored)
+├── build/                       # Compiled binaries (gitignored)
 ├── go.mod
 └── go.sum
 ```
@@ -112,6 +137,7 @@ The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for 
 
 ### API Endpoints
 
+Public (GET, no auth — anyone can observe the world):
 ```
 GET  /api/v1/status       → World clock, population, economy summary
 GET  /api/v1/settlements  → All settlements with governance and health
@@ -119,6 +145,10 @@ GET  /api/v1/agents       → Notable Tier 2 characters (default) or ?tier=0
 GET  /api/v1/agent/:id    → Full agent detail
 GET  /api/v1/events       → Recent world events (?limit=N)
 GET  /api/v1/stats        → Aggregate statistics
+```
+
+Admin (POST, requires `Authorization: Bearer <WORLDSIM_ADMIN_KEY>`):
+```
 POST /api/v1/speed        → Set simulation speed {"speed": N}
 ```
 

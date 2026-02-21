@@ -30,4 +30,14 @@ A persistent, autonomous simulated world that runs on a cloud server. Agents (vi
 
 ## Status
 
-Project initiated. Awaiting research results from Claude.ai on simulated world design patterns and prior art before finalizing architecture and language choice.
+**Phase 1 complete.** The world is live and running 24/7 on a DreamCompute instance.
+
+- Go chosen as implementation language (see `01-language-decision.md`)
+- 28,912 agents across 73 settlements on a hex grid continent
+- Tier 0 behavior (needs-driven state machine) operational
+- SQLite persistence with daily auto-save
+- HTTP API with public read / auth-gated admin endpoints
+- Server hardened (UFW, fail2ban, SSH lockdown)
+- Public repo: https://github.com/tobyjaguar/mini-world
+
+See `03-next-steps.md` for the Phase 2+ roadmap.

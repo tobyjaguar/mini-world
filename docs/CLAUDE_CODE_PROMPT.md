@@ -8,17 +8,17 @@ This is NOT a game. It is a **petri dish** — a simulation designed for emergen
 
 ## What Has Been Done
 
-The project has gone through extensive design and theoretical integration. The design document (`worldsim-design.md`) is the **single source of truth** and contains everything you need:
+**Phase 1 is complete.** The world is live and running. The design document (`worldsim-design.md`) remains the **single source of truth** for architecture. Note: the design doc was originally written with Rust examples, but the project is implemented in **Go** (see `01-language-decision.md` for the translation table).
 
 ### Sections 1–15: Core Architecture (the "engineering" layer)
 These sections define the conventional simulation architecture:
-- **Rust-based tick engine** with hex grid world, terrain, resources
+- **Tick engine** with hex grid world, terrain, resources (implemented in Go)
 - **Tiered agent cognition**: 95% rule-based (Tier 0), 4% archetype-guided (Tier 1), <1% individual LLM-powered (Tier 2, Haiku API)
 - **Robust economic system**: scarcity, sinks/faucets, multi-settlement trade, currency, crafting chains, price discovery
 - **Social/political systems**: factions, governance, relationships, crime, conflict
-- **Technical stack**: Rust core, SQLite persistence, HTTP API (Axum), Haiku API for cognition
+- **Technical stack**: Go core, SQLite persistence (`modernc.org/sqlite`), HTTP API (`net/http`), Haiku API for cognition
 - **Five-phase implementation roadmap** from MVP through LLM integration to polish
-- **File structure**, crate recommendations, configuration, and API examples
+- **File structure** and API examples
 
 ### Section 16: Emanationist Cosmology — The Wheeler Integration (the "soul" layer)
 This is what makes SYNTHESIS philosophically distinctive. Section 16 translates Ken Wheeler's emanationist metaphysics (a synthesis of Neoplatonism, Pythagorean number theory, Buddhist psychology, and field theory) into **concrete simulation architecture**. It provides:
@@ -44,20 +44,21 @@ This is what makes SYNTHESIS philosophically distinctive. Section 16 translates 
 3. **The Wheeler layer is not decoration** — it provides the mathematical backbone that prevents arbitrary tuning. When you need a decay rate, a threshold, or a balance ratio, derive it from Φ (Section 16.15) instead of guessing.
 
 ### Key architectural decisions already made
-- **Rust** for the core engine (performance, safety, concurrency)
-- **Hex grid** (~2,000 hexes, continental shape)
-- **SQLite** for persistence (simple, embedded, sufficient for single-server)
-- **Axum** for HTTP API
+- **Go** for the core engine (development velocity, memory safety, built-in HTTP/JSON)
+- **Hex grid** (~1,519 hexes, radius 22, continental shape via simplex noise)
+- **SQLite** for persistence (`modernc.org/sqlite`, WAL mode, daily auto-save)
+- **`net/http`** for HTTP API (public GET, auth-gated POST)
 - **Haiku API** for LLM cognition (rate-limited, tiered — not every agent, not every tick)
 - **Emergence over scripting** — never hard-code storylines or outcomes
 - **Economic robustness as heartbeat** — if the economy works, everything else follows
 
-### Critical Rust structs to implement early
+### Core Go types (already implemented)
 From the design doc, the core data structures are:
-- `Agent` (Section 4.1) with `AgentSoul` (Section 16.2)
-- `Settlement`, `Hex`, `Market`, `Faction`
-- `EmanationConstants` (Section 16.15) — define this first, reference it everywhere
-- `ConjugateField` trait (Section 16.6) — implement for Agent, Settlement, WorldEconomy
+- `Agent` (Section 4.1) with `AgentSoul` (Section 16.2) → `internal/agents/types.go`, `soul.go`
+- `Settlement` → `internal/social/settlement.go`
+- `HexCoord`, `Hex`, `Map` → `internal/world/hex.go`, `map.go`
+- Φ constants (Section 16.15) → `internal/phi/constants.go`
+- `ConjugateField` interface (Section 16.6) → `internal/phi/field.go`
 
 ### What "done" looks like
 A working SYNTHESIS produces a world where:
