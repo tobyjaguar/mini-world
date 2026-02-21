@@ -7,20 +7,25 @@ import (
 )
 
 // StateOfBeing represents the agent's coherence band.
+// Named for the philosophical condition, not the subjective experience.
+// An Embodied farmer with a full belly and warm home is content — they're just
+// identified with phenomena rather than self-similar. See Wheeler's Codex on Evil:
+// "For the fool no such separation exists, nor this form of torture."
 type StateOfBeing uint8
 
 const (
-	// Torment: low coherence (0.0–0.3). Scattered, reactive, driven by
-	// immediate desires/fears. Takes on attribution of environment.
-	Torment StateOfBeing = iota
+	// Embodied: low coherence (0.0–0.3). Consciousness scattered among phenomena.
+	// Identified with body, desires, routines. The default condition of embodied beings.
+	// Not suffering — simply ordinary life.
+	Embodied StateOfBeing = iota
 
-	// WellBeing: medium coherence (0.4–0.6). Stable, prosperous, materially
-	// successful. Centered but not transcendent. The "well-being" trap.
-	WellBeing
+	// Centered: medium coherence (0.4–0.6). Stable, introspective, materially
+	// successful. The meditator — calm but not transcendent.
+	Centered
 
-	// Liberation: high coherence (0.7–1.0). Extremely rare. Self-similar,
+	// Liberated: high coherence (0.7–1.0). Extremely rare. Self-similar,
 	// point-source. Disproportionate influence on world events.
-	Liberation
+	Liberated
 )
 
 // AgentClass represents the agent's fundamental behavioral orientation.
@@ -68,11 +73,11 @@ type AgentSoul struct {
 func StateFromCoherence(coherence float32) StateOfBeing {
 	switch {
 	case coherence >= 0.7:
-		return Liberation
+		return Liberated
 	case coherence >= 0.4:
-		return WellBeing
+		return Centered
 	default:
-		return Torment
+		return Embodied
 	}
 }
 

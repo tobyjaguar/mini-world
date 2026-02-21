@@ -296,7 +296,7 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 		agents.GoodClothing: "Clothing", agents.GoodMedicine: "Medicine", agents.GoodLuxuries: "Luxuries",
 	}
 	stateNames := map[agents.StateOfBeing]string{
-		agents.Torment: "in Torment", agents.WellBeing: "in WellBeing", agents.Liberation: "Liberated",
+		agents.Embodied: "Embodied", agents.Centered: "Centered", agents.Liberated: "Liberated",
 	}
 	elementNames := map[agents.ElementType]string{
 		agents.ElementHelium: "Helium", agents.ElementHydrogen: "Hydrogen",
@@ -455,12 +455,12 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 		aliveCount++
 		totalCoherence += a.Soul.CittaCoherence
 		switch a.Soul.State {
-		case agents.Torment:
-			data.CoherenceCounts.Torment++
-		case agents.WellBeing:
-			data.CoherenceCounts.WellBeing++
-		case agents.Liberation:
-			data.CoherenceCounts.Liberation++
+		case agents.Embodied:
+			data.CoherenceCounts.Embodied++
+		case agents.Centered:
+			data.CoherenceCounts.Centered++
+		case agents.Liberated:
+			data.CoherenceCounts.Liberated++
 		}
 	}
 	if aliveCount > 0 {
@@ -764,7 +764,7 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 
 	// Tier distribution.
 	tier0, tier1, tier2 := 0, 0, 0
-	torment, wellBeing, liberation := 0, 0, 0
+	embodied, centered, liberated := 0, 0, 0
 	for _, a := range s.Sim.Agents {
 		if !a.Alive {
 			continue
@@ -778,12 +778,12 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 			tier2++
 		}
 		switch a.Soul.State {
-		case agents.Torment:
-			torment++
-		case agents.WellBeing:
-			wellBeing++
-		case agents.Liberation:
-			liberation++
+		case agents.Embodied:
+			embodied++
+		case agents.Centered:
+			centered++
+		case agents.Liberated:
+			liberated++
 		}
 	}
 
@@ -816,9 +816,9 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 			"tier_2": tier2,
 		},
 		"coherence_distribution": map[string]int{
-			"torment":    torment,
-			"well_being": wellBeing,
-			"liberation": liberation,
+			"embodied":  embodied,
+			"centered":  centered,
+			"liberated": liberated,
 		},
 		"recent_political_events": politicalEvents,
 	}

@@ -49,7 +49,7 @@ func (s *Simulation) processTier2Decisions(tick uint64) {
 	}
 	govNames := map[uint8]string{0: "Monarchy", 1: "Council", 2: "Merchant Republic", 3: "Commune"}
 	stateNames := map[agents.StateOfBeing]string{
-		agents.Torment: "in Torment", agents.WellBeing: "in WellBeing", agents.Liberation: "Liberated",
+		agents.Embodied: "Embodied", agents.Centered: "Centered", agents.Liberated: "Liberated",
 	}
 
 	for _, a := range tier2[start:end] {

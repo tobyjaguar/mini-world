@@ -9,6 +9,7 @@ import (
 	"github.com/talgya/mini-world/internal/economy"
 	"github.com/talgya/mini-world/internal/entropy"
 	"github.com/talgya/mini-world/internal/llm"
+	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/weather"
 	"github.com/talgya/mini-world/internal/world"
@@ -154,9 +155,17 @@ func (s *Simulation) TickMinute(tick uint64) {
 			})
 			s.inheritWealth(a, tick)
 
-			// Create memories for nearby Tier 2 agents.
 			if a.HomeSettID != nil {
+				// Create memories for nearby Tier 2 agents.
 				s.createSettlementMemories(*a.HomeSettID, tick, deathDesc, 0.6)
+
+				// Via negativa: witnessing death strips attachment, increasing coherence.
+				// "Loss removes dilution" — Wheeler's subtraction principle.
+				for _, witness := range s.SettlementAgents[*a.HomeSettID] {
+					if witness.Alive && witness.ID != a.ID {
+						witness.Soul.AdjustCoherence(float32(phi.Agnosis * 0.05))
+					}
+				}
 			}
 		}
 	}
@@ -206,6 +215,7 @@ func (s *Simulation) TickDay(tick uint64) {
 	s.processRelationships(tick)
 	s.processCrime(tick)
 	s.processTier1Growth()
+	s.processBaselineCoherence()
 	s.processGovernance(tick)
 	s.processTier2Decisions(tick)
 	s.updateStats()
@@ -489,6 +499,23 @@ func (s *Simulation) createSettlementMemories(settID uint64, tick uint64, conten
 func (s *Simulation) processTier1Growth() {
 	for _, a := range s.Agents {
 		agents.ApplyTier1CoherenceGrowth(a)
+	}
+}
+
+// processBaselineCoherence gives all agents a tiny coherence drift when
+// their lives are stable. "Rest seeks rest" — a stable life naturally resolves
+// toward slightly less scatter. Over a full lifespan, some agents drift from
+// deep Embodied toward the upper edge. See Wheeler: attachments naturally
+// fall away as you age.
+func (s *Simulation) processBaselineCoherence() {
+	for _, a := range s.Agents {
+		if !a.Alive {
+			continue
+		}
+		satisfaction := a.Needs.OverallSatisfaction()
+		if satisfaction > 0.7 && a.Age > 30 {
+			a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.001))
+		}
 	}
 }
 

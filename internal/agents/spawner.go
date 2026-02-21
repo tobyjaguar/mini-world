@@ -229,10 +229,11 @@ func (s *Spawner) skillsForOccupation(occ Occupation) SkillSet {
 }
 
 func (s *Spawner) generateSoul() AgentSoul {
-	// Coherence: most agents are low (Torment or WellBeing).
-	// Distribution matches Wheeler: few at extremes.
-	coherence := float32(s.rng.Float64() * phi.Matter) // 0–0.618, skewed low
-	coherence *= float32(s.rng.Float64())               // Skew further toward low
+	// Coherence: centered on Agnosis (Φ⁻³ ≈ 0.236) — the natural entropy of embodiment.
+	// Normal distribution gives range within Embodied: some deeply scattered,
+	// some approaching Centered, but nobody spawns enlightened.
+	coherence := float32(phi.Agnosis + s.rng.NormFloat64()*phi.Agnosis*0.5)
+	coherence = clamp32(coherence, 0.01, float32(phi.Matter)) // 0.01 to 0.618 max
 
 	// Mass and Gauss: most are moderate (Helium-type).
 	mass := float32(s.rng.NormFloat64()*0.2 + 0.35)
@@ -317,8 +318,9 @@ func (s *Spawner) SpawnChild(position world.HexCoord, settlementID uint64, terra
 		Trade:    0.05 + s.rng.Float32()*0.05,
 	}
 
-	// Soul: slight influence from parent coherence (cultural transmission).
-	coherence := float32(s.rng.Float64()*phi.Matter) * float32(s.rng.Float64())
+	// Soul: centered on Agnosis with slight influence from parent (cultural transmission).
+	coherence := float32(phi.Agnosis + s.rng.NormFloat64()*phi.Agnosis*0.5)
+	coherence = clamp32(coherence, 0.01, float32(phi.Matter))
 	// Small boost from parent wisdom.
 	coherence += parent.Soul.CittaCoherence * float32(phi.Agnosis)
 	if coherence > 1 {

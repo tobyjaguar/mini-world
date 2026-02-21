@@ -23,7 +23,7 @@ type Tier2Context struct {
 	Wealth     uint64
 	Mood       string // e.g. "content", "anxious", "elated"
 	Coherence  float32
-	State      string // "in Torment", "in WellBeing", "Liberated"
+	State      string // "Embodied", "Centered", "Liberated"
 	Archetype  string
 
 	Settlement string

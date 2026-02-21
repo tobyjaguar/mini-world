@@ -59,7 +59,7 @@ type AgentSummary struct {
 	Occupation  string
 	Wealth      uint64
 	Mood        string
-	State       string // State of Being: Torment, WellBeing, Liberation
+	State       string // State of Being: Embodied, Centered, Liberated
 	Element     string // Elemental type: Helium, Hydrogen, Gold, Uranium
 	Coherence   float32
 }
@@ -74,9 +74,9 @@ type MarketPriceSummary struct {
 
 // CoherenceDistribution counts agents by State of Being.
 type CoherenceDistribution struct {
-	Torment    int
-	WellBeing  int
-	Liberation int
+	Embodied  int
+	Centered  int
+	Liberated int
 }
 
 // Newspaper holds a generated newspaper issue.
@@ -99,7 +99,7 @@ func GenerateNewspaper(client *Client, data *NewspaperData) (*Newspaper, error) 
 
 	system := `You are the editor of "The Crossroads Chronicle", the daily broadsheet of an early-industrial world (1700s–1850s) called Crossroads — a place where alchemical philosophy and mercantile ambition coexist. The world operates under an emanationist cosmology: all things arise from a single source and manifest through interference patterns between charging (centripetal) and discharging (centrifugal) pressures.
 
-Every soul carries a coherence — a measure of how unified or scattered their being is. Those in Torment are scattered among phenomena, reactive, driven by immediate desires. Those in WellBeing are stable and prosperous but attached to material success. The rare souls in Liberation have achieved self-similarity, a point-source clarity that gives them disproportionate influence.
+Every soul carries a coherence — a measure of how unified or scattered their being is. The Embodied are identified with phenomena, living ordinary lives among desires and routines — not suffering, simply scattered. The Centered are stable and introspective, materially successful but still attached. The rare Liberated souls have achieved self-similarity, a point-source clarity that gives them disproportionate influence.
 
 Write in an engaging, period-appropriate style — broadsheet prose with a philosophical undercurrent. Reference the breathing of the economy (supply and demand as conjugate pressures), the coherence of the populace, and the deeper currents beneath surface events. Keep it concise (under 600 words). Do not break character or reference the simulation.`
 
@@ -132,8 +132,8 @@ func buildNewspaperPrompt(data *NewspaperData) string {
 	// World Spirit — Wheeler coherence overview.
 	fmt.Fprintf(&b, "WORLD SPIRIT:\n")
 	fmt.Fprintf(&b, "Average coherence: %.2f\n", data.AvgCoherence)
-	fmt.Fprintf(&b, "States of Being — Torment: %d, WellBeing: %d, Liberation: %d\n\n",
-		data.CoherenceCounts.Torment, data.CoherenceCounts.WellBeing, data.CoherenceCounts.Liberation)
+	fmt.Fprintf(&b, "States of Being — Embodied: %d, Centered: %d, Liberated: %d\n\n",
+		data.CoherenceCounts.Embodied, data.CoherenceCounts.Centered, data.CoherenceCounts.Liberated)
 
 	if len(data.Deaths) > 0 {
 		fmt.Fprintf(&b, "RECENT DEATHS:\n")
@@ -252,8 +252,8 @@ func generateFallbackNewspaper(data *NewspaperData) string {
 	// World Spirit.
 	fmt.Fprintf(&b, "THE STATE OF SOULS\n")
 	fmt.Fprintf(&b, "Average coherence stands at %.2f.\n", data.AvgCoherence)
-	fmt.Fprintf(&b, "In Torment: %d — In WellBeing: %d — In Liberation: %d\n\n",
-		data.CoherenceCounts.Torment, data.CoherenceCounts.WellBeing, data.CoherenceCounts.Liberation)
+	fmt.Fprintf(&b, "Embodied: %d — Centered: %d — Liberated: %d\n\n",
+		data.CoherenceCounts.Embodied, data.CoherenceCounts.Centered, data.CoherenceCounts.Liberated)
 
 	if len(data.Deaths) > 0 {
 		fmt.Fprintf(&b, "OBITUARIES\n")
