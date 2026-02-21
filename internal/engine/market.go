@@ -58,11 +58,18 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		}
 	}
 
+	// Population-scaled supply floor prevents extreme demand/supply ratios
+	// in large settlements. A 500-person settlement gets a floor of 5.
+	supplyFloor := float64(sett.Population / 100)
+	if supplyFloor < 1 {
+		supplyFloor = 1
+	}
+
 	// Resolve prices from supply/demand.
 	for good, entry := range market.Entries {
 		// Ensure minimum supply/demand so prices don't go to extremes immediately.
-		if entry.Supply < 1 {
-			entry.Supply = 1
+		if entry.Supply < supplyFloor {
+			entry.Supply = supplyFloor
 		}
 		if entry.Demand < 1 {
 			entry.Demand = 1

@@ -71,9 +71,12 @@ func (s *Settlement) Health() float64 {
 
 // IsOvermassed checks if the settlement has exceeded its governance capacity.
 // See design doc Section 16.5.3 (M> barrier).
+// Base capacity scales with infrastructure so that small settlements aren't
+// permanently overmassed. A new settlement (ML=1, GS=0.5) can hold ~513 people.
 func (s *Settlement) IsOvermassed() bool {
-	capacity := s.GovernanceScore * phi.Totality
-	load := float64(s.Population) + float64(s.Treasury)*phi.Agnosis
+	baseCap := 100.0 + float64(s.MarketLevel)*50 + float64(s.RoadLevel)*25 + float64(s.WallLevel)*25
+	capacity := baseCap * s.GovernanceScore * phi.Totality
+	load := float64(s.Population)
 	return load > capacity*phi.Being
 }
 

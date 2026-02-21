@@ -189,6 +189,33 @@ func resourceCap(terrain world.Terrain, res world.ResourceType) float64 {
 	return 10 // Default small amount
 }
 
+// weeklyResourceRegen replenishes hex resources at a smaller rate than seasonal regen.
+// Without this, hexes stay depleted for 24 sim-days between seasons. Weekly regen
+// recovers ~4.7% of deficit (Agnosis * 0.2) so resources trickle back between seasons.
+func (s *Simulation) weeklyResourceRegen() {
+	for q := -s.WorldMap.Radius; q <= s.WorldMap.Radius; q++ {
+		for r := -s.WorldMap.Radius; r <= s.WorldMap.Radius; r++ {
+			coord := world.HexCoord{Q: q, R: r}
+			hex := s.WorldMap.Get(coord)
+			if hex == nil || hex.Terrain == world.TerrainOcean {
+				continue
+			}
+
+			for res, qty := range hex.Resources {
+				maxQty := resourceCap(hex.Terrain, res)
+				if qty < maxQty {
+					deficit := maxQty - qty
+					regen := deficit * phi.Agnosis * 0.2 // ~4.7% of deficit per week
+					hex.Resources[res] = qty + regen
+					if hex.Resources[res] > maxQty {
+						hex.Resources[res] = maxQty
+					}
+				}
+			}
+		}
+	}
+}
+
 // autumnHarvest gives farmers a seasonal production bonus.
 func (s *Simulation) autumnHarvest(tick uint64) {
 	harvestCount := 0

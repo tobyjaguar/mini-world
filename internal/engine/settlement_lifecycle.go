@@ -15,7 +15,7 @@ import (
 )
 
 // processSettlementOvermass checks weekly for overmassed settlements and triggers diaspora.
-// When a settlement exceeds its governance capacity, ~62% of agents emigrate in
+// When a settlement exceeds its governance capacity, ~24% of agents emigrate in
 // golden-angle directions. If 10+ emigrants cluster near a habitable hex, a new
 // settlement is founded.
 func (s *Simulation) processSettlementOvermass(tick uint64) {
@@ -40,8 +40,9 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 			continue // Not enough people for meaningful diaspora
 		}
 
-		// ~62% (Matter ratio) of agents emigrate.
-		emigrantCount := int(float64(len(aliveAgents)) * phi.Matter)
+		// ~24% (Agnosis ratio) of agents emigrate — smaller diaspora prevents
+		// gutting parent settlements and reduces settlement cascade.
+		emigrantCount := int(float64(len(aliveAgents)) * phi.Agnosis)
 		if emigrantCount < 10 {
 			continue
 		}

@@ -204,6 +204,16 @@ Five issues were diagnosed from observing the live world and fixed. See `docs/03
 4. **Faction treasury reset** — FIXED: Factions persist in SQLite (`factions` table), treasuries survive restart.
 5. **Crown faction irrelevant** — FIXED: Governance-based faction assignment + influence alignment bonuses.
 
+### Tuning Round 2: Settlement Explosion & Inflation
+
+Six issues from the live world were diagnosed and fixed. See `docs/04-settlement-inflation-fixes.md` for full details.
+
+6. **Overmass formula broken** — FIXED: `IsOvermassed()` now uses infrastructure-based capacity (100 + ML*50 + RL*25 + WL*25) scaled by governance and Φ constants. New settlement threshold ~513 pop instead of ~3.4.
+7. **Emigrant fraction too high** — FIXED: Diaspora fraction reduced from Matter (~62%) to Agnosis (~24%). Prevents parent settlements from being gutted.
+8. **Hex depletion with glacial regen** — FIXED: Weekly micro-regen (~4.7% of deficit) added so hexes don't stay depleted for 24 days between seasonal regens.
+9. **Coal has no producer** — FIXED: Miners produce 1 coal as secondary output alongside iron ore.
+10. **Supply floor too low** — FIXED: Market supply floor scales with population (`max(1, pop/100)`) instead of fixed 1.
+
 ### Remaining Minor Issue
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 

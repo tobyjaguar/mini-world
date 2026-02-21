@@ -263,6 +263,7 @@ func (s *Simulation) TickDay(tick uint64) {
 func (s *Simulation) TickWeek(tick uint64) {
 	s.processWeeklyFactions(tick)
 	s.processAntiStagnation(tick)
+	s.weeklyResourceRegen()
 	s.processSeasonalMigration(tick)
 	s.processSettlementOvermass(tick)
 	s.processSettlementAbandonment(tick)

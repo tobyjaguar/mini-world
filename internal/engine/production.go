@@ -80,6 +80,11 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex) []string
 	good := occupationGood(a.Occupation)
 	a.Inventory[good] += produced
 
+	// Miners produce 1 coal as secondary output (coal has no dedicated producer).
+	if a.Occupation == agents.OccupationMiner && produced > 0 {
+		a.Inventory[agents.GoodCoal]++
+	}
+
 	// Skill growth.
 	applySkillGrowth(a)
 
