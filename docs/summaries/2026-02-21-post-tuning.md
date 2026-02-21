@@ -44,13 +44,32 @@ Crown relevance fix confirmed — present in 84 settlements (up from ~39), riche
 - **Wealth distribution**: Poorest 50% hold 19.7% of wealth, richest 10% hold 22.7% — relatively flat
 - **Trade volume**: 28,115 merchant trades completed — 10x increase from pre-fix
 
-## What Worked
+## Tuning Changes Applied
 
-1. **Needs spiral fix** — mood jumped from -0.07 to +0.64. Agents are socializing, getting belonging and purpose from work and social interactions.
-2. **Fisher mood fix** — fallback work paths now replenish needs. No more universal fisher misery.
-3. **Faction persistence** — treasuries accumulating. The Crown is the richest faction at 1.16M crowns.
-4. **Crown relevance** — governance alignment bonuses working. Crown in 84 settlements, concentrated in monarchies.
-5. **Hunter scaling** — combat-scaled fur production contributing to supply, though furs still inflated in some markets.
+### 1. Fisher Mood Bug (Critical) — `internal/engine/production.go`
+**Problem**: Fishers on depleted hexes earned a fallback wage but got zero needs replenishment. `DecayNeeds()` drained all needs every tick with no counterbalance, causing mood to bottom out at -0.63.
+**Fix**: Added esteem (+0.01), safety (+0.005), belonging (+0.003) to all three fallback work paths (nil hex, depleted hex, second depletion check). Also added belonging (+0.003) to the successful production path.
+**Result**: Fisher mood recovered along with the general population.
+
+### 2. Raw Material Inflation (Critical) — `internal/engine/market.go`, `internal/engine/production.go`
+**Problem**: Each crafter demanded all 5 raw materials (iron, timber, coal, furs, gems) every market cycle. With ~794 crafters in a large settlement, demand hit 794 per material against supply of 1, slamming prices to the 4.2x ceiling. Hunters also produced only 1 fur/tick regardless of skill.
+**Fix**: Replaced blanket demand with `crafterRecipeDemand()` — each crafter picks the single recipe they're closest to completing and demands only its materials (max 2 goods). Four recipes: Tools (iron+timber), Weapons (iron+coal), Clothing (furs+tools), Luxuries (gems+tools). Also scaled hunter production with combat skill (`int(Combat * 2)`, min 1).
+**Result**: Market health improved from 0.259 to 0.352. Trade volume 10x'd. Some inflation persists in furs/iron in older settlements.
+
+### 3. Needs Decay Spiral (Medium) — `internal/agents/behavior.go`
+**Problem**: `NeedsState.Priority()` returned only the single most urgent need. Safety decayed faster than belonging, so agents always worked (for safety) and never socialized. Belonging, esteem, and purpose decayed to 0 for most agents.
+**Fix**: Three changes: (a) `applyWork` now gives belonging (+0.003) and purpose (+0.002) — working alongside others provides community. (b) `decideSafety` now has wealthy agents (>30 crowns) with low belonging (<0.4) socialize instead of defaulting to work. (c) `applySocialize` now gives safety (+0.003) and purpose (+0.002) — social bonds provide security.
+**Result**: Average mood jumped from -0.07 to +0.64. This was the single highest-impact fix.
+
+### 4. Faction Treasury Persistence (Medium) — `internal/persistence/db.go`, `internal/engine/factions.go`, `internal/engine/simulation.go`, `cmd/worldsim/main.go`
+**Problem**: No `factions` table in SQLite. On every restart, `initFactions()` created fresh factions with treasury=0, losing all accumulated dues.
+**Fix**: Added `factions` table (id, name, kind, leader_id, treasury, preferences, influence_json, relations_json). Added `SaveFactions()`/`LoadFactions()`/`HasFactions()`. Wired into `SaveWorldState()` (daily auto-save). Exported `InitFactions()`, added `SetFactions()`. Main.go loads from DB if available, falls back to `InitFactions()` for old DBs.
+**Result**: Crown treasury at 1.16M crowns, Merchant's Compact at 436K. Treasuries survive restarts.
+
+### 5. Crown Faction Irrelevant (Low) — `internal/engine/factions.go`
+**Problem**: Crown only recruited nobles/leaders with Devotionalist class or wealthy Ritualists — a tiny pool. Merchant's Compact got all merchants (a common occupation) and dominated 66/73 settlements.
+**Fix**: `factionForAgent` now accepts governance type. Common folk in monarchies with wealth>50 or coherence>0.3 join Crown. Common folk in merchant republics with trade>0.1 or wealth>80 join Merchant's Compact. `updateFactionInfluence` adds governance alignment bonus: Crown +15 in monarchies, Merchant's Compact +15 in merchant republics, Verdant Circle +10 in councils.
+**Result**: Crown present in 84 settlements (up from ~39), richest faction. Concentrated in monarchies as intended.
 
 ## Areas to Watch
 
