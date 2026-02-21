@@ -194,31 +194,18 @@ POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents
 4. **LLM Integration** — COMPLETE: Haiku API client, Tier 2 cognition, Tier 1 archetypes, newspaper generation, event narration, agent biographies
 5. **Polish & Perpetuation** — COMPLETE: Population dynamics (births/aging/death/migration), resource regen, anti-stagnation, settlement lifecycle (founding/abandonment), stats history, admin endpoints, random.org entropy, weather integration
 
-## Known Tuning Issues (from live world observations)
+## Tuning Fixes Applied
 
-These are diagnosed root causes from observing the live world. They don't require new systems — they're bugs and balance adjustments in existing mechanics.
+Five issues were diagnosed from observing the live world and fixed. See `docs/03-next-steps.md` for full details.
 
-### 1. Fisher Mood Bug (Critical)
-**Symptom**: All fishers have mood ~-0.63 with safety=0, belonging=0, esteem=0, purpose=0.
-**Root cause**: `internal/engine/production.go:40-43` — when hex fish resources are depleted (`available < 1.0`), the fallback path gives 1 crown wage but **skips the safety/esteem needs replenishment** at lines 75-77. Coast hexes start with only 70 fish; many fishers deplete this quickly. After depletion, fishers keep "working" via fallback but `DecayNeeds()` keeps draining all needs every tick with no replenishment. Fishers accumulate wealth (one observed at 13,362 crowns) but all non-survival needs bottom out to 0, dragging `OverallSatisfaction` to ~0.145 and mood to -0.63.
-**Also**: `productionAmount()` uses `a.Skills.Farming * 2` for fishers instead of a dedicated fishing skill. `applySkillGrowth()` also grows `Skills.Farming` for fishers. This is technically a bug but lower priority than the needs replenishment issue.
+1. **Fisher mood bug** — FIXED: All fallback work paths now replenish esteem, safety, and belonging.
+2. **Raw material inflation** — FIXED: Crafters demand materials for one recipe at a time; hunters scale production with combat skill.
+3. **Needs decay spiral** — FIXED: Work gives belonging/purpose; wealthy agents socialize; socializing gives safety/purpose.
+4. **Faction treasury reset** — FIXED: Factions persist in SQLite (`factions` table), treasuries survive restart.
+5. **Crown faction irrelevant** — FIXED: Governance-based faction assignment + influence alignment bonuses.
 
-### 2. Raw Material Inflation (Critical)
-**Symptom**: Raw materials (iron ore, timber, furs, gems) at 4.2x price ceiling across most settlements. Crafted goods (clothing, tools) deflated to 0.24x floor.
-**Root cause**: `internal/engine/market.go:121-137` — each crafter demands up to 5 different raw materials (iron ore, timber, coal, furs, gems) when below inventory threshold. With ~794 crafters in a large settlement, this creates demand of 794 for each raw material, but supply for most is 1 (the minimum floor). Price formula `basePrice * (demand/supply)` hits the ceiling of `basePrice * Totality` (4.236x). Meanwhile crafters produce finished goods that nobody demands in equal quantities, so crafted goods pile up at floor price.
-**Contributing factors**: Hunters produce only 1 fur/tick regardless of skill. No occupation produces coal, gems, or timber in large quantities. Resource hexes deplete and only regenerate seasonally.
-
-### 3. Needs Decay Spiral (Medium)
-**Symptom**: Agents get stuck in a cycle where only survival and safety ever trigger action. Belonging, esteem, and purpose decay to 0 for most agents.
-**Root cause**: `NeedsState.Priority()` returns only the single most urgent need (below 0.3 threshold). Safety decays at `decay * 1.0` per tick while belonging decays at `decay * 0.5`. Safety always drops below 0.3 first, so `decideSafety` triggers work. For wealthy agents (>20 crowns), `decideSafety` falls through to `decideDefault` → ActionWork. Work gives +0.005 safety (just barely outpacing decay), so safety hovers near 0.3 and belonging/esteem/purpose never become priority. Agents only socialize when belonging is the top priority, which rarely happens because safety stays lower.
-
-### 4. Faction Treasuries Reset on Restart (Medium)
-**Symptom**: All 5 faction treasuries persistently at 0.
-**Root cause**: No `SaveFaction`/`LoadFaction` functions exist in `internal/persistence/db.go`. On every server restart, `initFactions()` calls `social.SeedFactions()` which creates fresh factions with treasury=0. Any dues collected during the session are lost. Additionally, faction dues collect only `Wealth * Agnosis * 0.01` ≈ 0.24% weekly — quite small, but they do accumulate during a session.
-
-### 5. The Crown Faction Near-Irrelevant (Low)
-**Symptom**: Merchant's Compact present in 66/73 settlements while The Crown is in far fewer.
-**Root cause**: `factionForAgent()` in `internal/engine/factions.go` assigns all merchants to Merchant's Compact (faction 2), and merchants are a common occupation. Crown (faction 1) only gets nobles/leaders with Devotionalist class, or wealthy Ritualists — a very narrow pool. Governance type doesn't amplify matching faction influence.
+### Remaining Minor Issue
+- `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 
 ## Ethics Note
 
