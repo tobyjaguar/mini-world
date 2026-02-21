@@ -3,6 +3,7 @@
 package social
 
 import (
+	"github.com/talgya/mini-world/internal/economy"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/world"
 )
@@ -45,6 +46,9 @@ type Settlement struct {
 	RoadLevel      uint8   `json:"road_level"`       // 0–5
 	MarketLevel    uint8   `json:"market_level"`     // 0–5
 	GovernanceScore float64 `json:"governance_score"` // 0.0–1.0, effectiveness
+
+	// Economy
+	Market *economy.Market `json:"-"` // Settlement market (rebuilt on restart)
 
 	// Wheeler integration
 	CulturalMemory float64 `json:"cultural_memory"` // Accumulated from wise agents

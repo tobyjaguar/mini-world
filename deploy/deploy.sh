@@ -27,6 +27,15 @@ ls -lh build/worldsim
 echo "=== Uploading binary ==="
 $SCP_CMD build/worldsim $USER@$HOST:/tmp/worldsim
 
+echo "=== Updating environment ==="
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    $SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d && \
+        echo '[Service]' | sudo tee /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
+        echo 'Environment=WORLDSIM_ADMIN_KEY=${ADMIN_KEY}' | sudo tee -a /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
+        echo 'Environment=ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}' | sudo tee -a /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
+        sudo systemctl daemon-reload"
+fi
+
 echo "=== Deploying ==="
 $SSH_CMD "sudo systemctl stop worldsim || true && \
     sudo mv /tmp/worldsim /opt/worldsim/worldsim && \

@@ -12,6 +12,7 @@ import (
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/api"
 	"github.com/talgya/mini-world/internal/engine"
+	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/persistence"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
@@ -146,6 +147,7 @@ func main() {
 
 	// ── Simulation ────────────────────────────────────────────────────
 	sim := engine.NewSimulation(worldMap, allAgents, allSettlements)
+	sim.Spawner = spawner
 
 	// Initial save.
 	if err := db.SaveWorldState(sim); err != nil {
@@ -168,6 +170,15 @@ func main() {
 	eng.OnWeek = sim.TickWeek
 	eng.OnSeason = sim.TickSeason
 
+	// ── LLM Client ───────────────────────────────────────────────────
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	llmClient := llm.NewClient(anthropicKey)
+	if llmClient != nil {
+		slog.Info("LLM client enabled (Haiku)")
+	} else {
+		slog.Warn("ANTHROPIC_API_KEY not set — LLM features disabled (newspaper will use fallback)")
+	}
+
 	// ── HTTP API ──────────────────────────────────────────────────────
 	adminKey := os.Getenv("WORLDSIM_ADMIN_KEY")
 	if adminKey == "" {
@@ -177,6 +188,7 @@ func main() {
 	apiServer := &api.Server{
 		Sim:      sim,
 		Eng:      eng,
+		LLM:      llmClient,
 		Port:     apiPort,
 		AdminKey: adminKey,
 	}

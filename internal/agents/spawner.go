@@ -268,6 +268,77 @@ func (s *Spawner) generateName(sex Sex) string {
 	return first + " " + last
 }
 
+// SpawnChild creates a newborn agent in a settlement, inheriting some traits from a parent.
+func (s *Spawner) SpawnChild(position world.HexCoord, settlementID uint64, terrain world.Terrain, tick uint64, parent *Agent) *Agent {
+	id := s.nextID
+	s.nextID++
+
+	sex := SexMale
+	if s.rng.Float32() < 0.5 {
+		sex = SexFemale
+	}
+
+	// Child inherits parent's occupation tendency but with variation.
+	occ := s.occupationForTerrain(terrain)
+	if s.rng.Float32() < 0.4 {
+		occ = parent.Occupation // 40% chance to follow parent's trade
+	}
+
+	skills := SkillSet{
+		Farming:  0.05 + s.rng.Float32()*0.05,
+		Mining:   0.05 + s.rng.Float32()*0.05,
+		Crafting: 0.05 + s.rng.Float32()*0.05,
+		Combat:   0.02 + s.rng.Float32()*0.05,
+		Trade:    0.05 + s.rng.Float32()*0.05,
+	}
+
+	// Soul: slight influence from parent coherence (cultural transmission).
+	coherence := float32(s.rng.Float64()*phi.Matter) * float32(s.rng.Float64())
+	// Small boost from parent wisdom.
+	coherence += parent.Soul.CittaCoherence * float32(phi.Agnosis)
+	if coherence > 1 {
+		coherence = 1
+	}
+
+	soul := AgentSoul{
+		CittaCoherence: coherence,
+		Mass:           float32(s.rng.NormFloat64()*0.2 + 0.35),
+		Gauss:          float32(s.rng.NormFloat64()*0.2 + 0.35),
+		Class:          s.randomClass(),
+	}
+	soul.Mass = clamp32(soul.Mass, 0, 1)
+	soul.Gauss = clamp32(soul.Gauss, 0, 1)
+	soul.UpdateState()
+
+	sid := settlementID
+	return &Agent{
+		ID:         id,
+		Name:       s.generateName(sex),
+		Age:        0,
+		Sex:        sex,
+		Health:     1.0,
+		Position:   position,
+		HomeSettID: &sid,
+		Occupation: occ,
+		Inventory:  make(map[GoodType]int),
+		Wealth:     0,
+		Skills:     skills,
+		Role:       RoleCommoner,
+		Tier:       Tier0,
+		Mood:       0.3 + s.rng.Float32()*0.3, // Babies start happy
+		Soul:       soul,
+		Needs: NeedsState{
+			Survival:  0.8,
+			Safety:    0.7,
+			Belonging: 0.8, // High belonging (family)
+			Esteem:    0.1,
+			Purpose:   0.1,
+		},
+		BornTick: tick,
+		Alive:    true,
+	}
+}
+
 // PromoteToTier2 upgrades the most notable agents in a population to Tier 2.
 // Selects based on coherence, wealth, and gauss (ambition).
 // Only considers adults (age 16+).

@@ -92,6 +92,10 @@ type Agent struct {
 	// Needs — evaluated bottom-up (Section 4.3)
 	Needs NeedsState `json:"needs"`
 
+	// Trade (merchants only)
+	TradeDestSett *uint64          `json:"trade_dest_sett,omitempty"` // Destination settlement ID
+	TradeCargo    map[GoodType]int `json:"trade_cargo,omitempty"`    // Goods being transported
+
 	// Metadata
 	BornTick uint64 `json:"born_tick"`
 	Alive    bool   `json:"alive"`
