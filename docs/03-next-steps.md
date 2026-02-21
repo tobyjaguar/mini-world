@@ -65,12 +65,15 @@ New mechanics that would make the world more interesting.
 - [ ] **Metrics endpoint**: Prometheus-compatible `/metrics` for monitoring tick rate, API latency, LLM call success rate, memory usage.
 - [ ] **Backup strategy**: Daily DB snapshots to off-server storage. Currently only one copy exists on the DreamCompute instance.
 
-### Remaining Tuning (Monitor)
-These may need attention after observing the tuned world for a few sim-days:
+### Tuning — Areas to Watch (from post-fix observations)
+The tuning fixes are working (mood +0.64, births outpacing deaths, faction treasuries accumulating), but new dynamics have emerged. See `docs/summaries/2026-02-21-post-tuning.md` for full data.
 
-- [ ] **Initial mood calibration**: Average mood was slightly negative (-0.07) at launch. The belonging/purpose fixes may resolve this; monitor.
-- [ ] **Death rate**: 4.7% mortality in the first 8 days was high, likely from resource scarcity cascading into starvation. The inflation fix should reduce this; monitor.
-- [ ] **Fisher skill bug**: `productionAmount()` uses `Skills.Farming` for fishers and `applySkillGrowth()` grows `Skills.Farming` for fishers. Low priority — works but should ideally use a dedicated fishing skill.
+- [ ] **Settlement explosion**: 73 → 468 settlements in ~20 sim-days. Overmass diaspora threshold may be too aggressive, fragmenting population into tiny settlements that lack critical mass for healthy markets. Consider raising the overmass threshold or adding a minimum founding population requirement.
+- [ ] **Persistent raw material inflation**: Furs and iron ore still at 4.2x ceiling in some settlements. Single-recipe demand helped but didn't eliminate it. May need: increased hex resource regen rate, more hunter/miner occupations in spawner, or higher base supply floors in markets.
+- [ ] **Clothing oversupply**: Clothing stuck at 0.24x floor everywhere. No demand driver for clothing. Consider: agents needing clothing (weather/cold), clothing decay, or rebalancing recipe selection weights.
+- [ ] **Population growth rate**: 5,652 births vs 1,874 deaths — healthy but may accelerate unsustainably across 468 settlements. Monitor memory usage on the 1GB server.
+- [ ] **Market health still low (0.35)**: More than half of goods significantly mispriced. May need more sim-time for price discovery, or supply/demand mechanics need further tuning.
+- [ ] **Fisher skill bug**: `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 
 ## Suggested Next Session
 
