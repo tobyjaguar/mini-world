@@ -28,13 +28,17 @@ echo "=== Uploading binary ==="
 $SCP_CMD build/worldsim $USER@$HOST:/tmp/worldsim
 
 echo "=== Updating environment ==="
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-    $SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d && \
-        echo '[Service]' | sudo tee /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
-        echo 'Environment=WORLDSIM_ADMIN_KEY=${ADMIN_KEY}' | sudo tee -a /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
-        echo 'Environment=ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}' | sudo tee -a /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
-        sudo systemctl daemon-reload"
-fi
+# Build systemd override with all env vars.
+OVERRIDE="[Service]"
+OVERRIDE="${OVERRIDE}\nEnvironment=WORLDSIM_ADMIN_KEY=${ADMIN_KEY}"
+[ -n "${ANTHROPIC_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+[ -n "${WEATHER_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=WEATHER_API_KEY=${WEATHER_API_KEY}"
+[ -n "${WEATHER_LOCATION:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=WEATHER_LOCATION=${WEATHER_LOCATION}"
+[ -n "${RANDOM_ORG_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=RANDOM_ORG_API_KEY=${RANDOM_ORG_API_KEY}"
+
+$SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d && \
+    echo -e '${OVERRIDE}' | sudo tee /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
+    sudo systemctl daemon-reload"
 
 echo "=== Deploying ==="
 $SSH_CMD "sudo systemctl stop worldsim || true && \
