@@ -227,6 +227,19 @@ func main() {
 	sim.LastTick = startTick
 	sim.CurrentSeason = startSeason
 
+	// Initialize or load factions.
+	if startTick > 0 && db.HasFactions() {
+		factions, err := db.LoadFactions()
+		if err != nil {
+			slog.Warn("failed to load factions, re-initializing", "error", err)
+			sim.InitFactions()
+		} else {
+			sim.SetFactions(factions)
+		}
+	} else {
+		sim.InitFactions()
+	}
+
 	// Load agent memories from database (if any exist).
 	if startTick > 0 {
 		if err := db.LoadMemories(sim.AgentIndex); err != nil {

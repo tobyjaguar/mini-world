@@ -117,23 +117,10 @@ func demandedGoods(a *agents.Agent) []agents.GoodType {
 		needs = append(needs, agents.GoodGrain)
 	}
 
-	// Crafters need raw materials for all recipes.
+	// Crafters demand materials for their best recipe only (max 2 goods).
+	// Recipes: Tools (iron+timber), Weapons (iron+coal), Clothing (furs+tools), Luxuries (gems+tools).
 	if a.Occupation == agents.OccupationCrafter {
-		if a.Inventory[agents.GoodIronOre] < 2 {
-			needs = append(needs, agents.GoodIronOre)
-		}
-		if a.Inventory[agents.GoodTimber] < 1 {
-			needs = append(needs, agents.GoodTimber)
-		}
-		if a.Inventory[agents.GoodCoal] < 1 {
-			needs = append(needs, agents.GoodCoal)
-		}
-		if a.Inventory[agents.GoodFurs] < 2 {
-			needs = append(needs, agents.GoodFurs)
-		}
-		if a.Inventory[agents.GoodGems] < 2 {
-			needs = append(needs, agents.GoodGems)
-		}
+		needs = append(needs, crafterRecipeDemand(a)...)
 	}
 
 	// Alchemists need herbs and exotics.
@@ -151,6 +138,53 @@ func demandedGoods(a *agents.Agent) []agents.GoodType {
 		needs = append(needs, agents.GoodTools)
 	}
 
+	return needs
+}
+
+// crafterRecipeDemand picks the recipe a crafter is closest to completing
+// and returns demand for its missing materials. This prevents crafters from
+// demanding all 5 raw materials simultaneously (which inflated raw material prices).
+func crafterRecipeDemand(a *agents.Agent) []agents.GoodType {
+	type recipe struct {
+		mat1     agents.GoodType
+		need1    int
+		mat2     agents.GoodType
+		need2    int
+	}
+	recipes := []recipe{
+		{agents.GoodIronOre, 2, agents.GoodTimber, 1},  // Tools
+		{agents.GoodIronOre, 2, agents.GoodCoal, 1},    // Weapons
+		{agents.GoodFurs, 2, agents.GoodTools, 1},       // Clothing
+		{agents.GoodGems, 2, agents.GoodTools, 1},       // Luxuries
+	}
+
+	// Score each recipe by how much inventory the crafter already has toward it.
+	bestScore := -1
+	bestIdx := 0
+	for i, r := range recipes {
+		have1 := a.Inventory[r.mat1]
+		if have1 > r.need1 {
+			have1 = r.need1
+		}
+		have2 := a.Inventory[r.mat2]
+		if have2 > r.need2 {
+			have2 = r.need2
+		}
+		score := have1 + have2
+		if score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+
+	var needs []agents.GoodType
+	r := recipes[bestIdx]
+	if a.Inventory[r.mat1] < r.need1 {
+		needs = append(needs, r.mat1)
+	}
+	if a.Inventory[r.mat2] < r.need2 {
+		needs = append(needs, r.mat2)
+	}
 	return needs
 }
 

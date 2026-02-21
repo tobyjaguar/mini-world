@@ -11,8 +11,8 @@ import (
 	"github.com/talgya/mini-world/internal/social"
 )
 
-// initFactions creates seed factions and assigns agents to them based on occupation/class.
-func (s *Simulation) initFactions() {
+// InitFactions creates seed factions and assigns agents to them based on occupation/class.
+func (s *Simulation) InitFactions() {
 	s.Factions = social.SeedFactions()
 
 	// Set initial inter-faction relations.
@@ -29,12 +29,18 @@ func (s *Simulation) initFactions() {
 	s.setRelation(3, 5, -40) // Iron Brotherhood ↔ Ashen Path: hostile
 	s.setRelation(4, 5, -60) // Verdant Circle ↔ Ashen Path: very hostile
 
-	// Assign agents to factions based on occupation and class.
+	// Assign agents to factions based on occupation, class, and governance.
 	for _, a := range s.Agents {
 		if !a.Alive {
 			continue
 		}
-		fid := factionForAgent(a)
+		govType := social.GovCommune // default
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				govType = sett.Governance
+			}
+		}
+		fid := factionForAgent(a, govType)
 		if fid > 0 {
 			factionID := uint64(fid)
 			a.FactionID = &factionID
@@ -48,8 +54,10 @@ func (s *Simulation) initFactions() {
 }
 
 // factionForAgent determines which faction an agent naturally belongs to.
-// Not all agents join factions (~60% do).
-func factionForAgent(a *agents.Agent) social.FactionID {
+// Not all agents join factions (~60% do). Governance type influences assignment
+// for common folk — monarchies produce more Crown loyalists, merchant republics
+// produce more Compact members.
+func factionForAgent(a *agents.Agent, govType social.GovernanceType) social.FactionID {
 	// Occupation-based primary assignment.
 	switch a.Occupation {
 	case agents.OccupationSoldier:
@@ -70,6 +78,14 @@ func factionForAgent(a *agents.Agent) social.FactionID {
 		}
 		return 0
 	default:
+		// Governance-based assignment for common folk (before trait-based).
+		if govType == social.GovMonarchy && (a.Wealth > 50 || a.Soul.CittaCoherence > 0.3) {
+			return 1 // Crown — monarchy subjects with wealth or coherence
+		}
+		if govType == social.GovMerchantRepublic && (a.Skills.Trade > 0.1 || a.Wealth > 80) {
+			return 2 // Merchant's Compact — republic traders
+		}
+
 		// Trait-based secondary assignment for common folk.
 		switch a.Soul.Class {
 		case agents.Devotionalist:
@@ -99,6 +115,12 @@ func factionForAgent(a *agents.Agent) social.FactionID {
 			return 0 // Unaffiliated
 		}
 	}
+}
+
+// SetFactions loads previously saved factions into the simulation.
+func (s *Simulation) SetFactions(factions []*social.Faction) {
+	s.Factions = factions
+	slog.Info("factions loaded from database", "count", len(factions))
 }
 
 // updateFactionInfluence recalculates faction influence per settlement.
@@ -136,13 +158,30 @@ func (s *Simulation) updateFactionInfluence() {
 			continue
 		}
 
-		// Influence = (members / total) * 100, scaled by agent quality.
+		// Influence = (members / total) * 100, plus governance alignment bonus.
 		for fid, count := range factionCounts {
 			f, ok := factionIndex[fid]
 			if !ok {
 				continue
 			}
 			influence := float64(count) / float64(aliveCount) * 100.0
+
+			// Governance alignment bonus: matching faction-governance pairs get +15/+10.
+			switch fid {
+			case 1: // Crown benefits from monarchies.
+				if sett.Governance == social.GovMonarchy {
+					influence += 15
+				}
+			case 2: // Merchant's Compact benefits from merchant republics.
+				if sett.Governance == social.GovMerchantRepublic {
+					influence += 15
+				}
+			case 4: // Verdant Circle benefits from councils.
+				if sett.Governance == social.GovCouncil {
+					influence += 10
+				}
+			}
+
 			f.Influence[sett.ID] = influence
 		}
 	}

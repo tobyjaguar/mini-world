@@ -118,7 +118,6 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 		SettlementAgents: settAgents,
 		AbandonedWeeks:   make(map[uint64]int),
 	}
-	sim.initFactions()
 	sim.updateStats()
 	return sim
 }

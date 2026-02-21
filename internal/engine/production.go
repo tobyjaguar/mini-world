@@ -31,15 +31,23 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex) []string
 	}
 
 	if hex == nil {
-		// No hex data — fallback wage.
+		// No hex data — fallback wage with needs replenishment.
 		a.Wealth += 1
+		a.Needs.Esteem += 0.01
+		a.Needs.Safety += 0.005
+		a.Needs.Belonging += 0.003
+		clampAgentNeeds(&a.Needs)
 		return nil
 	}
 
 	available := hex.Resources[resType]
 	if available < 1.0 {
-		// Hex depleted — agent earns a fallback wage instead.
+		// Hex depleted — agent earns a fallback wage with needs replenishment.
 		a.Wealth += 1
+		a.Needs.Esteem += 0.01
+		a.Needs.Safety += 0.005
+		a.Needs.Belonging += 0.003
+		clampAgentNeeds(&a.Needs)
 		return nil
 	}
 
@@ -54,6 +62,10 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex) []string
 		produced = 1
 		if available < 1.0 {
 			a.Wealth += 1
+			a.Needs.Esteem += 0.01
+			a.Needs.Safety += 0.005
+			a.Needs.Belonging += 0.003
+			clampAgentNeeds(&a.Needs)
 			return nil
 		}
 	}
@@ -71,9 +83,10 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex) []string
 	// Skill growth.
 	applySkillGrowth(a)
 
-	// Working improves esteem and safety.
+	// Working improves esteem, safety, and belonging.
 	a.Needs.Esteem += 0.01
 	a.Needs.Safety += 0.005
+	a.Needs.Belonging += 0.003
 	clampAgentNeeds(&a.Needs)
 
 	return nil
@@ -101,7 +114,11 @@ func productionAmount(a *agents.Agent) int {
 		}
 		return p
 	case agents.OccupationHunter:
-		return 1
+		p := int(a.Skills.Combat * 2)
+		if p < 1 {
+			p = 1
+		}
+		return p
 	}
 	return 1
 }

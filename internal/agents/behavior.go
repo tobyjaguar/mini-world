@@ -89,6 +89,10 @@ func decideSafety(a *Agent) Action {
 	if a.Wealth < 20 {
 		return Action{AgentID: a.ID, Kind: ActionWork, Detail: a.Name + " works to earn crowns"}
 	}
+	// Wealthy agents with low belonging socialize — their economic safety is covered.
+	if a.Wealth > 30 && a.Needs.Belonging < 0.4 {
+		return Action{AgentID: a.ID, Kind: ActionSocialize, Detail: a.Name + " socializes with neighbors"}
+	}
 	return decideDefault(a)
 }
 
@@ -255,9 +259,11 @@ func applyWork(a *Agent) []string {
 		a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.01))
 	}
 
-	// Working improves esteem and safety (economic stability).
+	// Working improves esteem, safety, belonging, and purpose.
 	a.Needs.Esteem += 0.01
 	a.Needs.Safety += 0.005
+	a.Needs.Belonging += 0.003
+	a.Needs.Purpose += 0.002
 
 	// Clamp.
 	clampNeeds(&a.Needs)
@@ -286,6 +292,8 @@ func applyRest(a *Agent) []string {
 
 func applySocialize(a *Agent) []string {
 	a.Needs.Belonging += 0.05
+	a.Needs.Safety += 0.003
+	a.Needs.Purpose += 0.002
 	a.Mood += 0.02
 	clampNeeds(&a.Needs)
 	return nil

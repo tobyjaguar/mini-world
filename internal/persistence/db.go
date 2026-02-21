@@ -131,6 +131,24 @@ func (db *DB) migrate() error {
 		return err
 	}
 
+	// Factions table (added in Phase 5 tuning).
+	_, err = db.conn.Exec(`
+	CREATE TABLE IF NOT EXISTS factions (
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		kind INTEGER NOT NULL,
+		leader_id INTEGER,
+		treasury INTEGER NOT NULL,
+		tax_preference REAL NOT NULL,
+		trade_preference REAL NOT NULL,
+		military_preference REAL NOT NULL,
+		influence_json TEXT NOT NULL,
+		relations_json TEXT NOT NULL
+	)`)
+	if err != nil {
+		return err
+	}
+
 	// Add columns that may not exist in older databases.
 	migrations := []string{
 		"ALTER TABLE events ADD COLUMN narrated TEXT NOT NULL DEFAULT ''",
@@ -222,6 +240,99 @@ func (db *DB) SaveSettlements(settlements []*social.Settlement) error {
 	return tx.Commit()
 }
 
+// SaveFactions writes all factions to the database (full replace).
+func (db *DB) SaveFactions(factions []*social.Faction) error {
+	tx, err := db.conn.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM factions"); err != nil {
+		return err
+	}
+
+	for _, f := range factions {
+		influenceJSON, _ := json.Marshal(f.Influence)
+		relationsJSON, _ := json.Marshal(f.Relations)
+
+		_, err := tx.Exec(`INSERT INTO factions
+			(id, name, kind, leader_id, treasury,
+			 tax_preference, trade_preference, military_preference,
+			 influence_json, relations_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			f.ID, f.Name, f.Kind, f.LeaderID, f.Treasury,
+			f.TaxPreference, f.TradePreference, f.MilitaryPreference,
+			string(influenceJSON), string(relationsJSON),
+		)
+		if err != nil {
+			return fmt.Errorf("insert faction %d: %w", f.ID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadFactions reads all factions from the database.
+func (db *DB) LoadFactions() ([]*social.Faction, error) {
+	type factionRow struct {
+		ID                 uint64  `db:"id"`
+		Name               string  `db:"name"`
+		Kind               uint8   `db:"kind"`
+		LeaderID           *uint64 `db:"leader_id"`
+		Treasury           uint64  `db:"treasury"`
+		TaxPreference      float64 `db:"tax_preference"`
+		TradePreference    float64 `db:"trade_preference"`
+		MilitaryPreference float64 `db:"military_preference"`
+		InfluenceJSON      string  `db:"influence_json"`
+		RelationsJSON      string  `db:"relations_json"`
+	}
+
+	var rows []factionRow
+	if err := db.conn.Select(&rows, "SELECT * FROM factions"); err != nil {
+		return nil, fmt.Errorf("load factions: %w", err)
+	}
+
+	result := make([]*social.Faction, 0, len(rows))
+	for _, r := range rows {
+		f := &social.Faction{
+			ID:                 social.FactionID(r.ID),
+			Name:               r.Name,
+			Kind:               social.FactionKind(r.Kind),
+			LeaderID:           r.LeaderID,
+			Treasury:           r.Treasury,
+			TaxPreference:      r.TaxPreference,
+			TradePreference:    r.TradePreference,
+			MilitaryPreference: r.MilitaryPreference,
+		}
+
+		var influence map[uint64]float64
+		json.Unmarshal([]byte(r.InfluenceJSON), &influence)
+		if influence == nil {
+			influence = make(map[uint64]float64)
+		}
+		f.Influence = influence
+
+		var relations map[social.FactionID]float64
+		json.Unmarshal([]byte(r.RelationsJSON), &relations)
+		if relations == nil {
+			relations = make(map[social.FactionID]float64)
+		}
+		f.Relations = relations
+
+		result = append(result, f)
+	}
+
+	return result, nil
+}
+
+// HasFactions returns true if the database contains saved factions.
+func (db *DB) HasFactions() bool {
+	var count int
+	err := db.conn.Get(&count, "SELECT COUNT(*) FROM factions")
+	return err == nil && count > 0
+}
+
 // SaveEvents appends events to the database.
 func (db *DB) SaveEvents(events []engine.Event) error {
 	if len(events) == 0 {
@@ -272,6 +383,9 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	}
 	if err := db.SaveSettlements(sim.Settlements); err != nil {
 		return fmt.Errorf("save settlements: %w", err)
+	}
+	if err := db.SaveFactions(sim.Factions); err != nil {
+		return fmt.Errorf("save factions: %w", err)
 	}
 	if err := db.SaveMemories(sim.Agents); err != nil {
 		return fmt.Errorf("save memories: %w", err)
