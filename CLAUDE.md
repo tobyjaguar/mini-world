@@ -55,9 +55,20 @@ The full design specification lives in `docs/worldsim-design.md` (~1,500 lines, 
 
 ## Repository
 
-**GitHub**: https://github.com/tobyjaguar/mini-world (public)
+**GitHub**: https://github.com/tobyjaguar/mini-world — **public research project**
 
 Secrets and connection details live in `deploy/config.local` (gitignored). Copy `deploy/config.local.example` to get started.
+
+### Public Repo Policy
+
+This is a public repository. **Never commit:**
+- API keys, tokens, passwords, or any credentials
+- Server IP addresses, SSH keys, or connection details
+- Personal information (real names, emails, accounts)
+- Contents of `deploy/config.local` or any `.env` / secret files
+- Proprietary or third-party confidential material
+
+All sensitive values belong in `deploy/config.local` (gitignored) or environment variables. When writing code, documentation, or commit messages, use placeholders (`<server-ip>`, `<your-key>`) instead of real values. When in doubt, leave it out.
 
 ## Directory Structure
 
