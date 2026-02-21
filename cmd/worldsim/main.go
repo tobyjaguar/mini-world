@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/talgya/mini-world/internal/agents"
@@ -48,8 +49,8 @@ func main() {
 	defer db.Close()
 	slog.Info("database opened", "path", dbPath)
 
-	// ── World Generation ──────────────────────────────────────────────
-	slog.Info("generating world...")
+	// ── World Map (always regenerated — deterministic from seed) ──────
+	slog.Info("generating world map...")
 	cfg := world.DefaultGenConfig()
 	cfg.Seed = seed
 	worldMap := world.Generate(cfg)
@@ -62,80 +63,134 @@ func main() {
 		}
 		slog.Info("terrain", "type", world.TerrainName(t), "count", c)
 	}
-	slog.Info("world generated",
-		"total_hexes", worldMap.HexCount(),
-		"land_hexes", landHexes,
-		"radius", worldMap.Radius,
-	)
 
-	// ── Settlement Placement ──────────────────────────────────────────
-	slog.Info("placing settlements...")
-	settlementSeeds := world.PlaceSettlements(worldMap, seed)
-
-	// ── Create Settlements & Spawn Agents ─────────────────────────────
-	rng := rand.New(rand.NewSource(seed + 400))
-	spawner := agents.NewSpawner(seed)
-
+	// ── Load or Generate World State ─────────────────────────────────
 	var allSettlements []*social.Settlement
 	var allAgents []*agents.Agent
+	var startTick uint64
+	var startSeason uint8
 
-	for i, ss := range settlementSeeds {
-		pop := world.PopulationForSize(ss.Size, rng)
+	spawner := agents.NewSpawner(seed)
 
-		var gov social.GovernanceType
-		switch ss.Size {
-		case world.SizeCity:
-			gov = social.GovMonarchy
-		case world.SizeTown:
-			if rng.Float32() < 0.5 {
-				gov = social.GovCouncil
-			} else {
-				gov = social.GovMerchantRepublic
+	if db.HasWorldState() {
+		// Restore from saved state.
+		slog.Info("found saved world state, loading...")
+
+		var loadErr error
+		allAgents, loadErr = db.LoadAgents()
+		if loadErr != nil {
+			slog.Error("failed to load agents", "error", loadErr)
+			os.Exit(1)
+		}
+
+		allSettlements, loadErr = db.LoadSettlements()
+		if loadErr != nil {
+			slog.Error("failed to load settlements", "error", loadErr)
+			os.Exit(1)
+		}
+
+		// Restore tick and season from metadata.
+		if tickStr, err := db.GetMeta("last_tick"); err == nil {
+			if t, err := strconv.ParseUint(tickStr, 10, 64); err == nil {
+				startTick = t
 			}
-		default:
-			gov = social.GovCommune
+		}
+		if seasonStr, err := db.GetMeta("season"); err == nil {
+			if s, err := strconv.ParseUint(seasonStr, 10, 8); err == nil {
+				startSeason = uint8(s)
+			}
 		}
 
-		sid := uint64(i + 1)
-		settlement := &social.Settlement{
-			ID:              sid,
-			Name:            ss.Name,
-			Position:        ss.Coord,
-			Population:      pop,
-			Governance:      gov,
-			TaxRate:         0.10,
-			Treasury:        uint64(pop) * 5,
-			GovernanceScore: 0.5 + rng.Float64()*0.3,
-			MarketLevel:     1,
+		// Update spawner next ID to be above the highest existing agent ID.
+		var maxID agents.AgentID
+		for _, a := range allAgents {
+			if a.ID > maxID {
+				maxID = a.ID
+			}
+		}
+		spawner.SetNextID(maxID + 1)
+
+		slog.Info("world state restored",
+			"agents", len(allAgents),
+			"settlements", len(allSettlements),
+			"tick", startTick,
+			"season", engine.SeasonName(startSeason),
+			"sim_time", engine.SimTime(startTick),
+		)
+	} else {
+		// Fresh world generation.
+		slog.Info("no saved state found, generating new world...")
+
+		settlementSeeds := world.PlaceSettlements(worldMap, seed)
+		rng := rand.New(rand.NewSource(seed + 400))
+
+		for i, ss := range settlementSeeds {
+			pop := world.PopulationForSize(ss.Size, rng)
+
+			var gov social.GovernanceType
+			switch ss.Size {
+			case world.SizeCity:
+				gov = social.GovMonarchy
+			case world.SizeTown:
+				if rng.Float32() < 0.5 {
+					gov = social.GovCouncil
+				} else {
+					gov = social.GovMerchantRepublic
+				}
+			default:
+				gov = social.GovCommune
+			}
+
+			sid := uint64(i + 1)
+			settlement := &social.Settlement{
+				ID:              sid,
+				Name:            ss.Name,
+				Position:        ss.Coord,
+				Population:      pop,
+				Governance:      gov,
+				TaxRate:         0.10,
+				Treasury:        uint64(pop) * 5,
+				GovernanceScore: 0.5 + rng.Float64()*0.3,
+				MarketLevel:     1,
+			}
+
+			hex := worldMap.Get(ss.Coord)
+			if hex != nil {
+				hex.SettlementID = &sid
+			}
+
+			allSettlements = append(allSettlements, settlement)
+
+			terrain := world.TerrainPlains
+			if hex != nil {
+				terrain = hex.Terrain
+			}
+			popAgents := spawner.SpawnPopulation(pop, ss.Coord, sid, terrain)
+			allAgents = append(allAgents, popAgents...)
 		}
 
-		hex := worldMap.Get(ss.Coord)
-		if hex != nil {
-			hex.SettlementID = &sid
-		}
+		agents.PromoteToTier2(allAgents, 30)
 
-		allSettlements = append(allSettlements, settlement)
-
-		terrain := world.TerrainPlains
-		if hex != nil {
-			terrain = hex.Terrain
+		for _, a := range allAgents {
+			if a.Tier == agents.Tier2 {
+				slog.Info("notable character",
+					"name", a.Name,
+					"age", a.Age,
+					"occupation", a.Occupation,
+					"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
+					"element", a.Soul.Element(),
+					"wealth", a.Wealth,
+				)
+			}
 		}
-		popAgents := spawner.SpawnPopulation(pop, ss.Coord, sid, terrain)
-		allAgents = append(allAgents, popAgents...)
 	}
 
-	agents.PromoteToTier2(allAgents, 30)
-
-	for _, a := range allAgents {
-		if a.Tier == agents.Tier2 {
-			slog.Info("notable character",
-				"name", a.Name,
-				"age", a.Age,
-				"occupation", a.Occupation,
-				"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
-				"element", a.Soul.Element(),
-				"wealth", a.Wealth,
-			)
+	// Link settlement hex references (needed for both fresh and loaded worlds).
+	for _, st := range allSettlements {
+		sid := st.ID
+		hex := worldMap.Get(st.Position)
+		if hex != nil {
+			hex.SettlementID = &sid
 		}
 	}
 
@@ -148,13 +203,18 @@ func main() {
 	// ── Simulation ────────────────────────────────────────────────────
 	sim := engine.NewSimulation(worldMap, allAgents, allSettlements)
 	sim.Spawner = spawner
+	sim.LastTick = startTick
+	sim.CurrentSeason = startSeason
 
-	// Initial save.
-	if err := db.SaveWorldState(sim); err != nil {
-		slog.Error("initial save failed", "error", err)
+	// Save on fresh generation only (loaded worlds are already saved).
+	if startTick == 0 {
+		if err := db.SaveWorldState(sim); err != nil {
+			slog.Error("initial save failed", "error", err)
+		}
 	}
 
 	eng := engine.NewEngine()
+	eng.Tick = startTick
 	eng.Speed = 1
 
 	// Wire tick callbacks — auto-save every sim-day.
@@ -206,6 +266,9 @@ func main() {
 	fmt.Printf("\nCrossroads is alive: %d souls across %d settlements on %d land hexes.\n",
 		len(allAgents), len(allSettlements), landHexes)
 	fmt.Printf("API: http://localhost:%d/api/v1/status\n", apiPort)
+	if startTick > 0 {
+		fmt.Printf("Resuming from tick %d (%s)\n", startTick, engine.SimTime(startTick))
+	}
 	fmt.Println("Starting simulation... (Ctrl+C to stop)")
 
 	eng.Run()

@@ -13,6 +13,7 @@ import (
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/engine"
 	"github.com/talgya/mini-world/internal/social"
+	"github.com/talgya/mini-world/internal/world"
 )
 
 // DB wraps a SQLite connection for world state persistence.
@@ -242,9 +243,140 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	if err := db.SaveMeta("last_tick", fmt.Sprintf("%d", sim.CurrentTick())); err != nil {
 		return fmt.Errorf("save meta: %w", err)
 	}
+	if err := db.SaveMeta("season", fmt.Sprintf("%d", sim.CurrentSeason)); err != nil {
+		return fmt.Errorf("save meta: %w", err)
+	}
 
 	slog.Info("world state saved")
 	return nil
+}
+
+// HasWorldState returns true if the database contains saved agents.
+func (db *DB) HasWorldState() bool {
+	var count int
+	err := db.conn.Get(&count, "SELECT COUNT(*) FROM agents")
+	return err == nil && count > 0
+}
+
+// LoadAgents reads all agents from the database.
+func (db *DB) LoadAgents() ([]*agents.Agent, error) {
+	type agentRow struct {
+		ID               uint64  `db:"id"`
+		Name             string  `db:"name"`
+		Age              uint16  `db:"age"`
+		Sex              uint8   `db:"sex"`
+		Health           float32 `db:"health"`
+		PosQ             int     `db:"pos_q"`
+		PosR             int     `db:"pos_r"`
+		HomeSettlementID *uint64 `db:"home_settlement_id"`
+		Occupation       uint8   `db:"occupation"`
+		Wealth           uint64  `db:"wealth"`
+		Tier             uint8   `db:"tier"`
+		Mood             float32 `db:"mood"`
+		Alive            int     `db:"alive"`
+		BornTick         uint64  `db:"born_tick"`
+		Role             uint8   `db:"role"`
+		FactionID        *uint64 `db:"faction_id"`
+		Archetype        *string `db:"archetype"`
+		SkillsJSON       string  `db:"skills_json"`
+		NeedsJSON        string  `db:"needs_json"`
+		SoulJSON         string  `db:"soul_json"`
+		InventoryJSON    string  `db:"inventory_json"`
+	}
+
+	var rows []agentRow
+	if err := db.conn.Select(&rows, "SELECT * FROM agents"); err != nil {
+		return nil, fmt.Errorf("load agents: %w", err)
+	}
+
+	result := make([]*agents.Agent, 0, len(rows))
+	for _, r := range rows {
+		a := &agents.Agent{
+			ID:         agents.AgentID(r.ID),
+			Name:       r.Name,
+			Age:        r.Age,
+			Sex:        agents.Sex(r.Sex),
+			Health:     r.Health,
+			Position:   world.HexCoord{Q: r.PosQ, R: r.PosR},
+			HomeSettID: r.HomeSettlementID,
+			Occupation: agents.Occupation(r.Occupation),
+			Wealth:     r.Wealth,
+			Tier:       agents.CognitionTier(r.Tier),
+			Mood:       r.Mood,
+			Alive:      r.Alive != 0,
+			BornTick:   r.BornTick,
+			Role:       agents.SocialRole(r.Role),
+			FactionID:  r.FactionID,
+		}
+		if r.Archetype != nil {
+			a.Archetype = *r.Archetype
+		}
+
+		json.Unmarshal([]byte(r.SkillsJSON), &a.Skills)
+		json.Unmarshal([]byte(r.NeedsJSON), &a.Needs)
+		json.Unmarshal([]byte(r.SoulJSON), &a.Soul)
+
+		var inv map[agents.GoodType]int
+		json.Unmarshal([]byte(r.InventoryJSON), &inv)
+		if inv == nil {
+			inv = make(map[agents.GoodType]int)
+		}
+		a.Inventory = inv
+
+		result = append(result, a)
+	}
+
+	return result, nil
+}
+
+// LoadSettlements reads all settlements from the database.
+func (db *DB) LoadSettlements() ([]*social.Settlement, error) {
+	type settRow struct {
+		ID                uint64  `db:"id"`
+		Name              string  `db:"name"`
+		PosQ              int     `db:"pos_q"`
+		PosR              int     `db:"pos_r"`
+		Population        uint32  `db:"population"`
+		Governance        uint8   `db:"governance"`
+		TaxRate           float64 `db:"tax_rate"`
+		Treasury          uint64  `db:"treasury"`
+		GovernanceScore   float64 `db:"governance_score"`
+		CulturalMemory    float64 `db:"cultural_memory"`
+		CultureTradition  float32 `db:"culture_tradition"`
+		CultureOpenness   float32 `db:"culture_openness"`
+		CultureMilitarism float32 `db:"culture_militarism"`
+		WallLevel         uint8   `db:"wall_level"`
+		RoadLevel         uint8   `db:"road_level"`
+		MarketLevel       uint8   `db:"market_level"`
+	}
+
+	var rows []settRow
+	if err := db.conn.Select(&rows, "SELECT * FROM settlements"); err != nil {
+		return nil, fmt.Errorf("load settlements: %w", err)
+	}
+
+	result := make([]*social.Settlement, 0, len(rows))
+	for _, r := range rows {
+		result = append(result, &social.Settlement{
+			ID:                r.ID,
+			Name:              r.Name,
+			Position:          world.HexCoord{Q: r.PosQ, R: r.PosR},
+			Population:        r.Population,
+			Governance:        social.GovernanceType(r.Governance),
+			TaxRate:           r.TaxRate,
+			Treasury:          r.Treasury,
+			GovernanceScore:   r.GovernanceScore,
+			CulturalMemory:    r.CulturalMemory,
+			CultureTradition:  r.CultureTradition,
+			CultureOpenness:   r.CultureOpenness,
+			CultureMilitarism: r.CultureMilitarism,
+			WallLevel:         r.WallLevel,
+			RoadLevel:         r.RoadLevel,
+			MarketLevel:       r.MarketLevel,
+		})
+	}
+
+	return result, nil
 }
 
 // RecentEvents returns the most recent N events.

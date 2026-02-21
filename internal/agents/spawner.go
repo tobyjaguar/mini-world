@@ -30,6 +30,11 @@ func NewSpawner(seed int64) *Spawner {
 	}
 }
 
+// SetNextID sets the next agent ID to be issued (used when restoring from DB).
+func (s *Spawner) SetNextID(id AgentID) {
+	s.nextID = id
+}
+
 // SpawnPopulation creates a batch of agents for a settlement.
 func (s *Spawner) SpawnPopulation(count uint32, position world.HexCoord, settlementID uint64, terrain world.Terrain) []*Agent {
 	agents := make([]*Agent, 0, count)
