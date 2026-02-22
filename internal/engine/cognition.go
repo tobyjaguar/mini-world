@@ -265,10 +265,11 @@ func (s *Simulation) processOracleVisions(tick uint64) {
 		return
 	}
 
-	// Collect living Liberated agents.
+	// Collect living Liberated Tier 2 agents — these are named characters
+	// with individual LLM cognition. ~5 agents, so ~5 Haiku calls/week.
 	var oracles []*agents.Agent
 	for _, a := range s.Agents {
-		if a.Alive && a.Soul.State == agents.Liberated {
+		if a.Alive && a.Tier == agents.Tier2 && a.Soul.State == agents.Liberated {
 			oracles = append(oracles, a)
 		}
 	}
