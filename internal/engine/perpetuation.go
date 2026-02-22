@@ -6,6 +6,8 @@ import (
 	"log/slog"
 
 	"github.com/talgya/mini-world/internal/phi"
+	"github.com/talgya/mini-world/internal/social"
+	"github.com/talgya/mini-world/internal/world"
 )
 
 // processAntiStagnation runs weekly checks against economic and social stagnation.
@@ -87,11 +89,14 @@ func (s *Simulation) updateSettlementPopulations() {
 }
 
 // processSeasonalMigration moves desperate agents toward prosperous settlements.
+// For tiny settlements (pop < 25), the mood threshold is relaxed to accelerate absorption.
 func (s *Simulation) processSeasonalMigration(tick uint64) {
-	// Find the most prosperous settlement.
+	// Find the most prosperous settlement (global fallback target).
 	var bestSettID uint64
 	bestProsperity := 0.0
 
+	// Cache alive counts per settlement for reuse.
+	settAliveCounts := make(map[uint64]int, len(s.Settlements))
 	for _, sett := range s.Settlements {
 		settAgents := s.SettlementAgents[sett.ID]
 		aliveCount := 0
@@ -100,6 +105,7 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 				aliveCount++
 			}
 		}
+		settAliveCounts[sett.ID] = aliveCount
 		if aliveCount == 0 {
 			continue
 		}
@@ -124,14 +130,54 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 		if sett.ID == bestSettID {
 			continue
 		}
+
+		aliveCount := settAliveCounts[sett.ID]
+		isTiny := aliveCount > 0 && aliveCount < 25
+
+		// For tiny settlements, lower mood threshold from -0.3 to 0.0
+		// (any non-positive mood triggers migration).
+		moodThreshold := float32(-0.3)
+		if isTiny {
+			moodThreshold = 0.0
+		}
+
 		settAgents := s.SettlementAgents[sett.ID]
 		for _, a := range settAgents {
-			if !a.Alive || a.Mood > -0.3 || a.Needs.Survival > 0.3 {
+			if !a.Alive || a.Mood > moodThreshold || a.Needs.Survival > 0.3 {
 				continue
 			}
-			newID := bestSett.ID
+
+			// For tiny settlements, migrate to nearest viable settlement
+			// (pop >= 25) within 5 hexes instead of global best.
+			target := bestSett
+			if isTiny {
+				if nearby := s.findNearestViableSettlement(sett, 5); nearby != nil {
+					target = nearby
+				}
+			}
+
+			newID := target.ID
 			a.HomeSettID = &newID
-			a.Position = bestSett.Position
+			a.Position = target.Position
 		}
 	}
+}
+
+// findNearestViableSettlement finds the closest settlement with pop >= 25
+// within maxDist hex distance. Returns nil if none found.
+func (s *Simulation) findNearestViableSettlement(from *social.Settlement, maxDist int) *social.Settlement {
+	var best *social.Settlement
+	bestDist := maxDist + 1
+
+	for _, sett := range s.Settlements {
+		if sett.ID == from.ID || sett.Population < 25 {
+			continue
+		}
+		dist := world.Distance(from.Position, sett.Position)
+		if dist <= maxDist && dist < bestDist {
+			bestDist = dist
+			best = sett
+		}
+	}
+	return best
 }

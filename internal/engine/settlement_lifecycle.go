@@ -43,7 +43,7 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 		// ~24% (Agnosis ratio) of agents emigrate — smaller diaspora prevents
 		// gutting parent settlements and reduces settlement cascade.
 		emigrantCount := int(float64(len(aliveAgents)) * phi.Agnosis)
-		if emigrantCount < 10 {
+		if emigrantCount < 25 {
 			continue
 		}
 
@@ -267,4 +267,72 @@ func (s *Simulation) generateSettlementName() string {
 	}
 	// Fallback: append ID.
 	return fmt.Sprintf("Settlement-%d", tick)
+}
+
+// processInfrastructureGrowth lets settlements invest treasury into roads and walls weekly.
+// Each upgrade requires minimum population and treasury. One upgrade per settlement per week max.
+func (s *Simulation) processInfrastructureGrowth(tick uint64) {
+	for _, sett := range s.Settlements {
+		pop := int(sett.Population)
+		if pop == 0 {
+			continue
+		}
+
+		treasury := sett.Treasury
+
+		// Road upgrade: treasury >= pop×20, pop >= 50, RoadLevel < 5
+		if sett.RoadLevel < 5 && pop >= 50 && treasury >= uint64(pop)*20 {
+			cost := uint64(pop) * 20
+			sett.Treasury -= cost
+			sett.RoadLevel++
+			slog.Info("infrastructure upgrade: road",
+				"settlement", sett.Name,
+				"road_level", sett.RoadLevel,
+				"cost", cost,
+			)
+			s.Events = append(s.Events, Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("%s upgrades roads to level %d", sett.Name, sett.RoadLevel),
+				Category:    "economy",
+			})
+			continue // One upgrade per week max
+		}
+
+		// Wall upgrade: treasury >= pop×30, pop >= 100, WallLevel < 5
+		if sett.WallLevel < 5 && pop >= 100 && treasury >= uint64(pop)*30 {
+			cost := uint64(pop) * 30
+			sett.Treasury -= cost
+			sett.WallLevel++
+			slog.Info("infrastructure upgrade: wall",
+				"settlement", sett.Name,
+				"wall_level", sett.WallLevel,
+				"cost", cost,
+			)
+			s.Events = append(s.Events, Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("%s upgrades walls to level %d", sett.Name, sett.WallLevel),
+				Category:    "economy",
+			})
+		}
+	}
+}
+
+// processViabilityCheck tracks settlements with persistently low population.
+// After 4 consecutive weeks below 15 pop, the settlement is marked non-viable
+// and refugee spawning is disabled, allowing natural decline and absorption.
+func (s *Simulation) processViabilityCheck(tick uint64) {
+	for _, sett := range s.Settlements {
+		aliveCount := 0
+		for _, a := range s.SettlementAgents[sett.ID] {
+			if a.Alive {
+				aliveCount++
+			}
+		}
+
+		if aliveCount < 15 {
+			s.NonViableWeeks[sett.ID]++
+		} else {
+			delete(s.NonViableWeeks, sett.ID)
+		}
+	}
 }

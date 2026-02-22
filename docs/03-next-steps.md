@@ -57,7 +57,8 @@ Autonomous steward agent that observes world health and nudges conditions to pre
 ### Deeper Emergence (Medium Priority)
 New mechanics that would make the world more interesting.
 
-- [ ] **Infrastructure effects**: Wall/road/market levels exist but are cosmetic. Roads should reduce travel time, walls should reduce crime, market level should improve trade efficiency.
+- [x] **Infrastructure growth**: Settlements invest treasury into roads (pop >= 50) and walls (pop >= 100) weekly, raising overmass capacity. See `docs/05-settlement-fragmentation-fixes.md`.
+- [ ] **Infrastructure effects**: Roads should reduce travel time, walls should reduce crime, market level should improve trade efficiency.
 - [ ] **Inter-settlement diplomacy**: Formal alliances and trade agreements between settlements, influenced by faction politics. Currently settlements are economically connected but politically isolated.
 - [ ] **Agent life events**: Marriage ceremonies, apprenticeships, coming-of-age — notable life milestones that generate events and affect relationships. Currently relationships form but aren't celebrated.
 - [ ] **Warfare**: Settlement-vs-settlement conflict driven by faction tensions and resource competition. The Iron Brotherhood exists but has nothing to fight over.
@@ -78,7 +79,7 @@ New mechanics that would make the world more interesting.
 ### Tuning — Areas to Watch (from post-fix observations)
 The tuning fixes are working (mood +0.64, births outpacing deaths, faction treasuries accumulating), but new dynamics have emerged. See `docs/summaries/2026-02-21-post-tuning.md` for full data.
 
-- [ ] **Settlement explosion**: 73 → 468 settlements in ~20 sim-days. Overmass diaspora threshold may be too aggressive, fragmenting population into tiny settlements that lack critical mass for healthy markets. Consider raising the overmass threshold or adding a minimum founding population requirement.
+- [x] **Settlement fragmentation**: 714 settlements with 45% under 25 pop. Fixed: raised founding min to 25, added infrastructure growth, non-viable settlement tracking disables refugee spawning after 4 weeks, enhanced migration absorbs tiny settlements. See `docs/05-settlement-fragmentation-fixes.md`.
 - [ ] **Persistent raw material inflation**: Furs and iron ore still at 4.2x ceiling in some settlements. Single-recipe demand helped but didn't eliminate it. May need: increased hex resource regen rate, more hunter/miner occupations in spawner, or higher base supply floors in markets.
 - [ ] **Clothing oversupply**: Clothing stuck at 0.24x floor everywhere. No demand driver for clothing. Consider: agents needing clothing (weather/cold), clothing decay, or rebalancing recipe selection weights.
 - [ ] **Population growth rate**: 5,652 births vs 1,874 deaths — healthy but may accelerate unsustainably across 468 settlements. Monitor memory usage on the 1GB server.

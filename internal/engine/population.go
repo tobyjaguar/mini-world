@@ -177,7 +177,8 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 		}
 
 		// Minimum population floor: refugees arrive if below 10.
-		if aliveCount < 10 {
+		// Skip for non-viable settlements (pop < 15 for 4+ weeks) — let them naturally decline.
+		if aliveCount < 10 && s.NonViableWeeks[sett.ID] < 4 {
 			needed := 10 - aliveCount
 			hex := s.WorldMap.Get(sett.Position)
 			terrain := world.TerrainPlains

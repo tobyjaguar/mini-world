@@ -51,6 +51,10 @@ type Simulation struct {
 	// Settlement abandonment tracking (settlement ID → consecutive weeks with 0 pop).
 	AbandonedWeeks map[uint64]int
 
+	// Non-viable settlement tracking (settlement ID → consecutive weeks with pop < 15).
+	// After 4 weeks, refugee spawning is disabled so the settlement can naturally decline.
+	NonViableWeeks map[uint64]int
+
 	// Statistics tracked per day.
 	Stats SimStats
 }
@@ -117,6 +121,7 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 		SettlementIndex:  settIndex,
 		SettlementAgents: settAgents,
 		AbandonedWeeks:   make(map[uint64]int),
+		NonViableWeeks:   make(map[uint64]int),
 	}
 	sim.updateStats()
 	return sim
@@ -266,6 +271,8 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processAntiStagnation(tick)
 	s.weeklyResourceRegen()
 	s.processSeasonalMigration(tick)
+	s.processViabilityCheck(tick)
+	s.processInfrastructureGrowth(tick)
 	s.processSettlementOvermass(tick)
 	s.processSettlementAbandonment(tick)
 	s.updateArchetypeTemplates(tick)
