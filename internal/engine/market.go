@@ -424,18 +424,45 @@ func (s *Simulation) decayWealth() {
 // to poor agents. This is a safety net, not primary income — agents should
 // earn through market trade. Closes the treasury→agent loop.
 func (s *Simulation) paySettlementWages() {
+	// Compute global treasury/agent wealth ratio to dynamically target Φ⁻¹.
+	// Target: treasury holds ~38.2% (1 - Matter), agents hold ~61.8% (Matter).
+	totalTreasury := uint64(0)
+	for _, sett := range s.Settlements {
+		totalTreasury += sett.Treasury
+	}
+	totalAgent := s.Stats.TotalWealth // from previous updateStats()
+	totalWealth := totalTreasury + totalAgent
+	if totalWealth == 0 {
+		return
+	}
+
+	treasuryShare := float64(totalTreasury) / float64(totalWealth)
+	targetShare := 1.0 - phi.Matter // ~0.382 — treasury target
+
+	// Scale outflow rate based on how far treasury is above target.
+	// At target (38%): outflow = 1% baseline (maintenance flow).
+	// At 50%: outflow ~4%. At 70%: outflow ~10%. At 80%+: outflow ~13%.
+	// Below target: outflow = 0.5% (minimal, let taxes refill naturally).
+	excess := treasuryShare - targetShare
+	outflowRate := 0.005 // baseline when at or below target
+	if excess > 0 {
+		// Scale quadratically — gentle near target, aggressive when far above.
+		outflowRate = 0.01 + excess*excess*40.0
+		if outflowRate > phi.Agnosis { // cap at ~23.6%
+			outflowRate = phi.Agnosis
+		}
+	}
+
 	for _, sett := range s.Settlements {
 		if sett.Treasury == 0 {
 			continue
 		}
 
-		// Wage = 2 crowns — enough to buy food at reasonable market prices.
-		// As the market engine finds equilibrium, prices should come down
-		// and this wage becomes more meaningful.
+		// Wage = 2 crowns baseline.
 		wage := uint64(2)
 
-		// Cap total payout at 1% of treasury per day.
-		maxPayout := uint64(float64(sett.Treasury) * 0.01)
+		// Cap total payout at dynamically computed rate of treasury per day.
+		maxPayout := uint64(float64(sett.Treasury) * outflowRate)
 		if maxPayout < wage {
 			maxPayout = wage
 		}
@@ -443,7 +470,7 @@ func (s *Simulation) paySettlementWages() {
 
 		settAgents := s.SettlementAgents[sett.ID]
 		for _, a := range settAgents {
-			if !a.Alive || a.Wealth >= 20 {
+			if !a.Alive || a.Wealth >= 50 {
 				continue
 			}
 			if paid+wage > maxPayout {

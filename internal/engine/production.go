@@ -86,10 +86,11 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	// Skill growth.
 	applySkillGrowth(a)
 
-	// Working improves esteem, safety, and belonging.
+	// Working improves all social needs.
 	a.Needs.Esteem += 0.01
 	a.Needs.Safety += 0.005
 	a.Needs.Belonging += 0.003
+	a.Needs.Purpose += 0.002
 	clampAgentNeeds(&a.Needs)
 
 	return nil
