@@ -298,13 +298,21 @@ The closed economy transition was too harsh — crowns pooled in treasuries with
 
 **Key lesson:** When the price engine has a structural bias, no amount of supply-side fixes (threshold tuning, production boosts) or demand-side fixes (welfare wages, belonging) can compensate. Fix the price engine first, then tune parameters.
 
+### Tuning Round 7: Mood & Treasury Rebalancing
+
+Post-recovery `/observe` at tick 118,329 showed the economy working (96.9% market health, 9,239 births, 18,512 trades) but mood still declining and treasuries hoarding 71% of wealth.
+
+31. **Resource producer purpose drought** — FIXED: `ResolveWork` in `production.go` intercepted all resource producer work (farmers, miners, fishers, hunters — ~60% of agents) before `applyWork` in `behavior.go`. Was missing `Purpose += 0.002`. All resource producers had purpose permanently at 0.0.
+32. **Treasury hoarding (71% of wealth)** — FIXED: `paySettlementWages()` now self-regulates with dynamic Φ-targeting. Computes global treasury/agent ratio daily, scales outflow quadratically to converge toward `1 - phi.Matter` (~38% treasury / ~62% agents). All parameters derive from Φ. See `docs/08-closed-economy-changelog.md`.
+33. **Stats history query broken** — FIXED: `toTick` default used max uint64 which modernc.org/sqlite rejects. Changed to max int64.
+34. **Gardener startup race** — FIXED: Added `waitForAPI()` with exponential backoff (2s→30s, 5min deadline) in `cmd/gardener/main.go`.
+
 ### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
-- Stats history not recording — `/api/v1/stats/history` returns empty. P2.
-- Gardener startup race condition — cosmetic, first observation fails. P2.
-- Settlement fragmentation — 714 settlements for ~50K agents. Viability checks may need to be more aggressive. P2.
+- Settlement fragmentation — 714 settlements for ~64K agents. Viability checks may need to be more aggressive. P2.
+- Merchant extinction — all Tier 2 merchants dead after price normalization. May recover with equilibrium. P2.
 
 ## Ethics Note
 

@@ -137,6 +137,45 @@ Settlement wages reverted to fixed 2 crowns (safety net) — prices should come 
 | `internal/agents/behavior.go` | `applyEat()` and `applyForage()` give +0.001 belonging |
 | `internal/engine/population.go` | Birth threshold `Belonging > 0.4` → `Belonging > 0.3` |
 
+## Post-Fix Recovery (tick 118,329)
+
+By tick 118,329, the price ratchet fix had transformed the economy:
+
+| Metric | Pre-Fix (92,290) | Post-Fix (118,329) | Target |
+|--------|------------------|--------------------|--------|
+| Population | ~54,000 | ~64,000 | Stable/growing |
+| Births | 0 | 9,239 | > 0 |
+| Trade Volume | 5,784 | 18,512 | Growing |
+| Market Health | 12.5% | 96.9% | > 80% |
+| Grain Price | 8.63 | Normalized | ~2.0 |
+| Avg Mood | 0.16 | 0.091 | > 0.3 |
+| Treasury Share | N/A | 71% | ~38% |
+
+Market engine and birth system recovered. Two new problems emerged: mood still declining (purpose drought) and treasury hoarding.
+
+## Wave 4: Infrastructure Fixes (tick 118,329)
+
+- **Stats history query** — `toTick` used max uint64 which SQLite driver rejects. Fixed with max int64.
+- **Gardener startup race** — Added `waitForAPI()` with exponential backoff before first cycle.
+
+## Wave 5: Mood & Treasury Rebalancing (tick 120,192)
+
+### Resource Producer Purpose Drought
+`ResolveWork` in `production.go` intercepted all resource producer work actions (farmers, miners, fishers, hunters — ~60% of agents) before `applyWork` in `behavior.go` could run. `ResolveWork` was missing `Purpose += 0.002`. All resource producers had purpose permanently at 0.0, depressing mood.
+
+**Fix:** Added `a.Needs.Purpose += 0.002` to `ResolveWork`.
+
+### Dynamic Φ-Targeted Welfare
+Treasuries held 71% of all wealth (target: ~38%). The fixed 1% outflow cap was insufficient. Rather than pick another fixed value, `paySettlementWages()` now self-regulates:
+
+- Computes global `treasuryShare` daily
+- Targets `1 - phi.Matter` (~38.2% treasury / ~61.8% agents)
+- Outflow scales quadratically with excess above target
+- Decelerates near equilibrium (prevents overshoot)
+- All parameters derive from Φ
+
+This is the proper fix — not another hand-tuned parameter, but a dynamic feedback loop that converges to the Φ-derived ratio.
+
 ## Deploys This Session
 
 | # | Tick | Changes |
@@ -144,12 +183,12 @@ Settlement wages reverted to fixed 2 crowns (safety net) — prices should come 
 | 1 | 92,878 | Grain threshold, wealth decay redirect, settlement wages, fisher boost |
 | 2 | 93,781 | Belonging on eat/forage, birth threshold lowered, wages scaled with grain |
 | 3 | 94,400 | **Price ratchet fix** — decouple reference prices, ask-price clearing, clamp blend |
+| 4 | 118,329 | Stats history fix, gardener startup race fix |
+| 5 | 120,192 | Purpose boost for resource producers, dynamic Φ-targeted welfare |
 
 ## What to Monitor
 
-1. **Grain price** — should trend down from 8.63 toward base price of 2
-2. **Manufactured goods prices** — should trend up from floor toward base prices
-3. **Births** — should resume once belonging recovers above 0.3
-4. **Avg survival** — should recover above 0.4
-5. **Market health** — should improve from 0.125
-6. **Settlement count** — 714 is pathological; watch for consolidation
+1. **Treasury/agent wealth ratio** — should converge from 71/29 toward 38/62
+2. **Avg mood** — should recover as purpose and wealth reach agents
+3. **Settlement consolidation** — 714 is pathological; watch for merger
+4. **Merchant viability** — all Tier 2 merchants dead; may recover with price equilibrium

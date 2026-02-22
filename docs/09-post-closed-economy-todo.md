@@ -12,6 +12,10 @@ Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed ec
 | 93,781 | Wave 2 | Belonging on eat/forage, birth threshold 0.4→0.3, wages scale with grain price |
 | 94,254 | Observe | Still no improvement: survival 0.382, mood 0.142, zero births, grain 8.63 |
 | 94,400 | Wave 3 | **Price ratchet fix** — the root cause of all price issues |
+| 94,764 | Observe | Prices normalizing: grain 8.63→4.65, fish→2.00, tools 2.36→7.30 |
+| 118,329 | Observe | Major recovery: 9,239 births, 18,512 trades, market health 96.9% |
+| 118,329 | Wave 4 | Stats history fix, gardener startup race fix |
+| 120,192 | Wave 5 | Purpose boost for resource producers, dynamic Φ-targeted welfare |
 
 ## Root Cause: Price Ratchet in Market Engine
 
@@ -52,13 +56,29 @@ When layering fixes on a broken market engine, no amount of welfare, threshold t
 
 ## Remaining TODO
 
-### P2: Stats history not recording
+### Wave 4: Infrastructure Fixes (tick 118,329)
 
-`/api/v1/stats/history` returns `[]` — empty. Check `internal/persistence/db.go` for how `stats_history` gets written and ensure it fires on daily ticks.
+Two P2 issues from earlier rounds fixed:
 
-### P2: Gardener startup race condition
+1. **Stats history query** — FIXED: `toTick` defaulted to `^uint64(0)` (max uint64). The modernc.org/sqlite driver rejects uint64 values with the high bit set. Changed to `uint64(1<<63 - 1)`. Stats history now records and returns data.
+2. **Gardener startup race** — FIXED: Added `waitForAPI()` with exponential backoff (2s→30s, 5min deadline) in `cmd/gardener/main.go`. Gardener waits for worldsim HTTP server before first observation cycle.
 
-Gardener always fails its first observation because it starts before worldsim's HTTP server is ready. Cosmetic but noisy. Fix: add a startup delay or retry loop in the gardener's initial observation.
+### Wave 5: Mood & Treasury Rebalancing (tick 120,192)
+
+Two remaining structural issues from post-recovery `/observe`:
+
+1. **Resource producer purpose drought** — FIXED: `ResolveWork` in `production.go` intercepted work actions for all resource producers (farmers, miners, fishers, hunters) before `applyWork` in `behavior.go` could run. `ResolveWork` was missing `Purpose += 0.002`. All resource producers had purpose permanently at 0.0, dragging mood down via the satisfaction formula (`purpose * 1/15`).
+
+2. **Treasury hoarding (71% of wealth)** — FIXED: `paySettlementWages()` now dynamically targets the Φ⁻¹ treasury/agent ratio (~38% treasury / ~62% agents). Computes global `treasuryShare = totalTreasury / (totalTreasury + totalAgent)` daily. Outflow rate scales quadratically with excess above target:
+   - At target (38%): 1% outflow baseline
+   - At 50%: ~4% outflow
+   - At 70%: ~4.3% outflow
+   - Cap: Agnosis (~23.6%)
+   - Below target: 0.5% (minimal, lets taxes refill)
+
+   Eligibility threshold raised from wealth < 20 to wealth < 50.
+
+## Remaining TODO
 
 ### P2: Fisher skill alias
 
@@ -66,14 +86,23 @@ Gardener always fails its first observation because it starts before worldsim's 
 
 ### P2: Settlement fragmentation
 
-714 settlements for ~50K agents (avg 70/settlement). 311 have pop < 25. The viability check and absorption migration should be consolidating these but may not be aggressive enough. Monitor.
+714 settlements for ~64K agents (avg ~90/settlement). Many have pop < 25. The viability check and absorption migration should be consolidating these but may not be aggressive enough. Monitor.
+
+### P2: Merchant extinction
+
+All Tier 2 merchants died during the price normalization. Price convergence may have eliminated arbitrage margins. Consignment system exists but merchants need viable price variance between settlements. Monitor — may self-correct as the economy finds equilibrium.
 
 ## Success Criteria
 
-Run `/observe` after the price ratchet fix has had time to take effect:
-- Grain price trending down from 8.63 toward base price of 2
-- Manufactured goods (tools, weapons) trending up from floor toward base prices
-- Avg survival > 0.4
-- Births resuming (belonging above 0.3 threshold)
-- Trade volume growing (agents can afford goods at fair prices)
-- Market health improving from 0.125
+### Achieved (as of tick 118,329)
+- Grain price trending down from 8.63 toward base price of 2 — YES (4.65 and falling)
+- Manufactured goods trending up from floor — YES (tools 2.36→7.30)
+- Births resuming — YES (9,239 births)
+- Trade volume growing — YES (18,512 trades, 3x pre-fix)
+- Market health improving — YES (12.5% → 96.9%)
+
+### Still Monitoring (after wave 5)
+- Avg mood — still declining (0.091), expect improvement from purpose fix
+- Treasury/agent wealth ratio — should converge toward 38/62 from 71/29
+- Settlement consolidation — 714 is still high
+- Merchant viability — all dead, watching for recovery

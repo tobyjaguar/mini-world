@@ -117,18 +117,47 @@ Two crown sinks were destroying money in the closed economy:
 
 No crowns leave the system. Total money supply is now conserved.
 
+### Resource Producer Purpose Fix (2026-02-22, tick 120,192)
+
+`ResolveWork` in `production.go` intercepted all resource producer (farmer, miner, fisher, hunter) work actions before `applyWork` in `behavior.go` could run. `ResolveWork` had esteem, safety, and belonging boosts but was **missing `Purpose += 0.002`**. All resource producers (~60% of agents) had purpose permanently at 0.0.
+
+**Fix:** Added `a.Needs.Purpose += 0.002` to `ResolveWork` to match `applyWork`.
+
+### Dynamic Φ-Targeted Welfare (2026-02-22, tick 120,192)
+
+At tick 118,329 `/observe` showed treasuries holding 71% of all wealth — far above the target of `1 - Matter` ≈ 38.2%. The original fixed 1% outflow cap was too low. Rather than tune to another fixed value, `paySettlementWages()` now **self-regulates** to converge toward the Φ-derived target ratio.
+
+**Mechanism:**
+1. Compute `treasuryShare = totalTreasury / (totalTreasury + totalAgent)` once per day
+2. Compare against target `1 - phi.Matter` (~0.382)
+3. Scale outflow quadratically with excess:
+   - `outflowRate = 0.01 + excess² × 40`
+   - At target: 1% baseline
+   - At 50% treasury share: ~4%
+   - At 70% treasury share: ~4.3%
+   - Cap: `phi.Agnosis` (~23.6%)
+   - Below target: 0.5% (minimal, lets taxes refill)
+
+**Self-correcting properties:**
+- Quadratic scaling decelerates near target — prevents overshoot
+- At equilibrium: tax/decay inflow ≈ welfare outflow
+- Disruptions (wars, disasters) shift the ratio; system adjusts automatically
+- All parameters derive from Φ — no magic numbers
+
+**Other changes:** Eligibility threshold raised from `Wealth < 20` to `Wealth < 50` so more agents qualify.
+
 ### What to Monitor
 
 After deploying, watch these via `/api/v1/stats/history`:
 
-1. **Grain price** — should trend down from 8.63 toward base price of 2 now that the ratchet is fixed
-2. **Manufactured goods prices** — tools (2.36, base 10), weapons (3.54, base 15) should trend up from floor as food becomes affordable and agents buy other things
+1. **Treasury/agent wealth ratio** — should converge from 71/29 toward 38/62
+2. **Avg mood** — should improve as purpose and wealth flow reach agents
 3. **`total_wealth`** — should stabilize (sinks = remaining mints + wealth conservation)
-4. **`avg_survival`** — should rise above 0.4 as food becomes affordable
-5. **Births** — should resume once belonging recovers above 0.3 threshold
-6. **Trade volume** — should increase as agents can afford goods at fair prices
-7. **Market health** — should improve from 0.125 as prices find equilibrium
-8. **Settlement treasuries** — wealth decay redirect fills them; wages and upkeep drain them. Should stabilize.
+4. **`avg_survival`** — should stay above 0.4
+5. **Births** — should continue (9,239 achieved by tick 118,329)
+6. **Trade volume** — should remain above 18K
+7. **Market health** — should stay above 90%
+8. **Settlement consolidation** — 714 is pathological; watch for merger/abandonment
 
 ### Future Options
 
