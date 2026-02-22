@@ -226,11 +226,11 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 func surplusThreshold(a *agents.Agent, good agents.GoodType) int {
 	switch good {
 	case agents.GoodGrain, agents.GoodFish:
-		// Keep some food — farmers keep more.
+		// Keep some food — producers keep more, but not too much.
 		if a.Occupation == agents.OccupationFarmer || a.Occupation == agents.OccupationFisher {
-			return 5
+			return 3
 		}
-		return 3
+		return 2
 	case agents.GoodIronOre, agents.GoodTimber:
 		// Crafters keep raw materials.
 		if a.Occupation == agents.OccupationCrafter {
@@ -253,10 +253,11 @@ func surplusThreshold(a *agents.Agent, good agents.GoodType) int {
 func demandedGoods(a *agents.Agent) []agents.GoodType {
 	var needs []agents.GoodType
 
-	// Everyone needs food.
+	// Everyone needs food — demand whichever is cheaper (grain or fish).
 	food := a.Inventory[agents.GoodGrain] + a.Inventory[agents.GoodFish]
 	if food < 3 {
 		needs = append(needs, agents.GoodGrain)
+		needs = append(needs, agents.GoodFish)
 	}
 
 	// Crafters demand materials for their best recipe only (max 2 goods).
@@ -367,25 +368,23 @@ func (s *Simulation) collectTaxes(tick uint64) {
 
 		sett.Treasury += taxRevenue
 
-		// Settlement upkeep has two components:
-		// 1. Population upkeep: services, infrastructure maintenance.
-		// 2. Treasury upkeep: bureaucracy, waste, corruption — scales with wealth.
-		//    Acts as a wealth sink in the closed economy, preventing
-		//    infinite treasury accumulation.
+		// Settlement upkeep: population services and infrastructure maintenance.
+		// Only population-based upkeep remains — treasury upkeep removed because
+		// it destroyed crowns in the closed economy. Wealth decay now redirects
+		// to treasury, and settlement wages push crowns back to agents.
 		popUpkeep := uint64(float64(sett.Population) * phi.Agnosis * 0.5)
-		treasuryUpkeep := uint64(float64(sett.Treasury) * phi.Agnosis * 0.01)
-		upkeep := popUpkeep + treasuryUpkeep
-		if upkeep > sett.Treasury {
-			upkeep = sett.Treasury
+		if popUpkeep > sett.Treasury {
+			popUpkeep = sett.Treasury
 		}
-		sett.Treasury -= upkeep
+		sett.Treasury -= popUpkeep
 	}
 }
 
 // decayWealth applies a small daily wealth decay to all living agents.
 // Models wear, loss, spoilage, and the friction of holding wealth.
-// Acts as a complementary sink in the closed economy, ensuring crowns
-// circulate rather than accumulate.
+// Decayed crowns flow into the agent's home settlement treasury —
+// no crowns are destroyed. This keeps the money supply stable in the
+// closed economy while still discouraging hoarding.
 func (s *Simulation) decayWealth() {
 	for _, a := range s.Agents {
 		if !a.Alive || a.Wealth <= 20 {
@@ -398,6 +397,45 @@ func (s *Simulation) decayWealth() {
 			decay = 1
 		}
 		a.Wealth -= decay
+		// Redirect decayed crowns to home settlement treasury.
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				sett.Treasury += decay
+			}
+		}
+	}
+}
+
+// paySettlementWages distributes a small daily wage from settlement treasuries
+// to poor agents. This closes the treasury→agent loop: taxes pull crowns into
+// treasuries, wages push them back to agents who need them.
+func (s *Simulation) paySettlementWages() {
+	for _, sett := range s.Settlements {
+		if sett.Treasury == 0 {
+			continue
+		}
+		// Cap total payout at 1% of treasury per day.
+		maxPayout := uint64(float64(sett.Treasury) * 0.01)
+		if maxPayout < 1 {
+			maxPayout = 1
+		}
+		paid := uint64(0)
+
+		settAgents := s.SettlementAgents[sett.ID]
+		for _, a := range settAgents {
+			if !a.Alive || a.Wealth >= 20 {
+				continue
+			}
+			if paid >= maxPayout {
+				break
+			}
+			if sett.Treasury < 1 {
+				break
+			}
+			sett.Treasury--
+			a.Wealth++
+			paid++
+		}
 	}
 }
 

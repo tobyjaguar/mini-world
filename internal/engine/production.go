@@ -111,7 +111,7 @@ func productionAmount(a *agents.Agent) int {
 		}
 		return p
 	case agents.OccupationFisher:
-		p := int(a.Skills.Farming * 2)
+		p := int(a.Skills.Farming * 3) // Boosted — fish is alternative food, fishers need viable income.
 		if p < 1 {
 			p = 1
 		}

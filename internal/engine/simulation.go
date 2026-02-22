@@ -221,6 +221,7 @@ func (s *Simulation) updateWeather() {
 func (s *Simulation) TickDay(tick uint64) {
 	s.collectTaxes(tick)
 	s.decayWealth()
+	s.paySettlementWages()
 	s.processPopulation(tick)
 	s.processRelationships(tick)
 	s.processCrime(tick)
