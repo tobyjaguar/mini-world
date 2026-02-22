@@ -31,18 +31,20 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	}
 
 	if hex == nil {
-		// No hex data — failed production, needs erode.
+		// No hex data — failed production, needs erode but belonging persists.
 		a.Needs.Esteem -= 0.005
 		a.Needs.Safety -= 0.003
+		a.Needs.Belonging += 0.001 // Tried to work — still part of the community.
 		clampAgentNeeds(&a.Needs)
 		return nil
 	}
 
 	available := hex.Resources[resType]
 	if available < 1.0 {
-		// Hex depleted — failed production, needs erode.
+		// Hex depleted — failed production, needs erode but belonging persists.
 		a.Needs.Esteem -= 0.005
 		a.Needs.Safety -= 0.003
+		a.Needs.Belonging += 0.001
 		clampAgentNeeds(&a.Needs)
 		return nil
 	}
@@ -57,9 +59,10 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	if produced < 1 {
 		produced = 1
 		if available < 1.0 {
-			// Failed production — needs erode.
+			// Failed production — needs erode but belonging persists.
 			a.Needs.Esteem -= 0.005
 			a.Needs.Safety -= 0.003
+			a.Needs.Belonging += 0.001
 			clampAgentNeeds(&a.Needs)
 			return nil
 		}

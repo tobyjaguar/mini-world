@@ -77,28 +77,44 @@ New mechanics that would make the world more interesting.
 - [ ] **Backup strategy**: Daily DB snapshots to off-server storage. Currently only one copy exists on the DreamCompute instance.
 
 ### Tuning — Areas to Watch (from post-fix observations)
-The tuning fixes are working (mood +0.64, births outpacing deaths, faction treasuries accumulating), but new dynamics have emerged. See `docs/summaries/2026-02-21-post-tuning.md` for full data.
+The tuning fixes are working (mood +0.64, faction treasuries accumulating), but new dynamics have emerged. See `docs/summaries/2026-02-21-post-tuning.md` for full data.
 
 - [x] **Settlement fragmentation**: 714 settlements with 45% under 25 pop. Fixed: raised founding min to 25, added infrastructure growth, non-viable settlement tracking disables refugee spawning after 4 weeks, enhanced migration absorbs tiny settlements. See `docs/05-settlement-fragmentation-fixes.md`.
-- [ ] **Persistent raw material inflation**: Furs and iron ore still at 4.2x ceiling in some settlements. Single-recipe demand helped but didn't eliminate it. May need: increased hex resource regen rate, more hunter/miner occupations in spawner, or higher base supply floors in markets.
-- [ ] **Clothing oversupply**: Clothing stuck at 0.24x floor everywhere. No demand driver for clothing. Consider: agents needing clothing (weather/cold), clothing decay, or rebalancing recipe selection weights.
-- [ ] **Population growth rate**: 5,652 births vs 1,874 deaths — healthy but may accelerate unsustainably across 468 settlements. Monitor memory usage on the 1GB server.
-- [ ] **Market health still low (0.35)**: More than half of goods significantly mispriced. May need more sim-time for price discovery, or supply/demand mechanics need further tuning.
+- [x] **Unclosed money supply**: Market sells, fallback wages, Tier 2 trade, and merchants all minted crowns from nothing. Fixed: order-matched market engine, treasury-paid merchant/Tier 2 trade, fallback wages removed, remaining mints throttled 60x. See `docs/07-closed-economy-implementation.md` and `docs/08-closed-economy-changelog.md`.
 - [ ] **Fisher skill bug**: `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
+
+### Post-Closed-Economy Issues (observed 2026-02-22)
+
+Diagnosed via `/observe` after deploying the closed economy. Two P0 issues need immediate attention:
+
+**P0 — Trade volume near zero (104 trades for 51K agents):**
+The order-matched market engine may be too restrictive. Sell orders use `price * Matter` (~0.38x) as min ask, buy orders use `price * Being` (~1.618x) as max bid. These bands overlap in theory, but if most goods are stuck at the Agnosis price floor (0.236x base), sell asks may be too high relative to what buyers can afford. Symptoms: most goods at price floor, grain at 431% inflation (universal demand, insufficient supply reaching market). Likely cause: the price bands work relative to `entry.Price`, but when prices are already at floor, the sell ask (`floor * Matter`) produces sub-1-crown prices that round to 1, while buyers' max (`floor * Being`) is also very low. Agents with >10K wealth should be able to buy, so the issue may be that sellers aren't listing (surplus threshold too high?) or clearing prices aren't updating correctly.
+
+**P0 — Zero births:**
+Stats show 2,073 deaths and 0 births. Population declining toward extinction. The closed economy removed fallback wages — if births require minimum agent wealth, agents on depleted hexes who now get nothing may have dropped below the birth threshold. Alternatively, the birth system may have a separate issue (tick gating, population cap, or a bug introduced by the `ApplyAction` signature change).
+
+**P1 — Grain inflation (431%):**
+Grain is the universal food need. At 8.6x base price, most agents can't afford to buy grain even when farmers produce it. This may be a symptom of the trade volume issue (farmers have grain surplus but sell orders aren't matching) or a separate supply problem.
+
+**P1 — Merchant death spiral:**
+All 6 dead Tier 2 agents are merchants, all at 0 wealth. Merchants need wealth to buy cargo at home market, but the closed economy means they must spend crowns to buy. If they ran out of capital, they can't trade, can't earn, and starve. May need: a minimum-wealth safety net for merchants, or allowing merchants to take settlement goods on consignment.
+
+**P2 — Fisher mood (-0.30 for all Tier 2 fishers):**
+Systematic negative mood across all Tier 2 fishers. May be related to the fisher skill bug (`Skills.Farming` instead of fishing), fish price deflation (fish at floor price = low trade income), or a needs decay issue from the production.go changes.
+
+**P2 — 180+ settlements below viability threshold (pop < 25):**
+A third of settlements are sub-viable. The absorption migration (mood threshold 0.0 for pop < 25) should be consolidating these, but with 714 settlements and only 51K agents (avg 71/settlement), fragmentation is severe. Monitor whether consolidation is happening or if these settlements persist indefinitely.
 
 ## Roadmap
 
-### Step 1: Verify Frontend End-to-End
-Once Cloudflare DNS propagates, confirm `crossworlds.xyz` talks to `api.crossworlds.xyz`. Test all pages load data.
+### Step 1 (URGENT): Fix Post-Closed-Economy P0s
+Diagnose and fix zero births and near-zero trade volume. These will collapse the world if left unaddressed. See "Post-Closed-Economy Issues" above.
 
-### Step 2: Claude Gardener
-Implement the autonomous steward agent (design in `docs/05-claude-gardener.md`). Observes world health via GET endpoints, decides interventions via Claude Haiku, acts via `POST /api/v1/intervention`. Prevents collapse and stagnation.
-
-### Step 3: Factions + Social UI
+### Step 2: Factions + Social UI
 Add the missing frontend pages for factions (list + detail with influence per settlement) and social graph (relationship network visualization). API endpoints already exist.
 
-### Step 4: Infrastructure Effects
+### Step 3: Infrastructure Effects
 Make walls/roads/markets mechanically meaningful. Roads reduce travel time for merchants, walls reduce crime/theft, market level improves trade efficiency. Currently these exist as numbers but have no gameplay effect.
 
-### Step 5: World Health Check
-Run `/observe` to diagnose current world health and address imbalances. Key areas: market health (0.22 is low), survival needs (0.39 avg), clothing oversupply, raw material inflation.
+### Step 4: Deeper Emergence
+Inter-settlement diplomacy, warfare, religion/philosophy, agent life events. See "Deeper Emergence" section above.

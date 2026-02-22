@@ -176,9 +176,7 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			// Clearing price: midpoint of ask and bid.
 			clearPrice := (sells[si].Price + buys[bi].Price) / 2
 			clearCrowns := uint64(clearPrice + 0.5)
-			if clearCrowns < 1 {
-				clearCrowns = 1
-			}
+			// No minimum — 0-crown trades model barter in low-price economies.
 
 			buyer := buys[bi].Agent
 			seller := sells[si].Agent
@@ -191,7 +189,7 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			}
 
 			for u := 0; u < tradeQty; u++ {
-				if buyer.Wealth < clearCrowns {
+				if clearCrowns > 0 && buyer.Wealth < clearCrowns {
 					break
 				}
 				buyer.Wealth -= clearCrowns
