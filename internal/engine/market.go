@@ -448,6 +448,16 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 					sellMerchantCargo(a, destSett.Market, destSett)
 					s.Stats.TradeVolume++
 				}
+				// Repay consignment debt to home settlement treasury.
+				if a.ConsignmentDebt > 0 {
+					repay := a.ConsignmentDebt
+					if repay > a.Wealth {
+						repay = a.Wealth // Pay what you can.
+					}
+					a.Wealth -= repay
+					sett.Treasury += repay
+					a.ConsignmentDebt -= repay
+				}
 				a.TradeDestSett = nil
 				a.TradeCargo = nil
 				continue
@@ -490,14 +500,15 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			}
 			// Buy up to 5 units: merchant pays from personal wealth first,
 			// then home settlement treasury fronts the rest (consignment).
+			// Consignment cost is tracked as debt repaid on sale.
 			buyQty := 0
 			for i := 0; i < 5; i++ {
 				if a.Wealth >= buyPrice {
 					a.Wealth -= buyPrice
 					buyQty++
 				} else if sett.Treasury >= buyPrice {
-					// Consignment: treasury fronts the cost.
 					sett.Treasury -= buyPrice
+					a.ConsignmentDebt += buyPrice
 					buyQty++
 				} else {
 					break

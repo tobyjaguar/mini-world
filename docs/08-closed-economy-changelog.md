@@ -74,7 +74,7 @@ All 6 dead Tier 2 agents were merchants at 0 wealth. Root cause: merchants have 
 
 **Fix 2 — Consignment buying** (`market.go`): When a merchant can't afford cargo with personal wealth, the home settlement treasury fronts the purchase cost. The merchant still sells at the destination and pockets the revenue. This is a closed transfer — crowns move from home treasury to destination treasury via the merchant, who keeps the margin. No new crowns minted.
 
-The consignment model means merchants can always trade as long as their home settlement has treasury funds. This aligns with the closed economy — settlements invest in trade infrastructure by fronting merchant capital.
+The consignment model means merchants can always trade as long as their home settlement has treasury funds. The `ConsignmentDebt` field on the Agent struct tracks how much the treasury fronted. When the merchant sells at the destination and returns home, the debt is repaid from their revenue before they keep the profit. If the merchant can't fully repay (e.g., destination treasury was too poor to buy all cargo), the remaining debt carries forward. This keeps the home treasury whole — it's a loan, not a gift.
 
 ### What to Monitor
 

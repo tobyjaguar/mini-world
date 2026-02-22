@@ -93,9 +93,10 @@ type Agent struct {
 	Needs NeedsState `json:"needs"`
 
 	// Trade (merchants only)
-	TradeDestSett  *uint64          `json:"trade_dest_sett,omitempty"`  // Destination settlement ID
-	TradeCargo     map[GoodType]int `json:"trade_cargo,omitempty"`     // Goods being transported
-	TravelTicksLeft uint16          `json:"travel_ticks_left,omitempty"` // Ticks remaining to reach destination
+	TradeDestSett   *uint64          `json:"trade_dest_sett,omitempty"`   // Destination settlement ID
+	TradeCargo      map[GoodType]int `json:"trade_cargo,omitempty"`      // Goods being transported
+	TravelTicksLeft uint16           `json:"travel_ticks_left,omitempty"` // Ticks remaining to reach destination
+	ConsignmentDebt uint64           `json:"consignment_debt,omitempty"` // Crowns owed to home treasury from fronted cargo
 
 	// Memory stream (Tier 2 agents)
 	Memories []Memory `json:"memories,omitempty"`
