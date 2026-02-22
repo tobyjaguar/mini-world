@@ -488,11 +488,16 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			if buyPrice < 1 {
 				buyPrice = 1
 			}
-			// Buy up to 5 units or what the merchant can afford.
+			// Buy up to 5 units: merchant pays from personal wealth first,
+			// then home settlement treasury fronts the rest (consignment).
 			buyQty := 0
 			for i := 0; i < 5; i++ {
 				if a.Wealth >= buyPrice {
 					a.Wealth -= buyPrice
+					buyQty++
+				} else if sett.Treasury >= buyPrice {
+					// Consignment: treasury fronts the cost.
+					sett.Treasury -= buyPrice
 					buyQty++
 				} else {
 					break

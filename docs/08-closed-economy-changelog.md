@@ -54,6 +54,28 @@ Gated by `tick % 60 == uint64(a.ID) % 60`, which ensures each agent's mint fires
 - **Crafters/Alchemists** without materials are effectively idle. The journeyman wage keeps them alive while they wait for market supply.
 - These mints are small relative to the closed-economy flows (a single market trade of 5 grain at price 3 = 15 crowns).
 
+### P0 Hotfix: Belonging Restored on Failed Production (2026-02-22)
+
+After deploying the closed economy, `/observe` showed **zero births** and **104 trades across 51K agents**.
+
+**Zero births root cause:** Removing fallback wages also removed the `+0.003 belonging` boost on failed production. Resource producers (farmers, miners, fishers, hunters) on depleted hexes spiraled below the `Belonging > 0.4` birth eligibility threshold, collapsing the eligible parent pool to near zero.
+
+**Fix:** Restored a small belonging boost (`+0.001`) on all three failed-production paths in `production.go`. No crowns minted — just social recognition that the agent tried to work. Smaller than the old `+0.003` to avoid masking the economic pressure of depletion.
+
+**Near-zero trade root cause:** When prices hit the Agnosis floor (~0.47 crowns for grain), clearing prices rounded to 0-1 crowns. The `if clearCrowns < 1 { clearCrowns = 1 }` floor meant agents with 0 wealth couldn't trade at all — the affordability check killed the match silently.
+
+**Fix:** Removed the 1-crown minimum on clearing prices. When `clearCrowns` rounds to 0, trades execute as barter (free transfer — goods move, no crowns change hands). Skip the `buyer.Wealth < clearCrowns` check when price is 0 so penniless agents can still receive goods.
+
+### P1 Fix: Merchant Death Spiral (2026-02-22)
+
+All 6 dead Tier 2 agents were merchants at 0 wealth. Root cause: merchants have no `applyWork()` income — unlike laborers/crafters who get a throttled mint, merchants get only `Skills.Trade += 0.001`. Once wealth hits 0, they can't buy cargo at home market, can't earn from trade, and slowly starve.
+
+**Fix 1 — Throttled wage** (`behavior.go`): Merchants now get the same `tick%60` gated 1-crown mint as laborers (~24 crowns/day). This is a survival floor, not real income.
+
+**Fix 2 — Consignment buying** (`market.go`): When a merchant can't afford cargo with personal wealth, the home settlement treasury fronts the purchase cost. The merchant still sells at the destination and pockets the revenue. This is a closed transfer — crowns move from home treasury to destination treasury via the merchant, who keeps the margin. No new crowns minted.
+
+The consignment model means merchants can always trade as long as their home settlement has treasury funds. This aligns with the closed economy — settlements invest in trade infrastructure by fronting merchant capital.
+
 ### What to Monitor
 
 After deploying, watch these via `/api/v1/stats/history`:

@@ -273,10 +273,13 @@ Economy closed — crowns are conserved. See `docs/07-closed-economy-implementat
 17. **Tier 2 trade minted crowns** — FIXED: `tier2MarketSell()` sells surplus to settlement treasury (closed transfer).
 18. **Merchant trade minted crowns** — FIXED: `sellMerchantCargo()` paid from destination settlement treasury.
 19. **Journeyman/laborer wages** — THROTTLED: Still mint from nothing but gated to once per sim-hour (~24 crowns/day vs ~1,440). Monitor via `total_wealth` in stats history. See `docs/08-closed-economy-changelog.md` for future options.
+20. **Zero births after economy closure** — FIXED: Removing fallback wages also removed belonging boost on failed production. Resource producers spiraled below `Belonging > 0.4` birth threshold. Restored `+0.001 belonging` on failed production (no wage, just social signal).
+21. **Near-zero trade volume** — FIXED: Clearing prices at Agnosis floor rounded to 0-1 crowns; the 1-crown minimum killed trades for agents with 0 wealth. Removed the floor — 0-crown trades now execute as barter.
 
 ### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
+- Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
 
 ## Ethics Note
 

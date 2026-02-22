@@ -96,8 +96,8 @@ Stats show 2,073 deaths and 0 births. Population declining toward extinction. Th
 **P1 — Grain inflation (431%):**
 Grain is the universal food need. At 8.6x base price, most agents can't afford to buy grain even when farmers produce it. This may be a symptom of the trade volume issue (farmers have grain surplus but sell orders aren't matching) or a separate supply problem.
 
-**P1 — Merchant death spiral:**
-All 6 dead Tier 2 agents are merchants, all at 0 wealth. Merchants need wealth to buy cargo at home market, but the closed economy means they must spend crowns to buy. If they ran out of capital, they can't trade, can't earn, and starve. May need: a minimum-wealth safety net for merchants, or allowing merchants to take settlement goods on consignment.
+**P1 — Merchant death spiral:** FIXED.
+All 6 dead Tier 2 agents were merchants at 0 wealth. Merchants had no `applyWork()` income (unlike laborers/crafters). Fix: (1) throttled wage like laborers (~24 crowns/day survival floor), (2) consignment buying — home settlement treasury fronts cargo cost when merchant can't afford it. Closed transfer: home treasury → destination treasury via merchant profit. See `docs/08-closed-economy-changelog.md`.
 
 **P2 — Fisher mood (-0.30 for all Tier 2 fishers):**
 Systematic negative mood across all Tier 2 fishers. May be related to the fisher skill bug (`Skills.Farming` instead of fishing), fish price deflation (fish at floor price = low trade income), or a needs decay issue from the production.go changes.

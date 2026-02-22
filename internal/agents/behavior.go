@@ -257,7 +257,11 @@ func applyWork(a *Agent, tick uint64) []string {
 			a.Wealth += 1
 		}
 	case OccupationMerchant:
-		// Merchants' real value is in the trade action (world-level).
+		// Merchants earn from inter-settlement trade (world-level).
+		// Throttled wage keeps them alive between trips.
+		if tick%60 == uint64(a.ID)%60 {
+			a.Wealth += 1
+		}
 		a.Skills.Trade += 0.001
 	case OccupationSoldier:
 		a.Skills.Combat += 0.002
