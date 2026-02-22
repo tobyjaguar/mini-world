@@ -303,7 +303,7 @@ The closed economy transition was too harsh — crowns pooled in treasuries with
 Post-recovery `/observe` at tick 118,329 showed the economy working (96.9% market health, 9,239 births, 18,512 trades) but mood still declining and treasuries hoarding 71% of wealth.
 
 31. **Resource producer purpose drought** — FIXED: `ResolveWork` in `production.go` intercepted all resource producer work (farmers, miners, fishers, hunters — ~60% of agents) before `applyWork` in `behavior.go`. Was missing `Purpose += 0.002`. All resource producers had purpose permanently at 0.0.
-32. **Treasury hoarding (71% of wealth)** — FIXED: `paySettlementWages()` now self-regulates with dynamic Φ-targeting. Computes global treasury/agent ratio daily, scales outflow quadratically to converge toward `1 - phi.Matter` (~38% treasury / ~62% agents). All parameters derive from Φ. See `docs/08-closed-economy-changelog.md`.
+32. **Treasury hoarding (71→74% of wealth)** — FIXED in two rounds: First, `paySettlementWages()` self-regulates with dynamic Φ-targeting (quadratic outflow scaling). Second, the fixed 2-crown wage was a 700x bottleneck — wage is now `budget / eligible_agents` (~1,808 crowns/day at 74% share). See `docs/08-closed-economy-changelog.md`.
 33. **Stats history query broken** — FIXED: `toTick` default used max uint64 which modernc.org/sqlite rejects. Changed to max int64.
 34. **Gardener startup race** — FIXED: Added `waitForAPI()` with exponential backoff (2s→30s, 5min deadline) in `cmd/gardener/main.go`.
 

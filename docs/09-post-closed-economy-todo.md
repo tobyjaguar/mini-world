@@ -16,6 +16,8 @@ Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed ec
 | 118,329 | Observe | Major recovery: 9,239 births, 18,512 trades, market health 96.9% |
 | 118,329 | Wave 4 | Stats history fix, gardener startup race fix |
 | 120,192 | Wave 5 | Purpose boost for resource producers, dynamic Φ-targeted welfare |
+| 126,272 | Observe | Treasury share worsened to 74.3% — fixed wage bottleneck identified |
+| 128,232 | Wave 6 | Dynamic wage from budget — treasury outflow now matches computed rate |
 
 ## Root Cause: Price Ratchet in Market Engine
 
@@ -75,6 +77,12 @@ Two remaining structural issues from post-recovery `/observe`:
    - Below target: 0.5% (minimal, lets taxes refill)
 
    Eligibility threshold raised from wealth < 20 to wealth < 50.
+
+## Wave 6: Welfare Wage Bottleneck Fix (tick 128,232)
+
+`/observe` at tick 126,272 revealed the dynamic outflow rate was correct but the **fixed 2-crown wage per agent** was 700x too narrow a pipe. Avg settlement had 2.08M treasury; at 5.22% rate the budget was 108K crowns/day, but 80 agents × 2 crowns = only 160 crowns actually flowed. Treasury share worsened from 71% → 74.3%.
+
+**Fix:** Wage is now `budget / eligible_agents` — computed dynamically from the outflow budget. At avg settlement, wage is ~1,808 crowns/agent/day instead of 2. The treasury actually drains at the computed rate, and the self-correcting dynamics now work as designed.
 
 ## Remaining TODO
 

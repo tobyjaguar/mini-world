@@ -146,6 +146,20 @@ At tick 118,329 `/observe` showed treasuries holding 71% of all wealth — far a
 
 **Other changes:** Eligibility threshold raised from `Wealth < 20` to `Wealth < 50` so more agents qualify.
 
+### Welfare Wage Bottleneck Fix (2026-02-22, tick 128,232)
+
+`/observe` at tick 126,272 showed treasury share had **worsened** from 71% to 74.3%. Investigation revealed the dynamic outflow rate was computing correctly (5.22%) but the **fixed 2-crown per-agent wage** was the bottleneck. With avg treasury of 2.08M and 80 agents per settlement, actual outflow was only 160 crowns/day (0.0077%) instead of the target 108K (5.22%).
+
+**Fix:** Wage is now computed dynamically from the budget:
+```
+budget = outflowRate * settlement.Treasury
+wage = budget / eligible_agents
+```
+
+At avg settlement (2M treasury, 60 eligible agents, 5.2% rate): wage is ~1,808 crowns/agent/day. The treasury actually drains at the computed rate now. As the ratio drops toward 38%, the rate drops, wages drop, and it stabilizes.
+
+**Lesson:** When building a dynamic targeting system, ensure the *mechanism* (per-agent wage) can actually deliver the *target* (outflow rate). A 5% rate is meaningless if the per-agent pipe is 700x too narrow.
+
 ### What to Monitor
 
 After deploying, watch these via `/api/v1/stats/history`:

@@ -176,6 +176,14 @@ Treasuries held 71% of all wealth (target: ~38%). The fixed 1% outflow cap was i
 
 This is the proper fix — not another hand-tuned parameter, but a dynamic feedback loop that converges to the Φ-derived ratio.
 
+## Wave 6: Welfare Wage Bottleneck Fix (tick 128,232)
+
+`/observe` at tick 126,272 showed treasury share had **worsened** from 71% to 74.3%. The dynamic outflow rate was correct (5.22%) but the fixed 2-crown wage per agent was 700x too narrow — 160 crowns/day outflow vs 108K target.
+
+**Fix:** Wage is now `budget / eligible_agents`. At avg settlement (2M treasury, 60 eligible), wage is ~1,808 crowns/day. Treasury actually drains at the computed rate. As ratio drops toward 38%, the rate drops, wages drop, system stabilizes.
+
+**Lesson:** Verify the mechanism can deliver the target. A computed outflow rate is meaningless if the per-agent pipe is too narrow.
+
 ## Deploys This Session
 
 | # | Tick | Changes |
@@ -185,10 +193,13 @@ This is the proper fix — not another hand-tuned parameter, but a dynamic feedb
 | 3 | 94,400 | **Price ratchet fix** — decouple reference prices, ask-price clearing, clamp blend |
 | 4 | 118,329 | Stats history fix, gardener startup race fix |
 | 5 | 120,192 | Purpose boost for resource producers, dynamic Φ-targeted welfare |
+| 6 | 128,232 | **Welfare wage bottleneck fix** — dynamic wage from budget, not fixed 2 crowns |
 
 ## What to Monitor
 
-1. **Treasury/agent wealth ratio** — should converge from 71/29 toward 38/62
-2. **Avg mood** — should recover as purpose and wealth reach agents
-3. **Settlement consolidation** — 714 is pathological; watch for merger
-4. **Merchant viability** — all Tier 2 merchants dead; may recover with price equilibrium
+1. **Treasury/agent wealth ratio** — should rapidly converge from 74/26 toward 38/62
+2. **Agent wealth** — should reverse declining trend as welfare flows increase
+3. **Avg mood** — should improve as agents get wealth → buy food → survival rises
+4. **Trade volume** — should recover from post-restart crash (1,302 → 15K+)
+5. **Settlement consolidation** — 714 unchanged; watch for merger
+6. **Merchant viability** — all Tier 2 merchants dead; may recover with equilibrium
