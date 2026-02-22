@@ -2,7 +2,7 @@
 
 ## Current State (Phases 1–5 + Tuning — Complete)
 
-The world is live and tuned. ~28,900 agents across 73 settlements on a hex grid continent, running 24/7 on DreamCompute.
+The world is live and tuned. ~50,000 agents across 714 settlements on a hex grid continent, running 24/7 on DreamCompute. The API serves at `api.crossworlds.xyz` (Cloudflare proxy) and the Next.js frontend is deployed on Vercel at `crossworlds.xyz`.
 
 ### What's working:
 - **World**: Simplex noise terrain, rivers, coast detection, hex grid (~2,000 hexes)
@@ -35,8 +35,8 @@ Five issues were diagnosed from observing the live world and fixed:
 
 ## Future Work
 
-### Web Frontend (In Progress)
-Svelte SPA frontend providing a visual interface to the world. See `web/` directory.
+### Web Frontend (Deployed — `crossworlds.xyz`)
+Next.js frontend deployed on Vercel. Separate repo: `github.com/tobyjaguar/crossworlds` (private).
 
 - [x] **Hex map renderer**: Canvas-based interactive hex map with pan/zoom/click, terrain colors, settlement markers
 - [x] **Settlement views**: List (sortable) and detail (market, agents, factions, culture, events)
@@ -44,7 +44,10 @@ Svelte SPA frontend providing a visual interface to the world. See `web/` direct
 - [x] **Newspaper page**: Styled newspaper layout rendering Haiku-generated content
 - [x] **Economy overview**: Wealth distribution, inflation/deflation, market health
 - [x] **Stats dashboard**: Time-series charts for population, wealth, mood, trade volume
-- [x] **API hardening**: Rate limiting on LLM endpoints, CORS for dev, static file serving with SPA fallback
+- [x] **API hardening**: Rate limiting on LLM endpoints (story: 10/hr, newspaper: 30/hr), CORS (env-var driven), admin auth on biography refresh
+- [ ] **Factions page**: Faction list, detail, influence per settlement (API exists, no UI yet)
+- [ ] **Social graph page**: Relationship network visualization (API exists, no UI yet)
+- [ ] **Admin control panel**: UI for speed/snapshot/intervention endpoints
 - [ ] **Faction influence heatmap**: Overlay faction influence on hex map
 - [ ] **Trade route visualization**: Show merchant paths between settlements
 
@@ -84,4 +87,8 @@ The tuning fixes are working (mood +0.64, births outpacing deaths, faction treas
 
 ## Suggested Next Session
 
-**Build the web frontend.** The API is comprehensive (18 endpoints), the world is tuned and running — the biggest gap is that observing it requires reading JSON. A simple web UI with a hex map, settlement detail pages, agent profiles, and the newspaper would transform the experience.
+**Verify the frontend end-to-end** now that DNS propagates. Then focus on either:
+1. **Claude Gardener** — autonomous steward to keep the world healthy as it scales
+2. **Factions/Social UI** — add the missing frontend pages for political and social systems
+3. **Infrastructure effects** — make walls/roads/markets mechanically meaningful
+4. **World tuning** — run `/observe` to diagnose current world health and address imbalances
