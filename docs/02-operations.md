@@ -171,12 +171,21 @@ sudo systemctl edit worldsim
 # Environment=WORLDSIM_ADMIN_KEY=your-secret-key
 ```
 
+## Storage
+
+| Volume | Mount | Size | Contents |
+|--------|-------|------|----------|
+| `/dev/vda1` (boot) | `/` | 2.8GB | OS, binary, systemd |
+| `/dev/vdb1` (data) | `/opt/worldsim/data` | 20GB | SQLite database |
+
+The data volume is configured in `/etc/fstab` with `nofail` and mounts automatically on boot.
+
 ## File Locations on Server
 
 | Path | Contents |
 |------|----------|
 | `/opt/worldsim/worldsim` | The binary |
-| `/opt/worldsim/data/crossworlds.db` | SQLite world state |
+| `/opt/worldsim/data/crossworlds.db` | SQLite world state (on 20GB data volume) |
 | `/etc/systemd/system/worldsim.service` | systemd service |
 | `/etc/fail2ban/jail.local` | fail2ban SSH config |
 

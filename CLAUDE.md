@@ -156,6 +156,7 @@ The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for 
 | SSH | `ssh -i <your-key> debian@<server-ip>` |
 | Service | systemd `worldsim.service`, auto-restarts, starts on boot |
 | Database | `/opt/worldsim/data/crossworlds.db` (SQLite, auto-saves daily) |
+| Storage | 20GB data volume mounted at `/opt/worldsim/data` (boot disk is 2.8GB) |
 | Security | UFW (ports 22+80 only), fail2ban, no root login, no passwords |
 | CORS | Configured via `CORS_ORIGINS` env var for `crossworlds.xyz` |
 | Swap | 1GB at `/swapfile` |
