@@ -126,6 +126,7 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 	}
 
 	// Desperate agents migrate.
+	migrated := false
 	for _, sett := range s.Settlements {
 		if sett.ID == bestSettID {
 			continue
@@ -159,7 +160,14 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 			newID := target.ID
 			a.HomeSettID = &newID
 			a.Position = target.Position
+			migrated = true
 		}
+	}
+
+	// Rebuild SettlementAgents map if any agents migrated.
+	// Without this, population counts stay stale and settlements never consolidate.
+	if migrated {
+		s.rebuildSettlementAgents()
 	}
 }
 

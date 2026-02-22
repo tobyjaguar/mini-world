@@ -141,9 +141,16 @@ func (s *Simulation) TickMinute(tick uint64) {
 		// Agent decides and acts.
 		action := agents.Decide(a)
 
-		// Resource-producing occupations draw from hex resources.
-		hex := s.WorldMap.Get(a.Position)
-		events := ResolveWork(a, action, hex, tick)
+		var events []string
+
+		// Buy food: agent purchases from settlement market (direct transaction).
+		if action.Kind == agents.ActionBuyFood {
+			s.resolveBuyFood(a)
+		} else {
+			// Resource-producing occupations draw from hex resources.
+			hex := s.WorldMap.Get(a.Position)
+			events = ResolveWork(a, action, hex, tick)
+		}
 
 		// Record notable events.
 		for _, desc := range events {
@@ -640,4 +647,17 @@ func (s *Simulation) updateStats() {
 		s.Stats.AvgMood = totalMood / float32(alive)
 		s.Stats.AvgSurvival = totalSurvival / float32(alive)
 	}
+}
+
+// rebuildSettlementAgents reconstructs the settlement→agents map from agent HomeSettIDs.
+// Must be called after any operation that changes agent HomeSettID (e.g. migration, diaspora).
+func (s *Simulation) rebuildSettlementAgents() {
+	newMap := make(map[uint64][]*agents.Agent, len(s.Settlements))
+	for _, a := range s.Agents {
+		if a.HomeSettID != nil {
+			newMap[*a.HomeSettID] = append(newMap[*a.HomeSettID], a)
+		}
+	}
+	s.SettlementAgents = newMap
+	s.updateSettlementPopulations()
 }

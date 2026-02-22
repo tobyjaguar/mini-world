@@ -26,6 +26,7 @@ const (
 	ActionTravel                       // Move toward destination
 	ActionRest                         // Recover health/mood
 	ActionSocialize                    // Interact with nearby agent
+	ActionBuyFood                      // Purchase food from settlement market
 )
 
 // Decide determines what an agent does this tick, routing by cognition tier.
@@ -67,12 +68,17 @@ func Tier0Decide(a *Agent) Action {
 }
 
 func decideSurvival(a *Agent) Action {
-	// Hungry? Eat if we have food, otherwise forage.
+	// Hungry? Eat if we have food, buy if we have wealth, forage as last resort.
 	if a.Needs.Survival < 0.3 {
 		food := a.Inventory[GoodGrain] + a.Inventory[GoodFish]
 		if food > 0 {
 			return Action{AgentID: a.ID, Kind: ActionEat, Detail: a.Name + " eats a meal"}
 		}
+		// Try to buy food if we have wealth — engages the market economy.
+		if a.Wealth >= 1 {
+			return Action{AgentID: a.ID, Kind: ActionBuyFood, Detail: a.Name + " buys food at market"}
+		}
+		// Forage only as last resort (no food, no money).
 		return Action{AgentID: a.ID, Kind: ActionForage, Detail: a.Name + " forages for food"}
 	}
 

@@ -464,29 +464,31 @@ func (s *Simulation) paySettlementWages() {
 			budget = 2
 		}
 
-		// Count eligible agents to compute per-agent wage from budget.
+		// Progressive welfare: poorer agents get a larger share.
+		// Weight = (threshold - wealth) / threshold. Agent at 0 gets weight 1.0,
+		// agent at 49 gets weight 0.02. Prevents inequality spike.
+		const threshold = 50.0
 		settAgents := s.SettlementAgents[sett.ID]
-		eligible := 0
+		totalWeight := 0.0
 		for _, a := range settAgents {
-			if a.Alive && a.Wealth < 50 {
-				eligible++
+			if a.Alive && a.Wealth < uint64(threshold) {
+				totalWeight += (threshold - float64(a.Wealth)) / threshold
 			}
 		}
-		if eligible == 0 {
+		if totalWeight == 0 {
 			continue
-		}
-
-		// Dynamic wage: distribute budget evenly among eligible agents.
-		// Floor of 2, no cap — the budget IS the cap.
-		wage := budget / uint64(eligible)
-		if wage < 2 {
-			wage = 2
 		}
 
 		paid := uint64(0)
 		for _, a := range settAgents {
-			if !a.Alive || a.Wealth >= 50 {
+			if !a.Alive || a.Wealth >= uint64(threshold) {
 				continue
+			}
+			// Progressive wage: proportional to how poor the agent is.
+			weight := (threshold - float64(a.Wealth)) / threshold
+			wage := uint64(float64(budget) * weight / totalWeight)
+			if wage < 1 {
+				wage = 1
 			}
 			if paid+wage > budget {
 				break
@@ -498,6 +500,59 @@ func (s *Simulation) paySettlementWages() {
 			a.Wealth += wage
 			paid += wage
 		}
+	}
+}
+
+// resolveBuyFood handles an agent's decision to buy food from the settlement market.
+// Direct purchase: agent pays market price, gets 1 food, crowns go to treasury.
+// This engages the economy — agents with wealth buy food instead of foraging.
+func (s *Simulation) resolveBuyFood(a *agents.Agent) {
+	if a.HomeSettID == nil {
+		// No settlement — fall back to foraging behavior.
+		a.Inventory[agents.GoodGrain]++
+		a.Needs.Survival += 0.05
+		return
+	}
+	sett, ok := s.SettlementIndex[*a.HomeSettID]
+	if !ok || sett.Market == nil {
+		a.Inventory[agents.GoodGrain]++
+		a.Needs.Survival += 0.05
+		return
+	}
+
+	// Find cheapest food available at the settlement market.
+	var bestGood agents.GoodType
+	bestPrice := float64(0)
+	for _, good := range []agents.GoodType{agents.GoodGrain, agents.GoodFish} {
+		entry, ok := sett.Market.Entries[good]
+		if !ok {
+			continue
+		}
+		price := entry.Price
+		if bestPrice == 0 || price < bestPrice {
+			bestPrice = price
+			bestGood = good
+		}
+	}
+
+	cost := uint64(bestPrice + 0.5)
+	if cost < 1 {
+		cost = 1
+	}
+
+	if a.Wealth >= cost {
+		// Buy 1 unit of food — closed transfer to treasury.
+		a.Wealth -= cost
+		sett.Treasury += cost
+		a.Inventory[bestGood]++
+		// Buying food gives a small survival bump (anticipation of eating).
+		a.Needs.Survival += 0.02
+		a.Needs.Belonging += 0.001 // Market participation is social.
+	} else {
+		// Can't afford — forage instead.
+		a.Inventory[agents.GoodGrain]++
+		a.Needs.Survival += 0.05
+		a.Needs.Belonging += 0.001
 	}
 }
 
