@@ -76,9 +76,11 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		supplyFloor = 1
 	}
 
-	// Resolve prices from supply/demand.
+	// Compute reference prices from supply/demand for order placement.
+	// These drive ask/bid spreads but don't directly set entry.Price —
+	// actual trades update prices via the clearing blend below.
+	refPrices := make(map[agents.GoodType]float64)
 	for good, entry := range market.Entries {
-		// Ensure minimum supply/demand so prices don't go to extremes immediately.
 		if entry.Supply < supplyFloor {
 			entry.Supply = supplyFloor
 		}
@@ -86,7 +88,7 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			entry.Demand = 1
 		}
 		seasonMod := SeasonalMarketMod(season, uint8(good))
-		entry.Price = entry.ResolvePrice(seasonMod, 1.0)
+		refPrices[good] = entry.ResolvePrice(seasonMod, 1.0)
 	}
 
 	// Collect sell orders: agents with surplus above threshold.
@@ -100,12 +102,12 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			if surplus <= 0 {
 				continue
 			}
-			entry, ok := market.Entries[good]
+			ref, ok := refPrices[good]
 			if !ok {
 				continue
 			}
-			// Minimum acceptable price: current price * Matter (~0.38).
-			minPrice := entry.Price * phi.Matter
+			// Minimum acceptable price: reference price * Matter (~0.618).
+			minPrice := ref * phi.Matter
 			sellOrders = append(sellOrders, Order{
 				Agent:    a,
 				Good:     good,
@@ -123,12 +125,12 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			continue
 		}
 		for _, good := range demandedGoods(a) {
-			entry, ok := market.Entries[good]
+			ref, ok := refPrices[good]
 			if !ok {
 				continue
 			}
-			// Maximum willing price: current price * Being (~1.618).
-			maxPrice := entry.Price * phi.Being
+			// Maximum willing price: reference price * Being (~1.618).
+			maxPrice := ref * phi.Being
 			buyOrders = append(buyOrders, Order{
 				Agent:    a,
 				Good:     good,
@@ -173,8 +175,10 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			if sells[si].Price > buys[bi].Price {
 				break // Prices crossed — no more matches.
 			}
-			// Clearing price: midpoint of ask and bid.
-			clearPrice := (sells[si].Price + buys[bi].Price) / 2
+			// Clearing price: seller's ask price. Buyers accept the seller's
+			// minimum — this prevents the midpoint formula from biasing prices
+			// upward by (Matter+Being)/2 = 1.118x every tick.
+			clearPrice := sells[si].Price
 			clearCrowns := uint64(clearPrice + 0.5)
 			// No minimum — 0-crown trades model barter in low-price economies.
 
@@ -213,11 +217,21 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			}
 		}
 
-		// Update market price from clearing data.
+		// Update market price from clearing data, clamped to bounds.
 		if totalTraded > 0 {
 			avgClear := totalRevenue / float64(totalTraded)
 			// Blend: 70% old price, 30% clearing price for stability.
-			entry.Price = entry.Price*0.7 + avgClear*0.3
+			blended := entry.Price*0.7 + avgClear*0.3
+			// Clamp to Phi-derived bounds — the blend must not break through.
+			floor := entry.BasePrice * phi.Agnosis
+			ceiling := entry.BasePrice * phi.Totality
+			if blended < floor {
+				blended = floor
+			}
+			if blended > ceiling {
+				blended = ceiling
+			}
+			entry.Price = blended
 		}
 	}
 }
@@ -406,30 +420,22 @@ func (s *Simulation) decayWealth() {
 	}
 }
 
-// paySettlementWages distributes a daily wage from settlement treasuries
-// to poor agents. Wage scales with local grain price so agents can actually
-// afford food. This closes the treasury→agent loop: taxes pull crowns into
-// treasuries, wages push them back to agents who need them.
+// paySettlementWages distributes a small daily wage from settlement treasuries
+// to poor agents. This is a safety net, not primary income — agents should
+// earn through market trade. Closes the treasury→agent loop.
 func (s *Simulation) paySettlementWages() {
 	for _, sett := range s.Settlements {
 		if sett.Treasury == 0 {
 			continue
 		}
 
-		// Wage = local grain price so one day's wage buys one meal.
-		// Falls back to 2 crowns if no grain market entry.
+		// Wage = 2 crowns — enough to buy food at reasonable market prices.
+		// As the market engine finds equilibrium, prices should come down
+		// and this wage becomes more meaningful.
 		wage := uint64(2)
-		if sett.Market != nil {
-			if entry, ok := sett.Market.Entries[agents.GoodGrain]; ok {
-				wage = uint64(entry.Price + 0.5)
-				if wage < 1 {
-					wage = 1
-				}
-			}
-		}
 
-		// Cap total payout at 2% of treasury per day.
-		maxPayout := uint64(float64(sett.Treasury) * 0.02)
+		// Cap total payout at 1% of treasury per day.
+		maxPayout := uint64(float64(sett.Treasury) * 0.01)
 		if maxPayout < wage {
 			maxPayout = wage
 		}
