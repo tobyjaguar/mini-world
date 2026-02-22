@@ -358,6 +358,19 @@ func (db *DB) SaveEvents(events []engine.Event) error {
 	return tx.Commit()
 }
 
+// TrimOldEvents removes events older than keepTicks from the database.
+func (db *DB) TrimOldEvents(currentTick uint64, keepTicks uint64) (int64, error) {
+	if currentTick <= keepTicks {
+		return 0, nil
+	}
+	cutoff := currentTick - keepTicks
+	result, err := db.conn.Exec("DELETE FROM events WHERE tick < ?", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // SaveMeta stores a key-value pair in world metadata.
 func (db *DB) SaveMeta(key, value string) error {
 	_, err := db.conn.Exec(

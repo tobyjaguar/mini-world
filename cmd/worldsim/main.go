@@ -247,6 +247,21 @@ func main() {
 		}
 	}
 
+	// Load recent events from database so /api/v1/events works after restart.
+	if startTick > 0 {
+		events, err := db.RecentEvents(1000)
+		if err != nil {
+			slog.Warn("failed to load events", "error", err)
+		} else if len(events) > 0 {
+			// Reverse so oldest is first (DB returns newest first).
+			for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+				events[i], events[j] = events[j], events[i]
+			}
+			sim.Events = events
+			slog.Info("events loaded from database", "count", len(events))
+		}
+	}
+
 	// ── LLM Client ───────────────────────────────────────────────────
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
 	llmClient := llm.NewClient(anthropicKey)
@@ -316,7 +331,16 @@ func main() {
 			slog.Error("daily save failed", "error", err)
 		}
 	}
-	eng.OnWeek = sim.TickWeek
+	eng.OnWeek = func(tick uint64) {
+		sim.TickWeek(tick)
+		// Trim old events: keep 30 sim-days (~43,200 ticks).
+		trimmed, err := db.TrimOldEvents(tick, 30*1440)
+		if err != nil {
+			slog.Error("event trim failed", "error", err)
+		} else if trimmed > 0 {
+			slog.Info("trimmed old events", "removed", trimmed)
+		}
+	}
 	eng.OnSeason = sim.TickSeason
 
 	// ── HTTP API ──────────────────────────────────────────────────────

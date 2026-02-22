@@ -1114,8 +1114,13 @@ func (s *Server) handleStatsHistory(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.DB.LoadStatsHistory(fromTick, toTick, limit)
 	if err != nil {
-		http.Error(w, "failed to load stats history", http.StatusInternalServerError)
+		slog.Error("stats history query failed", "error", err)
+		// Return empty array instead of error — table may not have data yet.
+		writeJSON(w, []persistence.StatsRow{})
 		return
+	}
+	if rows == nil {
+		rows = []persistence.StatsRow{}
 	}
 	writeJSON(w, rows)
 }
