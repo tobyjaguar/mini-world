@@ -165,15 +165,10 @@ func (s *Simulation) buildTier2Context(a *agents.Agent, occNames []string, govNa
 func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, tick uint64) {
 	switch d.Action {
 	case "trade":
-		// Simulate a market transaction — buy or sell at local market.
+		// Sell surplus to settlement treasury — closed transfer, no crowns minted.
 		if a.HomeSettID != nil {
 			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
-				if sett.Market != nil {
-					// Simple trade: earn some wealth from trade skill.
-					earned := uint64(a.Skills.Trade*5) + 2
-					a.Wealth += earned
-					a.Skills.Trade += 0.005
-				}
+				tier2MarketSell(a, sett)
 			}
 		}
 
@@ -415,13 +410,10 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 	// Apply the oracle's action.
 	switch vision.Action {
 	case "trade":
+		// Sell surplus to settlement treasury — closed transfer, no crowns minted.
 		if a.HomeSettID != nil {
 			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
-				if sett.Market != nil {
-					earned := uint64(a.Skills.Trade*5) + 2
-					a.Wealth += earned
-					a.Skills.Trade += 0.005
-				}
+				tier2MarketSell(a, sett)
 			}
 		}
 

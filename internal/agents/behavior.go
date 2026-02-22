@@ -112,14 +112,14 @@ func decideDefault(a *Agent) Action {
 
 // ApplyAction executes an action's effects on the agent and returns any
 // notable events for the log.
-func ApplyAction(a *Agent, action Action) []string {
+func ApplyAction(a *Agent, action Action, tick uint64) []string {
 	var events []string
 
 	switch action.Kind {
 	case ActionEat:
 		events = applyEat(a)
 	case ActionWork:
-		events = applyWork(a)
+		events = applyWork(a, tick)
 	case ActionForage:
 		events = applyForage(a)
 	case ActionRest:
@@ -150,7 +150,7 @@ func applyEat(a *Agent) []string {
 	return nil
 }
 
-func applyWork(a *Agent) []string {
+func applyWork(a *Agent, tick uint64) []string {
 	var events []string
 
 	// Produce goods based on occupation and skill level.
@@ -225,8 +225,11 @@ func applyWork(a *Agent) []string {
 			crafted = true
 		}
 		if !crafted {
-			// Journeyman labor when lacking materials.
-			a.Wealth += 1
+			// Journeyman labor when lacking materials — throttled mint.
+			// Fires once per sim-hour (~24 crowns/day) instead of every tick (~1,440/day).
+			if tick%60 == uint64(a.ID)%60 {
+				a.Wealth += 1
+			}
 		}
 	case OccupationAlchemist:
 		crafted := false
@@ -243,12 +246,16 @@ func applyWork(a *Agent) []string {
 			crafted = true
 		}
 		if !crafted {
-			// Journeyman labor when lacking materials.
-			a.Wealth += 1
+			// Journeyman labor when lacking materials — throttled mint.
+			if tick%60 == uint64(a.ID)%60 {
+				a.Wealth += 1
+			}
 		}
 	case OccupationLaborer:
-		// Laborers earn wages (simulated as small wealth gain).
-		a.Wealth += 1
+		// Laborers earn wages — throttled mint (~24 crowns/day).
+		if tick%60 == uint64(a.ID)%60 {
+			a.Wealth += 1
+		}
 	case OccupationMerchant:
 		// Merchants' real value is in the trade action (world-level).
 		a.Skills.Trade += 0.001

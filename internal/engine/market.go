@@ -3,12 +3,23 @@
 package engine
 
 import (
+	"sort"
+
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/economy"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
 )
+
+// Order represents a single buy or sell order in the market.
+type Order struct {
+	Agent    *agents.Agent
+	Good     agents.GoodType
+	Quantity int
+	Price    float64
+	IsSell   bool
+}
 
 // resolveMarkets runs market resolution for all settlements.
 func (s *Simulation) resolveMarkets(tick uint64) {
@@ -78,12 +89,138 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		entry.Price = entry.ResolvePrice(seasonMod, 1.0)
 	}
 
-	// Execute trades: sellers sell surplus, buyers buy needs.
+	// Collect sell orders: agents with surplus above threshold.
+	var sellOrders []Order
 	for _, a := range settAgents {
 		if !a.Alive {
 			continue
 		}
-		executeTrades(a, market)
+		for good, qty := range a.Inventory {
+			surplus := qty - surplusThreshold(a, good)
+			if surplus <= 0 {
+				continue
+			}
+			entry, ok := market.Entries[good]
+			if !ok {
+				continue
+			}
+			// Minimum acceptable price: current price * Matter (~0.38).
+			minPrice := entry.Price * phi.Matter
+			sellOrders = append(sellOrders, Order{
+				Agent:    a,
+				Good:     good,
+				Quantity: surplus,
+				Price:    minPrice,
+				IsSell:   true,
+			})
+		}
+	}
+
+	// Collect buy orders: agents wanting goods they need.
+	var buyOrders []Order
+	for _, a := range settAgents {
+		if !a.Alive {
+			continue
+		}
+		for _, good := range demandedGoods(a) {
+			entry, ok := market.Entries[good]
+			if !ok {
+				continue
+			}
+			// Maximum willing price: current price * Being (~1.618).
+			maxPrice := entry.Price * phi.Being
+			buyOrders = append(buyOrders, Order{
+				Agent:    a,
+				Good:     good,
+				Quantity: 1,
+				Price:    maxPrice,
+			})
+		}
+	}
+
+	// Match orders per good: sells ascending, buys descending, match until prices cross.
+	for good, entry := range market.Entries {
+		// Filter orders for this good.
+		var sells []Order
+		for _, o := range sellOrders {
+			if o.Good == good {
+				sells = append(sells, o)
+			}
+		}
+		var buys []Order
+		for _, o := range buyOrders {
+			if o.Good == good {
+				buys = append(buys, o)
+			}
+		}
+		if len(sells) == 0 || len(buys) == 0 {
+			continue
+		}
+
+		// Sort: sells ascending by price, buys descending by price.
+		sort.Slice(sells, func(i, j int) bool { return sells[i].Price < sells[j].Price })
+		sort.Slice(buys, func(i, j int) bool { return buys[i].Price > buys[j].Price })
+
+		totalTraded := 0
+		totalRevenue := 0.0
+		si, bi := 0, 0
+		sellRemain := 0
+		if len(sells) > 0 {
+			sellRemain = sells[0].Quantity
+		}
+
+		for si < len(sells) && bi < len(buys) {
+			if sells[si].Price > buys[bi].Price {
+				break // Prices crossed — no more matches.
+			}
+			// Clearing price: midpoint of ask and bid.
+			clearPrice := (sells[si].Price + buys[bi].Price) / 2
+			clearCrowns := uint64(clearPrice + 0.5)
+			if clearCrowns < 1 {
+				clearCrowns = 1
+			}
+
+			buyer := buys[bi].Agent
+			seller := sells[si].Agent
+
+			// Transfer one unit at a time.
+			buyQty := buys[bi].Quantity
+			tradeQty := buyQty
+			if tradeQty > sellRemain {
+				tradeQty = sellRemain
+			}
+
+			for u := 0; u < tradeQty; u++ {
+				if buyer.Wealth < clearCrowns {
+					break
+				}
+				buyer.Wealth -= clearCrowns
+				seller.Wealth += clearCrowns
+				buyer.Inventory[good]++
+				seller.Inventory[good]--
+				totalTraded++
+				totalRevenue += float64(clearCrowns)
+				sellRemain--
+			}
+
+			// Advance buy pointer (buy orders are always qty 1).
+			bi++
+
+			// Advance sell pointer if exhausted.
+			if sellRemain <= 0 {
+				si++
+				if si < len(sells) {
+					sellRemain = sells[si].Quantity
+				}
+			}
+		}
+
+		// Update market price from clearing data.
+		if totalTraded > 0 {
+			avgClear := totalRevenue / float64(totalTraded)
+			// Blend: 70% old price, 30% clearing price for stability.
+			entry.Price = entry.Price*0.7 + avgClear*0.3
+		}
 	}
 }
 
@@ -195,42 +332,6 @@ func crafterRecipeDemand(a *agents.Agent) []agents.GoodType {
 	return needs
 }
 
-// executeTrades has an agent sell surplus and buy needs at market prices.
-func executeTrades(a *agents.Agent, market *economy.Market) {
-	// Sell surplus.
-	for good, qty := range a.Inventory {
-		surplus := qty - surplusThreshold(a, good)
-		if surplus <= 0 {
-			continue
-		}
-		entry, ok := market.Entries[good]
-		if !ok {
-			continue
-		}
-		// Sell up to surplus amount.
-		sellQty := surplus
-		revenue := uint64(float64(sellQty) * entry.Price)
-		a.Inventory[good] -= sellQty
-		a.Wealth += revenue
-	}
-
-	// Buy needs.
-	for _, good := range demandedGoods(a) {
-		entry, ok := market.Entries[good]
-		if !ok {
-			continue
-		}
-		price := uint64(entry.Price + 0.5) // Round to nearest crown
-		if price < 1 {
-			price = 1
-		}
-		// Buy one unit at a time if affordable.
-		if a.Wealth >= price {
-			a.Wealth -= price
-			a.Inventory[good]++
-		}
-	}
-}
 
 // decayInventories runs goods decay for all agents in a settlement.
 func (s *Simulation) decayInventories() {
@@ -271,9 +372,8 @@ func (s *Simulation) collectTaxes(tick uint64) {
 		// Settlement upkeep has two components:
 		// 1. Population upkeep: services, infrastructure maintenance.
 		// 2. Treasury upkeep: bureaucracy, waste, corruption — scales with wealth.
-		//    Agnosis (~24%) per day of treasury acts as deflationary pressure,
-		//    preventing infinite accumulation from the unclosed money supply.
-		//    (See docs/06-monetary-system.md for the root cause.)
+		//    Acts as a wealth sink in the closed economy, preventing
+		//    infinite treasury accumulation.
 		popUpkeep := uint64(float64(sett.Population) * phi.Agnosis * 0.5)
 		treasuryUpkeep := uint64(float64(sett.Treasury) * phi.Agnosis * 0.01)
 		upkeep := popUpkeep + treasuryUpkeep
@@ -286,9 +386,8 @@ func (s *Simulation) collectTaxes(tick uint64) {
 
 // decayWealth applies a small daily wealth decay to all living agents.
 // Models wear, loss, spoilage, and the friction of holding wealth.
-// This is a deflationary counterweight to the unclosed money supply
-// where market sells mint crowns from nothing.
-// (See docs/06-monetary-system.md for the full monetary analysis.)
+// Acts as a complementary sink in the closed economy, ensuring crowns
+// circulate rather than accumulate.
 func (s *Simulation) decayWealth() {
 	for _, a := range s.Agents {
 		if !a.Alive || a.Wealth <= 20 {
@@ -348,7 +447,7 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			if a.TradeDestSett != nil && len(a.TradeCargo) > 0 {
 				destSett, ok := s.SettlementIndex[*a.TradeDestSett]
 				if ok && destSett.Market != nil {
-					sellMerchantCargo(a, destSett.Market)
+					sellMerchantCargo(a, destSett.Market, destSett)
 					s.Stats.TradeVolume++
 				}
 				a.TradeDestSett = nil
@@ -485,14 +584,80 @@ func routeCost(from, to world.HexCoord, worldMap *world.Map) int {
 	return cost
 }
 
-// sellMerchantCargo sells a merchant's cargo at the destination market.
-func sellMerchantCargo(a *agents.Agent, market *economy.Market) {
+// sellMerchantCargo sells a merchant's cargo at the destination settlement.
+// Closed transfer: the settlement treasury pays the merchant per unit.
+func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Settlement) {
 	for good, qty := range a.TradeCargo {
 		entry, ok := market.Entries[good]
 		if !ok || qty <= 0 {
 			continue
 		}
-		revenue := uint64(float64(qty) * entry.Price)
-		a.Wealth += revenue
+		for i := 0; i < qty; i++ {
+			unitPrice := uint64(entry.Price + 0.5)
+			if unitPrice < 1 {
+				unitPrice = 1
+			}
+			if sett.Treasury < unitPrice {
+				break // Treasury can't afford more.
+			}
+			sett.Treasury -= unitPrice
+			a.Wealth += unitPrice
+		}
 	}
+}
+
+// tier2MarketSell lets a Tier 2 agent sell their most valuable surplus good
+// to the settlement treasury. Closed transfer — no crowns minted.
+func tier2MarketSell(a *agents.Agent, sett *social.Settlement) {
+	if sett.Market == nil {
+		return
+	}
+
+	// Find the agent's most valuable surplus good.
+	bestValue := 0.0
+	bestGood := agents.GoodType(0)
+	bestQty := 0
+	for good, qty := range a.Inventory {
+		surplus := qty - surplusThreshold(a, good)
+		if surplus <= 0 {
+			continue
+		}
+		entry, ok := sett.Market.Entries[good]
+		if !ok {
+			continue
+		}
+		value := float64(surplus) * entry.Price
+		if value > bestValue {
+			bestValue = value
+			bestGood = good
+			bestQty = surplus
+		}
+	}
+
+	if bestQty == 0 {
+		return
+	}
+
+	entry := sett.Market.Entries[bestGood]
+
+	// Skill bonus: 1.0 + trade_skill * Agnosis, capped at Being.
+	skillBonus := 1.0 + float64(a.Skills.Trade)*phi.Agnosis
+	if skillBonus > phi.Being {
+		skillBonus = phi.Being
+	}
+
+	for i := 0; i < bestQty; i++ {
+		unitPrice := uint64(entry.Price*skillBonus + 0.5)
+		if unitPrice < 1 {
+			unitPrice = 1
+		}
+		if sett.Treasury < unitPrice {
+			break
+		}
+		sett.Treasury -= unitPrice
+		a.Wealth += unitPrice
+		a.Inventory[bestGood]--
+	}
+
+	a.Skills.Trade += 0.005
 }

@@ -19,34 +19,30 @@ var occupationResource = map[agents.Occupation]world.ResourceType{
 // Returns events from the underlying work action.
 // For resource-producing occupations (farmer, miner, fisher, hunter),
 // production is limited by available hex resources.
-func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex) []string {
+func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uint64) []string {
 	if action.Kind != agents.ActionWork {
-		return agents.ApplyAction(a, action)
+		return agents.ApplyAction(a, action, tick)
 	}
 
 	resType, needsResource := occupationResource[a.Occupation]
 	if !needsResource {
 		// Crafters, merchants, laborers, etc. don't draw from hex resources.
-		return agents.ApplyAction(a, action)
+		return agents.ApplyAction(a, action, tick)
 	}
 
 	if hex == nil {
-		// No hex data — fallback wage with needs replenishment.
-		a.Wealth += 1
-		a.Needs.Esteem += 0.01
-		a.Needs.Safety += 0.005
-		a.Needs.Belonging += 0.003
+		// No hex data — failed production, needs erode.
+		a.Needs.Esteem -= 0.005
+		a.Needs.Safety -= 0.003
 		clampAgentNeeds(&a.Needs)
 		return nil
 	}
 
 	available := hex.Resources[resType]
 	if available < 1.0 {
-		// Hex depleted — agent earns a fallback wage with needs replenishment.
-		a.Wealth += 1
-		a.Needs.Esteem += 0.01
-		a.Needs.Safety += 0.005
-		a.Needs.Belonging += 0.003
+		// Hex depleted — failed production, needs erode.
+		a.Needs.Esteem -= 0.005
+		a.Needs.Safety -= 0.003
 		clampAgentNeeds(&a.Needs)
 		return nil
 	}
@@ -61,10 +57,9 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex) []string
 	if produced < 1 {
 		produced = 1
 		if available < 1.0 {
-			a.Wealth += 1
-			a.Needs.Esteem += 0.01
-			a.Needs.Safety += 0.005
-			a.Needs.Belonging += 0.003
+			// Failed production — needs erode.
+			a.Needs.Esteem -= 0.005
+			a.Needs.Safety -= 0.003
 			clampAgentNeeds(&a.Needs)
 			return nil
 		}

@@ -143,7 +143,7 @@ func (s *Simulation) TickMinute(tick uint64) {
 
 		// Resource-producing occupations draw from hex resources.
 		hex := s.WorldMap.Get(a.Position)
-		events := ResolveWork(a, action, hex)
+		events := ResolveWork(a, action, hex, tick)
 
 		// Record notable events.
 		for _, desc := range events {
