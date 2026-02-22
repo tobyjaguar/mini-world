@@ -85,10 +85,19 @@ The tuning fixes are working (mood +0.64, births outpacing deaths, faction treas
 - [ ] **Market health still low (0.35)**: More than half of goods significantly mispriced. May need more sim-time for price discovery, or supply/demand mechanics need further tuning.
 - [ ] **Fisher skill bug**: `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 
-## Suggested Next Session
+## Roadmap
 
-**Verify the frontend end-to-end** now that DNS propagates. Then focus on either:
-1. **Claude Gardener** — autonomous steward to keep the world healthy as it scales
-2. **Factions/Social UI** — add the missing frontend pages for political and social systems
-3. **Infrastructure effects** — make walls/roads/markets mechanically meaningful
-4. **World tuning** — run `/observe` to diagnose current world health and address imbalances
+### Step 1: Verify Frontend End-to-End
+Once Cloudflare DNS propagates, confirm `crossworlds.xyz` talks to `api.crossworlds.xyz`. Test all pages load data.
+
+### Step 2: Claude Gardener
+Implement the autonomous steward agent (design in `docs/05-claude-gardener.md`). Observes world health via GET endpoints, decides interventions via Claude Haiku, acts via `POST /api/v1/intervention`. Prevents collapse and stagnation.
+
+### Step 3: Factions + Social UI
+Add the missing frontend pages for factions (list + detail with influence per settlement) and social graph (relationship network visualization). API endpoints already exist.
+
+### Step 4: Infrastructure Effects
+Make walls/roads/markets mechanically meaningful. Roads reduce travel time for merchants, walls reduce crime/theft, market level improves trade efficiency. Currently these exist as numbers but have no gameplay effect.
+
+### Step 5: World Health Check
+Run `/observe` to diagnose current world health and address imbalances. Key areas: market health (0.22 is low), survival needs (0.39 avg), clothing oversupply, raw material inflation.
