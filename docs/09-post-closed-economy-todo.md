@@ -18,6 +18,8 @@ Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed ec
 | 120,192 | Wave 5 | Purpose boost for resource producers, dynamic Φ-targeted welfare |
 | 126,272 | Observe | Treasury share worsened to 74.3% — fixed wage bottleneck identified |
 | 128,232 | Wave 6 | Dynamic wage from budget — treasury outflow now matches computed rate |
+| 142,285 | Observe | Treasury 41% (converging), Gini 0.645 (worsening), survival stuck 0.385 |
+| 144,681 | Wave 7 | Food buying in decision tree, progressive welfare, settlement migration fix |
 
 ## Root Cause: Price Ratchet in Market Engine
 
@@ -84,31 +86,44 @@ Two remaining structural issues from post-recovery `/observe`:
 
 **Fix:** Wage is now `budget / eligible_agents` — computed dynamically from the outflow budget. At avg settlement, wage is ~1,808 crowns/agent/day instead of 2. The treasury actually drains at the computed rate, and the self-correcting dynamics now work as designed.
 
+## Wave 7: Food Economy, Fair Welfare, Settlement Consolidation (tick 144,681)
+
+`/observe` at tick 142,285 revealed three problems:
+
+1. **Agents forage instead of buying food** — the decision tree had no "buy food" path. Agents with 18,800 crowns avg wealth still foraged because `decideSurvival()` only offered eat (if food in inventory) or forage (if not). The market economy was disconnected from survival needs. Trade volume stuck at 4,244 vs 18K peak.
+
+   **Fix:** New `ActionBuyFood` in behavior.go. When hungry with no food but wealth >= 1, agents buy food from the settlement market at current price. Crowns flow to treasury (closed transfer). Foraging is now last resort for penniless agents only. This creates the economic loop: agents work → earn → buy food → sellers profit → economy circulates.
+
+2. **Gini spike to 0.645** — flat welfare wage gave same amount to agents at wealth 0 and wealth 49. Agents near the threshold accumulated fast while truly poor agents stayed poor.
+
+   **Fix:** Progressive welfare. Wage now scales inversely with wealth: `weight = (threshold - wealth) / threshold`. Agent at 0 gets full share, agent at 49 gets 2%. Same total budget from the Φ-targeting system, fairer distribution.
+
+3. **714 settlements frozen — migration bug** — `processSeasonalMigration()` changed `a.HomeSettID` but never rebuilt `SettlementAgents` map. Population counts read from stale arrays, so settlements never appeared to shrink. Viability checks and abandonment never triggered.
+
+   **Fix:** Added `rebuildSettlementAgents()` called after migration. Reconstructs the map from current `HomeSettID` values and updates population counts. Settlements that lose population through migration will now correctly reflect lower pop and trigger viability/abandonment.
+
 ## Remaining TODO
 
 ### P2: Fisher skill alias
 
 `productionAmount()` still uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Works but technically wrong.
 
-### P2: Settlement fragmentation
-
-714 settlements for ~64K agents (avg ~90/settlement). Many have pop < 25. The viability check and absorption migration should be consolidating these but may not be aggressive enough. Monitor.
-
 ### P2: Merchant extinction
 
-All Tier 2 merchants died during the price normalization. Price convergence may have eliminated arbitrage margins. Consignment system exists but merchants need viable price variance between settlements. Monitor — may self-correct as the economy finds equilibrium.
+All Tier 2 merchants died during the price normalization. May self-correct as the economy stabilizes. Monitor.
 
 ## Success Criteria
 
-### Achieved (as of tick 118,329)
-- Grain price trending down from 8.63 toward base price of 2 — YES (4.65 and falling)
-- Manufactured goods trending up from floor — YES (tools 2.36→7.30)
-- Births resuming — YES (9,239 births)
-- Trade volume growing — YES (18,512 trades, 3x pre-fix)
-- Market health improving — YES (12.5% → 96.9%)
+### Achieved (as of tick 142,285)
+- Grain price normalized — within Phi bounds (0.47 to 5.0)
+- Births resumed — 4,915 (recovering after restart)
+- Market health 98%
+- Treasury/agent ratio converging — 74% → 41% (target 38%)
+- Population growing — 62,847 (+10K since wave 5)
 
-### Still Monitoring (after wave 5)
-- Avg mood — still declining (0.091), expect improvement from purpose fix
-- Treasury/agent wealth ratio — should converge toward 38/62 from 71/29
-- Settlement consolidation — 714 is still high
-- Merchant viability — all dead, watching for recovery
+### Still Monitoring (after wave 7)
+- Avg mood — 0.105, should improve as food buying drives survival up
+- Gini — 0.645, should improve with progressive welfare
+- Settlement count — 714 frozen, should start declining with migration fix
+- Trade volume — 4,244, should surge as food buying creates demand
+- Survival — 0.385, should improve as agents buy food instead of foraging

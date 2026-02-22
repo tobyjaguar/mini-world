@@ -307,11 +307,18 @@ Post-recovery `/observe` at tick 118,329 showed the economy working (96.9% marke
 33. **Stats history query broken** — FIXED: `toTick` default used max uint64 which modernc.org/sqlite rejects. Changed to max int64.
 34. **Gardener startup race** — FIXED: Added `waitForAPI()` with exponential backoff (2s→30s, 5min deadline) in `cmd/gardener/main.go`.
 
+### Tuning Round 8: Food Economy, Fair Welfare, Settlement Consolidation
+
+`/observe` at tick 142,285 showed treasury targeting working (41%) but three new issues: agents forage instead of buying food (survival stuck at 0.385), Gini spiked to 0.645, and 714 settlements were frozen due to a migration bug.
+
+35. **Agents bypass market for survival** — FIXED: `decideSurvival()` in `behavior.go` had no "buy food" path — agents foraged even with 18,800 crowns. Added `ActionBuyFood`: agents buy from settlement market at current price (closed transfer to treasury). Foraging is now last resort for penniless agents. Handled by `resolveBuyFood()` in `market.go`.
+36. **Gini spike from flat welfare** — FIXED: `paySettlementWages()` now uses progressive welfare — wage scales inversely with wealth. Agent at 0 gets full share, agent at 49 gets 2%. Same total budget, fairer distribution.
+37. **Settlement migration bug** — FIXED: `processSeasonalMigration()` in `perpetuation.go` changed `a.HomeSettID` but never rebuilt `SettlementAgents` map. Population counts stayed stale, 714 settlements frozen. Added `rebuildSettlementAgents()` in `simulation.go`, called after migration.
+
 ### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
-- Settlement fragmentation — 714 settlements for ~64K agents. Viability checks may need to be more aggressive. P2.
 - Merchant extinction — all Tier 2 merchants dead after price normalization. May recover with equilibrium. P2.
 
 ## Ethics Note
