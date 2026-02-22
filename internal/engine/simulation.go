@@ -215,6 +215,7 @@ func (s *Simulation) updateWeather() {
 // TickDay runs every sim-day: statistics, daily summary.
 func (s *Simulation) TickDay(tick uint64) {
 	s.collectTaxes(tick)
+	s.decayWealth()
 	s.processPopulation(tick)
 	s.processRelationships(tick)
 	s.processCrime(tick)

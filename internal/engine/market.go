@@ -268,12 +268,39 @@ func (s *Simulation) collectTaxes(tick uint64) {
 
 		sett.Treasury += taxRevenue
 
-		// Settlement upkeep: population * Agnosis * 0.5 crowns/day.
-		upkeep := uint64(float64(sett.Population) * phi.Agnosis * 0.5)
+		// Settlement upkeep has two components:
+		// 1. Population upkeep: services, infrastructure maintenance.
+		// 2. Treasury upkeep: bureaucracy, waste, corruption — scales with wealth.
+		//    Agnosis (~24%) per day of treasury acts as deflationary pressure,
+		//    preventing infinite accumulation from the unclosed money supply.
+		//    (See docs/06-monetary-system.md for the root cause.)
+		popUpkeep := uint64(float64(sett.Population) * phi.Agnosis * 0.5)
+		treasuryUpkeep := uint64(float64(sett.Treasury) * phi.Agnosis * 0.01)
+		upkeep := popUpkeep + treasuryUpkeep
 		if upkeep > sett.Treasury {
 			upkeep = sett.Treasury
 		}
 		sett.Treasury -= upkeep
+	}
+}
+
+// decayWealth applies a small daily wealth decay to all living agents.
+// Models wear, loss, spoilage, and the friction of holding wealth.
+// This is a deflationary counterweight to the unclosed money supply
+// where market sells mint crowns from nothing.
+// (See docs/06-monetary-system.md for the full monetary analysis.)
+func (s *Simulation) decayWealth() {
+	for _, a := range s.Agents {
+		if !a.Alive || a.Wealth <= 20 {
+			continue
+		}
+		// Lose ~0.24% of wealth above 20 crowns per day (Agnosis * 0.01).
+		// At 1000 crowns this is ~2/day; at 100k it's ~236/day.
+		decay := uint64(float64(a.Wealth-20) * phi.Agnosis * 0.01)
+		if decay < 1 {
+			decay = 1
+		}
+		a.Wealth -= decay
 	}
 }
 

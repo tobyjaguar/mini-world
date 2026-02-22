@@ -59,9 +59,12 @@ func (s *Settlement) ChargingPressure() float64 {
 	return float64(s.Population)*0.1 + float64(s.Treasury)*0.001
 }
 
-// DischargingPressure implements phi.ConjugateField — consumption and trade outflow.
+// DischargingPressure implements phi.ConjugateField — consumption, trade outflow,
+// and treasury spending (infrastructure maintenance, services, defense).
+// The treasury term mirrors ChargingPressure so the conjugate field stays balanced
+// as treasuries grow — without it, accumulated wealth drives the ratio to infinity.
 func (s *Settlement) DischargingPressure() float64 {
-	return float64(s.Population) * 0.08
+	return float64(s.Population)*0.08 + float64(s.Treasury)*0.0008
 }
 
 // Health returns settlement economic health via conjugate field model.
