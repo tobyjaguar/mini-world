@@ -458,22 +458,37 @@ func (s *Simulation) paySettlementWages() {
 			continue
 		}
 
-		// Wage = 2 crowns baseline.
-		wage := uint64(2)
-
-		// Cap total payout at dynamically computed rate of treasury per day.
-		maxPayout := uint64(float64(sett.Treasury) * outflowRate)
-		if maxPayout < wage {
-			maxPayout = wage
+		// Budget = outflowRate * treasury.
+		budget := uint64(float64(sett.Treasury) * outflowRate)
+		if budget < 2 {
+			budget = 2
 		}
-		paid := uint64(0)
 
+		// Count eligible agents to compute per-agent wage from budget.
 		settAgents := s.SettlementAgents[sett.ID]
+		eligible := 0
+		for _, a := range settAgents {
+			if a.Alive && a.Wealth < 50 {
+				eligible++
+			}
+		}
+		if eligible == 0 {
+			continue
+		}
+
+		// Dynamic wage: distribute budget evenly among eligible agents.
+		// Floor of 2, no cap — the budget IS the cap.
+		wage := budget / uint64(eligible)
+		if wage < 2 {
+			wage = 2
+		}
+
+		paid := uint64(0)
 		for _, a := range settAgents {
 			if !a.Alive || a.Wealth >= 50 {
 				continue
 			}
-			if paid+wage > maxPayout {
+			if paid+wage > budget {
 				break
 			}
 			if sett.Treasury < wage {
