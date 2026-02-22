@@ -1,59 +1,54 @@
 # 09 — Post-Closed-Economy TODO
 
-Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed economy is functioning mechanically — trades execute, treasuries collect, consignment works — but the transition was too harsh. Agents were starving because crowns pooled in treasuries and grain wasn't reaching the market.
+Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed economy was functioning mechanically — trades execute, treasuries collect, consignment works — but the transition was too harsh. Multiple rounds of diagnosis and fixes were needed.
 
-## Critical Numbers (Pre-Fix)
+## Timeline
 
-| Metric | Value | Target | Gap |
-|--------|-------|--------|-----|
-| Avg Survival | 0.375 | > 0.4 | Agents can't eat |
-| Avg Mood | 0.16 | > 0.3 | Crashed from 0.64 |
-| Deaths:Births | 2,576:573 (4.5:1) | < 2:1 | Population declining |
-| Grain Price | 8.63 (base 2) | < 4.0 | 431% inflated |
-| Trade Volume | 5,784 | Stable/growing | OK — 55x improvement |
-| Agent Wealth | 952M (was 980M) | Stable | Deflating 28M/cycle |
-| Treasury Wealth | 1.04B (was 1.01B) | Flowing back | Accumulating, not flowing |
+| Tick | Deploy | Key Change |
+|------|--------|------------|
+| 92,290 | Observe | Initial diagnosis: survival 0.375, mood 0.16, grain 8.63 |
+| 92,878 | Wave 1 | Grain threshold, wealth decay redirect, settlement wages, fisher boost |
+| 93,249 | Observe | No improvement: survival 0.385, mood 0.156, zero births, grain 8.63 |
+| 93,781 | Wave 2 | Belonging on eat/forage, birth threshold 0.4→0.3, wages scale with grain price |
+| 94,254 | Observe | Still no improvement: survival 0.382, mood 0.142, zero births, grain 8.63 |
+| 94,400 | Wave 3 | **Price ratchet fix** — the root cause of all price issues |
 
-## Fixes Applied (tick 92,878)
+## Root Cause: Price Ratchet in Market Engine
 
-### P0: Grain supply crisis — FIXED
+The order-matched market engine had a **structural upward price bias** that made all other fixes ineffective. Prices were mathematically unable to come down:
 
-Grain is the universal food need but farmers kept 5 units before selling. With production of 1-3/tick and personal consumption, few farmers ever had surplus above 5 to sell.
+1. **Clearing midpoint biased +11.8% above entry price**: Sell ask = `Price * Matter (0.618)`, buy bid = `Price * Being (1.618)`, midpoint = `Price * 1.118`. Every trade pushed the price up.
+2. **70/30 blend had no ceiling clamp**: `entry.Price = Price*0.7 + clearingPrice*0.3` could exceed `BasePrice * Totality` (the Phi-derived ceiling).
+3. **Dual price update fought itself**: `ResolvePrice()` set price from supply/demand (clamped), then the blend overwrote it (unclamped). The biased blend always won.
 
-**Fix:** Lowered surplus thresholds in `surplusThreshold()` (`market.go`):
-- Farmer/fisher food threshold: 5 → 3
-- Non-producer food threshold: 3 → 2
-- Added fish as alternative food demand in `demandedGoods()` — hungry agents now demand both grain and fish, buying whichever is cheaper
+**Result**: Grain price locked at 8.63 (ceiling = `2 * 4.236 = 8.47`, slightly exceeded by unclamped blend). All food at ceiling, all manufactured goods at floor. Economy frozen.
 
-### P1: Treasury hoarding — FIXED (Settlement Welfare)
+### Wave 1 & 2 Fixes (Necessary but Insufficient)
 
-Treasuries gained +30M while agents lost -28M. 95% of agents (Tier 0) had no path to earn from treasury.
+These fixes addressed real problems but couldn't work while prices were ratcheted:
 
-**Fix:** Added `paySettlementWages()` (`market.go`) — daily welfare payment:
-- Agents with `Wealth < 20` receive 1 crown/day from home settlement treasury
-- Total payout capped at 1% of treasury per day (prevents drain)
-- Called in `TickDay()` after `decayWealth()`
-- This is the missing reverse flow: taxes → treasury → wages → agents → market → economy circulates
+| Fix | Status | Notes |
+|-----|--------|-------|
+| Grain surplus threshold 5→3 | Applied | More food posted to market, but prices didn't drop |
+| Fish as alternative food demand | Applied | Good structural change |
+| Wealth decay → treasury redirect | Applied | Stops crown destruction |
+| Treasury upkeep sink removed | Applied | Stops crown destruction |
+| Settlement wages (2 crowns/day) | Applied | Safety net for poor agents, not primary income |
+| Fisher production boost (*2→*3) | Applied | More fish produced |
+| Belonging on eat/forage (+0.001) | Applied | Breaks belonging death spiral |
+| Birth threshold 0.4→0.3 | Applied | More achievable during crisis |
 
-### P1: Wealth decay destroying crowns — FIXED (Redirect to Treasury)
+### Wave 3: Price Ratchet Fix (tick 94,400)
 
-`decayWealth()` was destroying ~0.24%/day of agent wealth. Treasury upkeep was also destroying crowns. In the closed economy, destroyed crowns were permanently lost.
+**The critical fix.** Three changes to `resolveSettlementMarket()` in `market.go`:
 
-**Fix:** Two changes in `market.go`:
-1. `decayWealth()` now redirects decayed crowns to the agent's home settlement treasury instead of destroying them
-2. Treasury upkeep sink removed from `collectTaxes()` — only population-based upkeep remains
+1. **Reference prices decouple from entry.Price**: `ResolvePrice()` computes reference prices used for ask/bid spreads but does NOT overwrite `entry.Price`. Only real trade data updates prices.
+2. **Clearing price = seller's ask**: Instead of `(ask + bid) / 2 = Price * 1.118`, the clearing price is the seller's ask price. Buyers pay what sellers accept. No upward bias.
+3. **Blend clamped to bounds**: The 70/30 blend result is clamped to `[BasePrice * Agnosis, BasePrice * Totality]`. Cannot break through Phi-derived bounds.
 
-No crowns leave the system. Wealth "decays" from rich agents but stays in circulation via treasury.
+### Lesson Learned
 
-### P1: Fisher mood spiral — FIXED
-
-All Tier 2 fishers were miserable (-0.43 to -0.49). Fish at price floor, low production.
-
-**Fix:** Two changes:
-1. Fisher production multiplier boosted from `Skills.Farming * 2` → `Skills.Farming * 3` (`production.go`)
-2. Fish added as alternative food demand (see P0 fix above) — creates real market demand for fish
-
-**Note:** `productionAmount()` still uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Works but technically wrong — low priority.
+When layering fixes on a broken market engine, no amount of welfare, threshold tuning, or production boosting can overcome a price mechanism that mathematically prevents equilibrium. **Fix the price engine first**, then tune parameters. The welfare system and belonging fixes are still valuable — they address real structural gaps — but they couldn't compensate for a ratchet that pushed every price to its ceiling.
 
 ## Remaining TODO
 
@@ -65,13 +60,20 @@ All Tier 2 fishers were miserable (-0.43 to -0.49). Fish at price floor, low pro
 
 Gardener always fails its first observation because it starts before worldsim's HTTP server is ready. Cosmetic but noisy. Fix: add a startup delay or retry loop in the gardener's initial observation.
 
+### P2: Fisher skill alias
+
+`productionAmount()` still uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Works but technically wrong.
+
+### P2: Settlement fragmentation
+
+714 settlements for ~50K agents (avg 70/settlement). 311 have pop < 25. The viability check and absorption migration should be consolidating these but may not be aggressive enough. Monitor.
+
 ## Success Criteria
 
-Run `/observe` after fixes have had time to take effect and check:
+Run `/observe` after the price ratchet fix has had time to take effect:
+- Grain price trending down from 8.63 toward base price of 2
+- Manufactured goods (tools, weapons) trending up from floor toward base prices
 - Avg survival > 0.4
-- Births:deaths ratio improving toward 1:1
-- Grain price trending down (< 6.0)
-- Agent wealth stabilizing (not deflating)
-- Trade volume maintained or growing
-- Fisher Tier 2 mood improving (> -0.3)
-- Treasury levels stabilizing (wealth decay flows in, wages flow out)
+- Births resuming (belonging above 0.3 threshold)
+- Trade volume growing (agents can afford goods at fair prices)
+- Market health improving from 0.125

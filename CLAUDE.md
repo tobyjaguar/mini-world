@@ -282,9 +282,21 @@ Economy closed — crowns are conserved. See `docs/07-closed-economy-implementat
 The closed economy transition was too harsh — crowns pooled in treasuries with no path back to agents. Population was declining at 4.5:1 deaths:births. See `docs/09-post-closed-economy-todo.md` for diagnosis and `docs/summaries/2026-02-22-survival-crisis-fixes.md` for full writeup.
 
 22. **Grain supply crisis** — FIXED: Surplus threshold lowered (producers 5→3, others 3→2). More food reaches the market.
-23. **Treasury hoarding** — FIXED: `paySettlementWages()` pays 1 crown/day to agents with Wealth < 20 from settlement treasury (capped at 1% of treasury/day). Closes the treasury→agent loop.
+23. **Treasury hoarding** — FIXED: `paySettlementWages()` pays 2 crowns/day to agents with Wealth < 20 from settlement treasury (capped at 1% of treasury/day). Closes the treasury→agent loop. Safety net, not primary income.
 24. **Wealth decay destroying crowns** — FIXED: `decayWealth()` redirects decayed crowns to home settlement treasury instead of destroying them. Treasury upkeep sink removed from `collectTaxes()`.
 25. **Fisher mood spiral** — FIXED: Fisher production multiplier boosted (2→3). Fish added as alternative food demand — all hungry agents demand both grain and fish.
+26. **Belonging death spiral** — FIXED: `applyEat()` and `applyForage()` now give `+0.001 belonging` per tick. Agents in survival mode no longer lose all belonging.
+27. **Birth threshold too high** — FIXED: Lowered from `Belonging > 0.4` to `Belonging > 0.3` in `processBirths()`.
+
+### Tuning Round 6: Price Ratchet
+
+**The most critical fix.** All waves 1-2 fixes were ineffective because the market engine had a structural upward price bias. Prices were mathematically unable to come down. See `docs/08-closed-economy-changelog.md` and `docs/09-post-closed-economy-todo.md` for full analysis.
+
+28. **Price ratchet in clearing midpoint** — FIXED: Clearing price was `(ask + bid) / 2 = Price * 1.118`, biasing every trade +11.8% upward. Changed to use seller's ask price — buyers pay what sellers accept.
+29. **Unclamped 70/30 blend** — FIXED: The blend `price*0.7 + clearing*0.3` had no ceiling, exceeding `BasePrice * Totality`. Now clamped to `[BasePrice * Agnosis, BasePrice * Totality]`.
+30. **Dual price update conflict** — FIXED: `ResolvePrice()` now computes reference prices for ask/bid placement only; it does not overwrite `entry.Price`. Only real trade clearing data updates the market price.
+
+**Key lesson:** When the price engine has a structural bias, no amount of supply-side fixes (threshold tuning, production boosts) or demand-side fixes (welfare wages, belonging) can compensate. Fix the price engine first, then tune parameters.
 
 ### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
@@ -292,6 +304,7 @@ The closed economy transition was too harsh — crowns pooled in treasuries with
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
 - Stats history not recording — `/api/v1/stats/history` returns empty. P2.
 - Gardener startup race condition — cosmetic, first observation fails. P2.
+- Settlement fragmentation — 714 settlements for ~50K agents. Viability checks may need to be more aggressive. P2.
 
 ## Ethics Note
 
