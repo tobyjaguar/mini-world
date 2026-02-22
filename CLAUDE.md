@@ -1,4 +1,4 @@
-# Mini-World (SYNTHESIS / Crossworlds): Autonomous Simulated World
+# Crossworlds: Autonomous Simulated World
 
 ## Project Overview
 
@@ -26,16 +26,18 @@ The full design specification lives in `docs/worldsim-design.md` (~1,500 lines, 
 - **Tick Engine**: Layered tick schedule (minute/hour/day/week/season)
 - **World State**: Hex grid (~2,000 hexes), terrain, resources, settlements
 - **Agent System**: Needs-driven entities with coherence model (Section 16.2)
-- **Economy Engine**: Supply/demand price discovery, trade routes, sinks/faucets
+- **Economy Engine**: Closed-economy order-matched market, trade routes, sinks
 - **Event Journal**: Append-only log, news generation, newspaper endpoint
 - **HTTP API**: Query interface for checking in on the world
+- **Claude Gardener**: Autonomous steward that observes the world and intervenes via admin API
 
 ### Key Design Principles
 1. Emergence over scripting — never hard-code storylines
 2. Economic robustness as the heartbeat — if the economy works, everything follows
 3. Observability is first-class — rich event logging, newspaper endpoint
-4. Perpetuation by design — anti-collapse safeguards, balanced sinks/faucets
+4. Perpetuation by design — anti-collapse safeguards, balanced sinks
 5. All constants from Φ — no arbitrary magic numbers (see EmanationConstants)
+6. Closed economy — crowns transfer between agents/treasuries, not minted from nothing
 
 ## Development Conventions
 
@@ -47,10 +49,15 @@ The full design specification lives in `docs/worldsim-design.md` (~1,500 lines, 
 - Use structured logging (Go `slog` package) for debugging simulation behavior
 - Derive tuning constants from Φ (EmanationConstants) — no magic numbers
 
+## Custom Skills (Claude Code)
+
+### `/observe` — Deity-Level World Analysis
+Defined in `.claude/commands/observe.md`. Fetches live API data and runs SQLite queries against the local database to produce a world health report covering economic health, agent well-being, political balance, and population dynamics. Use this to diagnose issues and plan tuning changes.
+
 ## External Dependencies
 
-- **Claude API** (Haiku model `claude-haiku-4-5-20251001`): Agent cognition, newspaper generation
-- **Weather API** (OpenWeatherMap or similar): Real weather → in-world weather
+- **Claude API** (Haiku model `claude-haiku-4-5-20251001`): Agent cognition, newspaper generation, oracle visions, gardener decisions
+- **Weather API** (OpenWeatherMap): Real weather → in-world weather
 - **random.org API**: True randomness for critical stochastic events
 
 ## Repository
@@ -75,13 +82,21 @@ All sensitive values belong in `deploy/config.local` (gitignored) or environment
 ```
 mini-world/
 ├── CLAUDE.md                    # This file — project guide
+├── .claude/commands/
+│   └── observe.md               # /observe skill — deity-level world analysis
 ├── docs/
 │   ├── worldsim-design.md       # Complete design spec (source of truth)
 │   ├── CLAUDE_CODE_PROMPT.md    # Implementation guide
 │   ├── 00-project-vision.md     # Project vision and design pillars
 │   ├── 01-language-decision.md  # Go language rationale
 │   ├── 02-operations.md         # Server ops, API reference, security
-│   └── 03-next-steps.md         # Phase 2+ roadmap and priorities
+│   ├── 03-next-steps.md         # Phase 2+ roadmap and priorities
+│   ├── 04-settlement-inflation-fixes.md
+│   ├── 05-settlement-fragmentation-fixes.md
+│   ├── 05-claude-gardener.md    # Gardener design
+│   ├── 06-monetary-system.md    # Monetary analysis (pre-closed-economy)
+│   ├── 07-closed-economy-implementation.md  # Closed economy design
+│   └── 08-closed-economy-changelog.md       # Post-deploy monitoring notes
 ├── cmd/worldsim/
 │   └── main.go                  # Entry point
 ├── cmd/gardener/
@@ -101,21 +116,30 @@ mini-world/
 │   │   ├── needs.go             #   Maslow needs hierarchy
 │   │   ├── behavior.go          #   Tier 0 state machine
 │   │   └── spawner.go           #   Population generation, Tier 2 promotion
-│   ├── economy/goods.go         # Good types and market mechanics
-│   ├── social/settlement.go     # Settlement type and governance
+│   ├── economy/goods.go         # Good types, MarketEntry, price resolution
+│   ├── social/settlement.go     # Settlement type, governance, infrastructure
 │   ├── events/                  # Event detection (placeholder)
 │   ├── engine/                  # Tick engine, simulation loop
 │   │   ├── tick.go              #   Layered tick schedule, sim time
 │   │   ├── simulation.go        #   World state, tick callbacks, stats
 │   │   ├── production.go        #   Resource-based production, hex depletion
-│   │   ├── market.go            #   Market resolution, trade, taxes, merchants
+│   │   ├── market.go            #   Order-matched market, trade, taxes, merchants
+│   │   ├── cognition.go         #   Tier 2 LLM decisions, oracle visions
 │   │   ├── factions.go          #   Faction dynamics, influence, dues, policies
 │   │   ├── population.go        #   Births, aging, death, migration
 │   │   ├── settlement_lifecycle.go # Overmass diaspora, founding, abandonment
+│   │   ├── governance.go        #   Governance transitions, leader succession
+│   │   ├── relationships.go     #   Family, mentorship, rivalry dynamics
+│   │   ├── crime.go             #   Theft mechanics
+│   │   ├── perpetuation.go      #   Anti-stagnation safeguards
 │   │   └── seasons.go           #   Seasonal resource caps, weather modifiers
 │   ├── llm/                     # LLM integration (Haiku)
 │   │   ├── client.go            #   Anthropic API client
-│   │   ├── narration.go         #   Event narration, newspaper, archetypes
+│   │   ├── cognition.go         #   Tier 2 decision generation
+│   │   ├── oracle.go            #   Oracle vision generation
+│   │   ├── narration.go         #   Event narration
+│   │   ├── newspaper.go         #   Weekly newspaper generation
+│   │   ├── archetypes.go        #   Tier 1 archetype templates
 │   │   └── biography.go         #   Agent biography generation
 │   ├── weather/client.go        # OpenWeatherMap integration
 │   ├── entropy/client.go        # random.org true randomness
@@ -166,7 +190,7 @@ The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for 
 | API | `https://api.crossworlds.xyz/api/v1/status` (Cloudflare proxy → port 80) |
 | Frontend | `https://crossworlds.xyz` (Next.js on Vercel, separate repo) |
 | SSH | `ssh -i <your-key> debian@<server-ip>` |
-| Service | systemd `worldsim.service`, auto-restarts, starts on boot |
+| Services | systemd `worldsim.service` + `gardener.service`, auto-restart, start on boot |
 | Database | `/opt/worldsim/data/crossworlds.db` (SQLite, auto-saves daily) |
 | Storage | 20GB data volume mounted at `/opt/worldsim/data` (boot disk is 2.8GB) |
 | Security | UFW (ports 22+80 only), fail2ban, no root login, no passwords |
@@ -191,6 +215,7 @@ GET  /api/v1/factions        → All factions with influence and treasury
 GET  /api/v1/faction/:id     → Faction detail: members, influence, events
 GET  /api/v1/economy         → Economy overview: prices, trade volume, Gini
 GET  /api/v1/social          → Social network overview
+GET  /api/v1/map             → Bulk map: all hexes with terrain, resources, settlements
 GET  /api/v1/map/:q/:r       → Hex detail: terrain, resources, settlement, agents
 ```
 
@@ -206,8 +231,9 @@ POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents
 1. **Foundation (MVP)** — COMPLETE: Hex grid, Tier 0 agents, tick engine, SQLite, HTTP API, deployed
 2. **Economy & Trade** — COMPLETE: Multi-settlement trade, merchants, price discovery, crafting recipes, goods decay, seasonal price modifiers, economic circuit breaker, tax collection
 3. **Social & Political** — COMPLETE: 5 factions with per-settlement influence, 4 governance types, leader succession, revolution mechanics, relationships (family/mentorship/rivalry), crime/theft
-4. **LLM Integration** — COMPLETE: Haiku API client, Tier 2 cognition, Tier 1 archetypes, newspaper generation, event narration, agent biographies
+4. **LLM Integration** — COMPLETE: Haiku API client, Tier 2 cognition, Tier 1 archetypes, newspaper generation, event narration, agent biographies, oracle visions
 5. **Polish & Perpetuation** — COMPLETE: Population dynamics (births/aging/death/migration), resource regen, anti-stagnation, settlement lifecycle (founding/abandonment), stats history, admin endpoints, random.org entropy, weather integration
+6. **Closed Economy** — COMPLETE: Order-matched market engine, merchant/Tier 2 trade closed via treasury, fallback wages removed, remaining mints throttled 60x. See `docs/08-closed-economy-changelog.md`.
 
 ## Tuning Fixes Applied
 
@@ -238,8 +264,19 @@ Four issues from the live world were diagnosed and fixed. See `docs/05-settlemen
 13. **Anti-collapse props up non-viable settlements** — FIXED: `processViabilityCheck()` tracks settlements with pop < 15 for 4+ consecutive weeks; refugee spawning is then disabled, allowing natural decline and abandonment.
 14. **No absorption of tiny settlements** — FIXED: Enhanced migration lowers mood threshold to 0.0 for settlements with pop < 25 and targets nearest viable settlement within 5 hexes.
 
-### Remaining Minor Issue
+### Tuning Round 4: Closed Economy
+
+Economy closed — crowns are conserved. See `docs/07-closed-economy-implementation.md` for design and `docs/08-closed-economy-changelog.md` for deployment notes and monitoring checklist.
+
+15. **Market sells minted crowns** — FIXED: Order-matched engine replaces `executeTrades()`; all trades are closed buyer↔seller transfers.
+16. **Fallback wages minted crowns** — FIXED: Removed from `production.go`; failed production causes needs erosion instead.
+17. **Tier 2 trade minted crowns** — FIXED: `tier2MarketSell()` sells surplus to settlement treasury (closed transfer).
+18. **Merchant trade minted crowns** — FIXED: `sellMerchantCargo()` paid from destination settlement treasury.
+19. **Journeyman/laborer wages** — THROTTLED: Still mint from nothing but gated to once per sim-hour (~24 crowns/day vs ~1,440). Monitor via `total_wealth` in stats history. See `docs/08-closed-economy-changelog.md` for future options.
+
+### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
+- Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 
 ## Ethics Note
 
