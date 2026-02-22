@@ -146,6 +146,10 @@ func applyEat(a *Agent) []string {
 	if a.Needs.Survival > 1.0 {
 		a.Needs.Survival = 1.0
 	}
+	a.Needs.Belonging += 0.001 // Eating is a communal act — still part of the settlement.
+	if a.Needs.Belonging > 1.0 {
+		a.Needs.Belonging = 1.0
+	}
 	a.Mood += 0.05
 	return nil
 }
@@ -288,6 +292,7 @@ func applyForage(a *Agent) []string {
 	// Foraging: low yield but always produces something.
 	a.Inventory[GoodGrain]++
 	a.Needs.Survival += 0.05
+	a.Needs.Belonging += 0.001 // Foraging on community land — still part of the settlement.
 	clampNeeds(&a.Needs)
 	return nil
 }

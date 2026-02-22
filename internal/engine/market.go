@@ -406,18 +406,32 @@ func (s *Simulation) decayWealth() {
 	}
 }
 
-// paySettlementWages distributes a small daily wage from settlement treasuries
-// to poor agents. This closes the treasury→agent loop: taxes pull crowns into
+// paySettlementWages distributes a daily wage from settlement treasuries
+// to poor agents. Wage scales with local grain price so agents can actually
+// afford food. This closes the treasury→agent loop: taxes pull crowns into
 // treasuries, wages push them back to agents who need them.
 func (s *Simulation) paySettlementWages() {
 	for _, sett := range s.Settlements {
 		if sett.Treasury == 0 {
 			continue
 		}
-		// Cap total payout at 1% of treasury per day.
-		maxPayout := uint64(float64(sett.Treasury) * 0.01)
-		if maxPayout < 1 {
-			maxPayout = 1
+
+		// Wage = local grain price so one day's wage buys one meal.
+		// Falls back to 2 crowns if no grain market entry.
+		wage := uint64(2)
+		if sett.Market != nil {
+			if entry, ok := sett.Market.Entries[agents.GoodGrain]; ok {
+				wage = uint64(entry.Price + 0.5)
+				if wage < 1 {
+					wage = 1
+				}
+			}
+		}
+
+		// Cap total payout at 2% of treasury per day.
+		maxPayout := uint64(float64(sett.Treasury) * 0.02)
+		if maxPayout < wage {
+			maxPayout = wage
 		}
 		paid := uint64(0)
 
@@ -426,15 +440,15 @@ func (s *Simulation) paySettlementWages() {
 			if !a.Alive || a.Wealth >= 20 {
 				continue
 			}
-			if paid >= maxPayout {
+			if paid+wage > maxPayout {
 				break
 			}
-			if sett.Treasury < 1 {
+			if sett.Treasury < wage {
 				break
 			}
-			sett.Treasury--
-			a.Wealth++
-			paid++
+			sett.Treasury -= wage
+			a.Wealth += wage
+			paid += wage
 		}
 	}
 }

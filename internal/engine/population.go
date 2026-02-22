@@ -106,7 +106,7 @@ func (s *Simulation) processBirths(tick uint64) {
 		var eligibleParents []*agents.Agent
 		for _, a := range settAgents {
 			if a.Alive && a.Age >= 18 && a.Age <= 45 && a.Health > 0.5 &&
-				a.Needs.Belonging > 0.4 && a.Needs.Survival > 0.3 {
+				a.Needs.Belonging > 0.3 && a.Needs.Survival > 0.3 {
 				eligibleParents = append(eligibleParents, a)
 			}
 		}
