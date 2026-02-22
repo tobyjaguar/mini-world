@@ -14,3 +14,6 @@ RANDOM_ORG_API_KEY=your-random-org-api-key
 
 # Frontend CORS — comma-separated allowed origins
 CORS_ORIGINS=https://crossworlds.xyz,https://www.crossworlds.xyz
+
+# Gardener — autonomous world steward
+GARDENER_INTERVAL=360

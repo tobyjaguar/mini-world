@@ -98,12 +98,55 @@ Followed by:
 - **Gardener memory** — Track past interventions and their outcomes to learn what works
 - **Multi-gardener consensus** — Run multiple Gardener instances with different value weights, require agreement before acting
 
-## Implementation Plan
+## Usage
 
-1. Create `cmd/gardener/main.go` — standalone binary
-2. Config: cycle interval, API base URL, admin key, Haiku API key
-3. Observation module: fetch and aggregate API data
-4. Decision module: format observations as Haiku prompt, parse response
-5. Action module: execute intervention via POST endpoint
-6. Logging: structured JSON logs of every observation-decision-action cycle
-7. Systemd service: `gardener.service` running alongside `worldsim.service`
+### Build
+
+```bash
+go build -o build/gardener ./cmd/gardener
+```
+
+### Run
+
+```bash
+WORLDSIM_API_URL=http://localhost \
+WORLDSIM_ADMIN_KEY=<your-admin-key> \
+ANTHROPIC_API_KEY=<your-api-key> \
+GARDENER_INTERVAL=360 \
+./build/gardener
+```
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `WORLDSIM_API_URL` | No | `http://localhost` | Base URL of the worldsim API |
+| `WORLDSIM_ADMIN_KEY` | Yes | — | Bearer token for admin POST endpoints |
+| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key for Haiku |
+| `GARDENER_INTERVAL` | No | `360` | Minutes between cycles (360 = 6 sim-hours at 1x speed) |
+
+### Deploy
+
+The gardener deploys alongside worldsim via `deploy/deploy.sh`. It runs as a systemd service (`gardener.service`) that depends on `worldsim.service`.
+
+### Monitoring
+
+Watch gardener logs:
+```bash
+sudo journalctl -u gardener -f
+```
+
+Check for gardener events in the world:
+```
+GET /api/v1/events → look for category "gardener"
+```
+
+## Implementation
+
+```
+cmd/gardener/main.go              — Entry point, timer loop, signal handling
+internal/gardener/observe.go      — API data collection (5 endpoints → WorldSnapshot)
+internal/gardener/decide.go       — Haiku prompt + JSON parsing + guardrails
+internal/gardener/act.go          — POST /api/v1/intervention execution
+deploy/gardener.service           — systemd unit file
+```

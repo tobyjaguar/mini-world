@@ -84,6 +84,8 @@ mini-world/
 │   └── 03-next-steps.md         # Phase 2+ roadmap and priorities
 ├── cmd/worldsim/
 │   └── main.go                  # Entry point
+├── cmd/gardener/
+│   └── main.go                  # Gardener entry point
 ├── internal/
 │   ├── phi/                     # Emanation constants (Φ-derived)
 │   │   ├── constants.go         #   Golden ratio powers, growth angle
@@ -118,10 +120,15 @@ mini-world/
 │   ├── weather/client.go        # OpenWeatherMap integration
 │   ├── entropy/client.go        # random.org true randomness
 │   ├── persistence/db.go        # SQLite save/load (WAL mode), stats history
+│   ├── gardener/                # Claude Gardener — autonomous steward
+│   │   ├── observe.go           #   API data collection → WorldSnapshot
+│   │   ├── decide.go            #   Haiku analysis → Decision + guardrails
+│   │   └── act.go               #   Intervention execution via admin API
 │   └── api/server.go            # HTTP API (public GET, auth POST)
 ├── deploy/
-│   ├── deploy.sh                # Build, upload, restart
+│   ├── deploy.sh                # Build, upload, restart (worldsim + gardener)
 │   ├── worldsim.service         # systemd unit file
+│   ├── gardener.service         # Gardener systemd unit file
 │   ├── config.local.example     # Template for connection details
 │   └── config.local             # Real values (gitignored)
 ├── data/                        # Runtime SQLite DB (gitignored)
@@ -137,10 +144,15 @@ mini-world/
 go build -o worldsim ./cmd/worldsim
 ./worldsim
 
+# Build gardener
+go build -o gardener ./cmd/gardener
+WORLDSIM_API_URL=http://localhost WORLDSIM_ADMIN_KEY=<key> ANTHROPIC_API_KEY=<key> ./gardener
+
 # Cross-compile for server
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/worldsim ./cmd/worldsim
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/gardener ./cmd/gardener
 
-# Deploy to production
+# Deploy to production (builds + deploys both worldsim and gardener)
 ./deploy/deploy.sh
 ```
 

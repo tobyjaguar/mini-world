@@ -1,0 +1,21 @@
+[Unit]
+Description=Crossworlds Gardener — Autonomous World Steward
+After=worldsim.service
+Requires=worldsim.service
+
+[Service]
+Type=simple
+User=worldsim
+Group=worldsim
+WorkingDirectory=/opt/worldsim
+ExecStart=/opt/worldsim/gardener
+Restart=on-failure
+RestartSec=60
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gardener
+
+[Install]
+WantedBy=multi-user.target
