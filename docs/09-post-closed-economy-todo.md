@@ -54,16 +54,14 @@ These fixes addressed real problems but couldn't work while prices were ratchete
 
 When layering fixes on a broken market engine, no amount of welfare, threshold tuning, or production boosting can overcome a price mechanism that mathematically prevents equilibrium. **Fix the price engine first**, then tune parameters. The welfare system and belonging fixes are still valuable — they address real structural gaps — but they couldn't compensate for a ratchet that pushed every price to its ceiling.
 
-## Remaining TODO
-
-### Wave 4: Infrastructure Fixes (tick 118,329)
+## Wave 4: Infrastructure Fixes (tick 118,329)
 
 Two P2 issues from earlier rounds fixed:
 
 1. **Stats history query** — FIXED: `toTick` defaulted to `^uint64(0)` (max uint64). The modernc.org/sqlite driver rejects uint64 values with the high bit set. Changed to `uint64(1<<63 - 1)`. Stats history now records and returns data.
 2. **Gardener startup race** — FIXED: Added `waitForAPI()` with exponential backoff (2s→30s, 5min deadline) in `cmd/gardener/main.go`. Gardener waits for worldsim HTTP server before first observation cycle.
 
-### Wave 5: Mood & Treasury Rebalancing (tick 120,192)
+## Wave 5: Mood & Treasury Rebalancing (tick 120,192)
 
 Two remaining structural issues from post-recovery `/observe`:
 
