@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-You are building **SYNTHESIS** (also called WORLDSIM / Crossroads) — a **continuously running, persistent synthetic world simulation** populated by autonomous agents who form economies, relationships, factions, and emergent history. The world ticks forward in real time (or accelerated time), and an external observer can query the world via API to receive a "newspaper" of recent events, economic reports, and emergent narratives.
+You are building **SYNTHESIS** (also called WORLDSIM / Crossworlds) — a **continuously running, persistent synthetic world simulation** populated by autonomous agents who form economies, relationships, factions, and emergent history. The world ticks forward in real time (or accelerated time), and an external observer can query the world via API to receive a "newspaper" of recent events, economic reports, and emergent narratives.
 
 This is NOT a game. It is a **petri dish** — a simulation designed for emergence, observation, and surprise. The goal is a world you want to check in on.
 

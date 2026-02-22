@@ -55,11 +55,11 @@ func GenerateBiography(client *Client, ctx BiographyContext) (string, error) {
 		details = append(details, "Notable memories: "+strings.Join(ctx.Memories, "; "))
 	}
 
-	system := `You are the chronicler of Crossroads, an early-industrial world shaped by emanationist philosophy. All things arise from a single source and manifest through interference patterns between charging and discharging pressures. Every soul carries coherence — a measure of unity or scatteredness.
+	system := `You are the chronicler of Crossworlds, an early-industrial world shaped by emanationist philosophy. All things arise from a single source and manifest through interference patterns between charging and discharging pressures. Every soul carries coherence — a measure of unity or scatteredness.
 
 Write a brief biography (150-250 words) of this citizen in period-appropriate prose with emanationist undertones. Include their occupation, temperament, notable deeds, and place in the community. Be vivid but concise. Do not break character or reference the simulation.`
 
-	prompt := fmt.Sprintf("Write a biography for this citizen of Crossroads:\n\n%s", strings.Join(details, "\n"))
+	prompt := fmt.Sprintf("Write a biography for this citizen of Crossworlds:\n\n%s", strings.Join(details, "\n"))
 
 	return client.Complete(system, prompt, 400)
 }

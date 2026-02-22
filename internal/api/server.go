@@ -10,10 +10,12 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/engine"
@@ -49,16 +51,20 @@ type cachedBio struct {
 
 // Start begins serving the HTTP API in a goroutine.
 func (s *Server) Start() {
+	// Rate limiters for LLM-consuming endpoints.
+	storyLimiter := NewRateLimiter(10, time.Hour)
+	newspaperLimiter := NewRateLimiter(30, time.Hour)
+
 	mux := http.NewServeMux()
 
 	// Public endpoints (GET, read-only — anyone can check in on the world).
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/settlements", s.handleSettlements)
 	mux.HandleFunc("/api/v1/agents", s.handleAgents)
-	mux.HandleFunc("/api/v1/agent/", s.handleAgentRoutes)
+	mux.HandleFunc("/api/v1/agent/", s.handleAgentRoutes(storyLimiter))
 	mux.HandleFunc("/api/v1/events", s.handleEvents)
 	mux.HandleFunc("/api/v1/stats", s.handleStats)
-	mux.HandleFunc("/api/v1/newspaper", s.handleNewspaper)
+	mux.HandleFunc("/api/v1/newspaper", RateLimitMiddleware(newspaperLimiter, s.handleNewspaper))
 	mux.HandleFunc("/api/v1/factions", s.handleFactions)
 	mux.HandleFunc("/api/v1/economy", s.handleEconomy)
 	mux.HandleFunc("/api/v1/social", s.handleSocial)
@@ -66,7 +72,7 @@ func (s *Server) Start() {
 	// Detail endpoints.
 	mux.HandleFunc("/api/v1/settlement/", s.handleSettlementDetail)
 	mux.HandleFunc("/api/v1/faction/", s.handleFactionDetail)
-	mux.HandleFunc("/api/v1/map/", s.handleHexDetail)
+	mux.HandleFunc("/api/v1/map", s.handleMapRoutes)
 	mux.HandleFunc("/api/v1/stats/history", s.handleStatsHistory)
 
 	// Admin endpoints (POST, require bearer token).
@@ -78,10 +84,108 @@ func (s *Server) Start() {
 	slog.Info("HTTP API starting", "addr", addr, "admin_auth", s.AdminKey != "")
 
 	go func() {
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		handler := corsMiddleware(mux)
+		if err := http.ListenAndServe(addr, handler); err != nil {
 			slog.Error("HTTP server error", "error", err)
 		}
 	}()
+}
+
+// corsMiddleware adds CORS headers for allowed frontend origins.
+// Set CORS_ORIGINS env var to a comma-separated list of allowed origins
+// (e.g. "https://crossworlds.example.com,https://crossworlds-ui.vercel.app").
+// Localhost dev servers are always allowed.
+func corsMiddleware(next http.Handler) http.Handler {
+	allowedOrigins := map[string]bool{
+		"http://localhost:5173": true,
+		"http://localhost:4173": true,
+		"http://localhost:3000": true,
+	}
+	if env := os.Getenv("CORS_ORIGINS"); env != "" {
+		for _, origin := range strings.Split(env, ",") {
+			origin = strings.TrimSpace(origin)
+			if origin != "" {
+				allowedOrigins[origin] = true
+			}
+		}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// handleMapRoutes dispatches between bulk map (GET /api/v1/map) and hex detail (GET /api/v1/map/:q/:r).
+func (s *Server) handleMapRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/map")
+	if path == "" || path == "/" {
+		s.handleBulkMap(w, r)
+		return
+	}
+	s.handleHexDetail(w, r)
+}
+
+// handleBulkMap returns all hexes for the hex map renderer.
+func (s *Server) handleBulkMap(w http.ResponseWriter, r *http.Request) {
+	type hexEntry struct {
+		Q            int     `json:"q"`
+		R            int     `json:"r"`
+		Terrain      uint8   `json:"terrain"`
+		Elevation    float64 `json:"elevation"`
+		SettlementID *uint64 `json:"settlement_id,omitempty"`
+	}
+
+	type settlementEntry struct {
+		ID         uint64 `json:"id"`
+		Name       string `json:"name"`
+		Q          int    `json:"q"`
+		R          int    `json:"r"`
+		Population uint32 `json:"population"`
+	}
+
+	hexes := make([]hexEntry, 0, len(s.Sim.WorldMap.Hexes))
+	for _, h := range s.Sim.WorldMap.Hexes {
+		hexes = append(hexes, hexEntry{
+			Q:            h.Coord.Q,
+			R:            h.Coord.R,
+			Terrain:      uint8(h.Terrain),
+			Elevation:    h.Elevation,
+			SettlementID: h.SettlementID,
+		})
+	}
+
+	settlements := make([]settlementEntry, 0, len(s.Sim.Settlements))
+	for _, st := range s.Sim.Settlements {
+		settlements = append(settlements, settlementEntry{
+			ID:         st.ID,
+			Name:       st.Name,
+			Q:          st.Position.Q,
+			R:          st.Position.R,
+			Population: st.Population,
+		})
+	}
+
+	writeJSON(w, map[string]any{
+		"radius":      s.Sim.WorldMap.Radius,
+		"hexes":       hexes,
+		"settlements": settlements,
+	})
+}
+
+// checkBearerToken returns true if the request has a valid admin bearer token.
+func (s *Server) checkBearerToken(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	return strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == s.AdminKey
 }
 
 // adminOnly wraps a handler to require bearer token auth on POST requests.
@@ -94,8 +198,7 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 
-			auth := r.Header.Get("Authorization")
-			if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != s.AdminKey {
+			if !s.checkBearerToken(r) {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -112,7 +215,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := map[string]any{
-		"name":         "Crossroads",
+		"name":         "Crossworlds",
 		"tick":         s.Sim.CurrentTick(),
 		"sim_time":     engine.SimTime(s.Sim.CurrentTick()),
 		"season":       engine.SeasonName(s.Sim.CurrentSeason),
@@ -211,35 +314,53 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
-func (s *Server) handleAgentRoutes(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 5 {
-		http.Error(w, "missing agent id", http.StatusBadRequest)
-		return
-	}
-	id, err := strconv.ParseUint(parts[4], 10, 64)
-	if err != nil {
-		http.Error(w, "invalid agent id", http.StatusBadRequest)
-		return
-	}
-
-	agent, ok := s.Sim.AgentIndex[agents.AgentID(id)]
-	if !ok {
-		http.Error(w, "agent not found", http.StatusNotFound)
-		return
-	}
-
-	// Route to /agent/:id/story if requested.
-	if len(parts) >= 6 && parts[5] == "story" {
+func (s *Server) handleAgentRoutes(storyLimiter *RateLimiter) http.HandlerFunc {
+	rateLimitedStory := RateLimitMiddleware(storyLimiter, func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(r.URL.Path, "/")
+		id, _ := strconv.ParseUint(parts[4], 10, 64)
+		agent := s.Sim.AgentIndex[agents.AgentID(id)]
 		s.handleAgentStory(w, r, agent)
-		return
-	}
+	})
 
-	writeJSON(w, agent)
+	return func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) < 5 {
+			http.Error(w, "missing agent id", http.StatusBadRequest)
+			return
+		}
+		id, err := strconv.ParseUint(parts[4], 10, 64)
+		if err != nil {
+			http.Error(w, "invalid agent id", http.StatusBadRequest)
+			return
+		}
+
+		agent, ok := s.Sim.AgentIndex[agents.AgentID(id)]
+		if !ok {
+			http.Error(w, "agent not found", http.StatusNotFound)
+			return
+		}
+		_ = agent
+
+		// Route to /agent/:id/story if requested.
+		if len(parts) >= 6 && parts[5] == "story" {
+			rateLimitedStory(w, r)
+			return
+		}
+
+		writeJSON(w, s.Sim.AgentIndex[agents.AgentID(id)])
+	}
 }
 
 func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent *agents.Agent) {
 	refresh := r.URL.Query().Get("refresh") == "true"
+
+	// Refresh requires admin auth (LLM-consuming operation).
+	if refresh {
+		if s.AdminKey == "" || !s.checkBearerToken(r) {
+			http.Error(w, "refresh requires admin authorization", http.StatusUnauthorized)
+			return
+		}
+	}
 
 	// Check cache.
 	s.bioMu.Lock()
@@ -1247,6 +1368,7 @@ func (s *Server) handleFactionDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHexDetail(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
+	// /api/v1/map/:q/:r → parts[0]="" [1]="api" [2]="v1" [3]="map" [4]=q [5]=r
 	if len(parts) < 6 {
 		http.Error(w, "usage: /api/v1/map/:q/:r", http.StatusBadRequest)
 		return

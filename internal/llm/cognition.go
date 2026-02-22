@@ -60,7 +60,7 @@ func buildTier2SystemPrompt(ctx *Tier2Context) string {
 Your coherence is %.2f (%s). You have %d crowns.
 You belong to %s.
 
-You exist in Crossroads, an early-industrial world shaped by emanationist philosophy.
+You exist in Crossworlds, an early-industrial world shaped by emanationist philosophy.
 Every soul carries coherence — scattered souls react to circumstances, while unified souls shape them.
 Make decisions that reflect your personality, circumstances, and inner state.
 

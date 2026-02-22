@@ -11,3 +11,6 @@ ANTHROPIC_API_KEY=your-anthropic-api-key
 WEATHER_API_KEY=your-openweathermap-api-key
 WEATHER_LOCATION=San Diego,US
 RANDOM_ORG_API_KEY=your-random-org-api-key
+
+# Frontend CORS — comma-separated allowed origins
+CORS_ORIGINS=https://crossworlds.xyz,https://www.crossworlds.xyz

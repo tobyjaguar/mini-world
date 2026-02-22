@@ -21,7 +21,7 @@ func GenerateArchetypeUpdate(client *Client, archetype string, worldSummary stri
 		return nil, fmt.Errorf("LLM client not configured")
 	}
 
-	system := `You are the behavioral oracle of Crossroads, an emanationist world. Given current conditions, determine how a behavioral archetype should adapt. Archetypes guide how agents prioritize their needs and choose default actions.
+	system := `You are the behavioral oracle of Crossworlds, an emanationist world. Given current conditions, determine how a behavioral archetype should adapt. Archetypes guide how agents prioritize their needs and choose default actions.
 
 Respond ONLY with a JSON object:
 {

@@ -28,7 +28,7 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	slog.Info("SYNTHESIS / Crossroads — Autonomous World Simulation")
+	slog.Info("SYNTHESIS / Crossworlds — Autonomous World Simulation")
 	slog.Info("emanation constants",
 		"phi", phi.Phi,
 		"agnosis", fmt.Sprintf("%.5f", phi.Agnosis),
@@ -344,7 +344,7 @@ func main() {
 		eng.Stop()
 	}()
 
-	fmt.Printf("\nCrossroads is alive: %d souls across %d settlements on %d land hexes.\n",
+	fmt.Printf("\nCrossworlds is alive: %d souls across %d settlements on %d land hexes.\n",
 		len(allAgents), len(allSettlements), landHexes)
 	fmt.Printf("API: http://localhost:%d/api/v1/status\n", apiPort)
 	if startTick > 0 {

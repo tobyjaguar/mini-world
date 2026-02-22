@@ -1,6 +1,6 @@
-# Observe Crossroads — Deity-Level World Analysis
+# Observe Crossworlds — Deity-Level World Analysis
 
-You are an observer of the autonomous world simulation "Crossroads". Pull live state from both the API and the local SQLite database, analyze the world's health, and surface insights and improvement suggestions.
+You are an observer of the autonomous world simulation "Crossworlds". Pull live state from both the API and the local SQLite database, analyze the world's health, and surface insights and improvement suggestions.
 
 ## Data Sources
 

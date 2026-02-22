@@ -1,4 +1,4 @@
-# Mini-World (SYNTHESIS / Crossroads): Autonomous Simulated World
+# Mini-World (SYNTHESIS / Crossworlds): Autonomous Simulated World
 
 ## Project Overview
 

@@ -1,4 +1,4 @@
-# Crossroads Operations Guide
+# Crossworlds Operations Guide
 
 ## Server
 
@@ -74,17 +74,27 @@ curl -X POST http://<server-ip>/api/v1/speed \
 |----------|-------------|
 | `GET /api/v1/status` | World clock, population, economy summary |
 | `GET /api/v1/settlements` | All settlements with governance and health |
+| `GET /api/v1/settlement/:id` | Settlement detail: market, agents, factions, events |
 | `GET /api/v1/agents` | Notable Tier 2 characters (or `?tier=0` for all) |
 | `GET /api/v1/agent/:id` | Full agent detail |
+| `GET /api/v1/agent/:id/story` | Haiku-generated biography (`?refresh=true` requires admin auth) |
 | `GET /api/v1/events` | Recent world events (`?limit=N`) |
 | `GET /api/v1/stats` | Aggregate statistics |
+| `GET /api/v1/stats/history` | Time-series stats (`?from=TICK&to=TICK&limit=N`) |
+| `GET /api/v1/newspaper` | Weekly Haiku-generated newspaper |
+| `GET /api/v1/factions` | All factions with influence and treasury |
+| `GET /api/v1/faction/:id` | Faction detail: members, influence, events |
+| `GET /api/v1/economy` | Economy overview: prices, trade volume, Gini |
+| `GET /api/v1/social` | Social network overview |
+| `GET /api/v1/map` | Bulk hex data for map rendering |
+| `GET /api/v1/map/:q/:r` | Hex detail: terrain, resources, settlement, agents |
 
 ### Admin (POST, requires `Authorization: Bearer <key>`)
 | Endpoint | Description |
 |----------|-------------|
 | `POST /api/v1/speed` | Set simulation speed `{"speed": N}` |
-
-Future admin endpoints: `/api/v1/intervention`, `/api/v1/snapshot`, `/api/v1/fork`.
+| `POST /api/v1/snapshot` | Force immediate world save |
+| `POST /api/v1/intervention` | Inject events, adjust wealth, spawn agents |
 
 ## Server Administration
 
@@ -147,6 +157,11 @@ This reads `deploy/config.local`, cross-compiles, uploads the binary, and restar
 | Variable | Purpose | Required |
 |----------|---------|----------|
 | `WORLDSIM_ADMIN_KEY` | Bearer token for admin POST endpoints | Recommended |
+| `ANTHROPIC_API_KEY` | Claude Haiku API key for LLM features | Yes |
+| `WEATHER_API_KEY` | OpenWeatherMap API key | Yes |
+| `WEATHER_LOCATION` | Real-world location for weather mapping | Yes |
+| `RANDOM_ORG_API_KEY` | random.org API key for true randomness | Yes |
+| `CORS_ORIGINS` | Comma-separated allowed CORS origins | Recommended |
 
 Set in the systemd service override:
 ```bash

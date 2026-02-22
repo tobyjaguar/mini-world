@@ -13,7 +13,7 @@ func NarrateEvent(client *Client, eventDesc string, worldContext string) (string
 		return "", fmt.Errorf("LLM client not configured")
 	}
 
-	system := `You are the chronicler of Crossroads, an early-industrial world shaped by emanationist philosophy. All things arise from a single source and manifest through interference patterns between charging and discharging pressures. Every soul carries coherence — a measure of unity or scatteredness.
+	system := `You are the chronicler of Crossworlds, an early-industrial world shaped by emanationist philosophy. All things arise from a single source and manifest through interference patterns between charging and discharging pressures. Every soul carries coherence — a measure of unity or scatteredness.
 
 Narrate this event in 2-3 sentences of period-appropriate prose with emanationist undertones. Be vivid but concise. Do not break character or reference the simulation.`
 

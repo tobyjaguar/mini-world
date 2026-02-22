@@ -35,14 +35,21 @@ Five issues were diagnosed from observing the live world and fixed:
 
 ## Future Work
 
-### Web Frontend (High Priority)
-The world has a rich API but no visual interface. A web frontend would make Crossroads much more engaging to observe and would give the public GitHub repo a proper face.
+### Web Frontend (In Progress)
+Svelte SPA frontend providing a visual interface to the world. See `web/` directory.
 
-- [ ] **Hex map renderer**: Render the hex grid showing terrain, settlements, trade routes, faction influence heatmaps
-- [ ] **Settlement view**: Population, market prices, governance, factions, recent events
-- [ ] **Agent profiles**: Notable Tier 2 characters with biographies, needs, inventory, relationships
-- [ ] **Newspaper page**: Render the weekly Haiku-generated newspaper in a readable format
-- [ ] **Stats dashboard**: Time-series charts for population, wealth, mood, Gini coefficient
+- [x] **Hex map renderer**: Canvas-based interactive hex map with pan/zoom/click, terrain colors, settlement markers
+- [x] **Settlement views**: List (sortable) and detail (market, agents, factions, culture, events)
+- [x] **Agent profiles**: Notable Tier 2 characters with biographies, memories, relationships
+- [x] **Newspaper page**: Styled newspaper layout rendering Haiku-generated content
+- [x] **Economy overview**: Wealth distribution, inflation/deflation, market health
+- [x] **Stats dashboard**: Time-series charts for population, wealth, mood, trade volume
+- [x] **API hardening**: Rate limiting on LLM endpoints, CORS for dev, static file serving with SPA fallback
+- [ ] **Faction influence heatmap**: Overlay faction influence on hex map
+- [ ] **Trade route visualization**: Show merchant paths between settlements
+
+### Claude Gardener (Future)
+Autonomous steward agent that observes world health and nudges conditions to prevent collapse/stagnation. See `docs/05-claude-gardener.md` for full design.
 
 ### Deeper Emergence (Medium Priority)
 New mechanics that would make the world more interesting.

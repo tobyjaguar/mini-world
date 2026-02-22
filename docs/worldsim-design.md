@@ -61,9 +61,9 @@ Ken Wheeler's corpus of 11 documents on emanationist metaphysics provides the **
 
 ## 3. World Design
 
-### 3.1 Setting: Crossroads
+### 3.1 Setting: Crossworlds
 
-The world is called **Crossroads** — a continent-scale landmass at a roughly early-industrial technology level (think 1700s–1850s equivalent), but with some fantastical elements to keep things interesting and provide natural economic complexity.
+The world is called **Crossworlds** — a continent-scale landmass at a roughly early-industrial technology level (think 1700s–1850s equivalent), but with some fantastical elements to keep things interesting and provide natural economic complexity.
 
 **Why this era?** Early industrial is the sweet spot for emergent economic simulation:
 - Complex enough for trade networks, banking, manufacturing, and specialization
@@ -373,8 +373,8 @@ Weather is driven by a **real weather API** (e.g., OpenWeatherMap) mapped onto t
 
 **Mapping example:**
 ```
-Real: San Diego, 72°F, sunny → Sim: Coastal Crossroads, warm, clear skies
-Real: Minneapolis, -5°F, blizzard → Sim: Northern Crossroads, brutal cold, snowstorm
+Real: San Diego, 72°F, sunny → Sim: Coastal Crossworlds, warm, clear skies
+Real: Minneapolis, -5°F, blizzard → Sim: Northern Crossworlds, brutal cold, snowstorm
 ```
 
 ### 7.2 Random.org for True Entropy
@@ -553,7 +553,7 @@ Respond ONLY with valid JSON. Be creative but consistent with the
 character's personality and situation."""
 
 [prompts.newspaper]
-system = """You are the editor of The Crossroads Chronicle, a daily 
+system = """You are the editor of The Crossworlds Chronicle, a daily 
 newspaper in a fictional world. Write engaging, in-character journalism 
 based on the events provided. Include headlines, a lead story, market 
 report, and one human interest piece."""
@@ -800,7 +800,7 @@ GET /api/v1/newspaper
     ]
   },
   "faction_news": "The Merchant's Compact has formally protested Governor Voss's new 5% export tariff on processed metals, calling it 'a stranglehold on prosperity.'",
-  "human_interest": "Elderly herbalist Mira Thornwood of Greenhollow celebrated her 80th birthday this week — the oldest known resident of Crossroads. When asked her secret, she reportedly said, 'Good soil and bad memories.'",
+  "human_interest": "Elderly herbalist Mira Thornwood of Greenhollow celebrated her 80th birthday this week — the oldest known resident of Crossworlds. When asked her secret, she reportedly said, 'Good soil and bad memories.'",
   "obituaries": ["Sergeant Kael Dunmore, 34, killed in a bandit ambush on the Eastern Road."],
   "rumors": ["Whispers in the taverns suggest the Ashen Path has discovered how to transmute copper into silver. The Guild denies all knowledge."],
   "weather_forecast": "Clear skies expected through mid-week, with a cold front moving in from the northern tundra by weekend."

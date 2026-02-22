@@ -1,5 +1,5 @@
 [Unit]
-Description=SYNTHESIS / Crossroads — Autonomous World Simulation
+Description=SYNTHESIS / Crossworlds — Autonomous World Simulation
 After=network.target
 
 [Service]
