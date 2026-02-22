@@ -1,8 +1,8 @@
 # 09 — Post-Closed-Economy TODO
 
-Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed economy is functioning mechanically — trades execute, treasuries collect, consignment works — but the transition is too harsh. Agents are starving because crowns pooled in treasuries and grain isn't reaching the market.
+Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed economy is functioning mechanically — trades execute, treasuries collect, consignment works — but the transition was too harsh. Agents were starving because crowns pooled in treasuries and grain wasn't reaching the market.
 
-## Critical Numbers
+## Critical Numbers (Pre-Fix)
 
 | Metric | Value | Target | Gap |
 |--------|-------|--------|-----|
@@ -14,83 +14,64 @@ Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed ec
 | Agent Wealth | 952M (was 980M) | Stable | Deflating 28M/cycle |
 | Treasury Wealth | 1.04B (was 1.01B) | Flowing back | Accumulating, not flowing |
 
-## TODO — Priority Order
+## Fixes Applied (tick 92,878)
 
-### P0: Grain supply crisis
+### P0: Grain supply crisis — FIXED
 
-Grain is the universal food need but farmers keep 5 units before selling. With production of 1-3/tick and personal consumption, few farmers ever have surplus above 5 to sell. Meanwhile every agent demands grain.
+Grain is the universal food need but farmers kept 5 units before selling. With production of 1-3/tick and personal consumption, few farmers ever had surplus above 5 to sell.
 
-**Fix:** Lower farmer grain surplus threshold from 5 to 3 in `surplusThreshold()` (`internal/engine/market.go`). Farmers still keep enough to eat but put more on the market.
+**Fix:** Lowered surplus thresholds in `surplusThreshold()` (`market.go`):
+- Farmer/fisher food threshold: 5 → 3
+- Non-producer food threshold: 3 → 2
+- Added fish as alternative food demand in `demandedGoods()` — hungry agents now demand both grain and fish, buying whichever is cheaper
 
-```go
-case agents.GoodGrain, agents.GoodFish:
-    if a.Occupation == agents.OccupationFarmer || a.Occupation == agents.OccupationFisher {
-        return 3  // was 5
-    }
-    return 2  // was 3 — non-farmers keep less too
-```
+### P1: Treasury hoarding — FIXED (Settlement Welfare)
 
-**Also consider:** Fishers should have the same threshold reduction (fish is an alternative food).
+Treasuries gained +30M while agents lost -28M. 95% of agents (Tier 0) had no path to earn from treasury.
 
-### P1: Treasury hoarding — crowns not flowing back to agents
+**Fix:** Added `paySettlementWages()` (`market.go`) — daily welfare payment:
+- Agents with `Wealth < 20` receive 1 crown/day from home settlement treasury
+- Total payout capped at 1% of treasury per day (prevents drain)
+- Called in `TickDay()` after `decayWealth()`
+- This is the missing reverse flow: taxes → treasury → wages → agents → market → economy circulates
 
-Treasuries gained +30M while agents lost -28M. Taxes and upkeep pull crowns out of agents into treasuries, but the only way crowns flow back is through merchant consignment sales and Tier 2 trade. 95% of agents (Tier 0) have no path to earn from treasury.
+### P1: Wealth decay destroying crowns — FIXED (Redirect to Treasury)
 
-**Fix:** Add settlement wage — treasury pays a small daily amount to agents who worked that day. This is the missing reverse flow. In `collectTaxes()` or a new daily function:
+`decayWealth()` was destroying ~0.24%/day of agent wealth. Treasury upkeep was also destroying crowns. In the closed economy, destroyed crowns were permanently lost.
 
-- For each settlement, pay `1 crown` to each agent with `Wealth < 20` from treasury
-- Cap at e.g. `treasury * 0.01` per day so it doesn't drain treasuries
-- This creates a closed loop: taxes pull crowns into treasury → wages push them back to agents
+**Fix:** Two changes in `market.go`:
+1. `decayWealth()` now redirects decayed crowns to the agent's home settlement treasury instead of destroying them
+2. Treasury upkeep sink removed from `collectTaxes()` — only population-based upkeep remains
 
-### P1: Wealth decay destroying crowns in a closed economy
+No crowns leave the system. Wealth "decays" from rich agents but stays in circulation via treasury.
 
-`decayWealth()` destroys `~0.24%/day` of agent wealth above 20 crowns. `collectTaxes()` treasury upkeep destroys crowns too. In the old open economy these sinks balanced the mints. In the closed economy, **destroyed crowns are permanently lost** — the money supply shrinks every day.
+### P1: Fisher mood spiral — FIXED
 
-**Fix options (pick one):**
-1. **Reduce decay rates** — halve both agent wealth decay and treasury upkeep. Slower drain.
-2. **Redirect decay to treasury** — instead of destroying wealth, decay flows into the local settlement treasury. No crowns destroyed, just redistributed.
-3. **Remove decay entirely** — the closed economy already has natural sinks (trade friction, consignment). Decay may no longer be needed.
+All Tier 2 fishers were miserable (-0.43 to -0.49). Fish at price floor, low production.
 
-Option 2 is cleanest — wealth "decays" but crowns stay in circulation via treasury.
+**Fix:** Two changes:
+1. Fisher production multiplier boosted from `Skills.Farming * 2` → `Skills.Farming * 3` (`production.go`)
+2. Fish added as alternative food demand (see P0 fix above) — creates real market demand for fish
 
-### P1: Fisher mood spiral (-0.43 to -0.49)
+**Note:** `productionAmount()` still uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Works but technically wrong — low priority.
 
-All Tier 2 fishers are miserable and worsening. Two root causes:
-
-1. **Fish at price floor (0.47 crowns)** — selling fish earns almost nothing. Fishers produce goods worth ~0.47 crowns while crafters produce goods worth 5-25 crowns.
-2. **Fisher skill bug** — `productionAmount()` uses `Skills.Farming` for fishers instead of a fishing skill. Fishers don't scale production with experience.
-
-**Fix 1:** Add a `Fishing` skill or alias fisher production to use `Skills.Trade` or another existing skill that grows. In `internal/engine/production.go`:
-```go
-case agents.OccupationFisher:
-    p := int(a.Skills.Farming * 3)  // was * 2, increase output
-```
-
-**Fix 2:** Fish price floor issue is a symptom of oversupply or low demand. If fishers produce more, they have more surplus to sell, and the barter system moves it. The key is that fish has the same food utility as grain — agents should buy whichever is cheaper.
+## Remaining TODO
 
 ### P2: Stats history not recording
 
-`/api/v1/stats/history` returns `[]` — empty. Stats history should be recording per-tick or per-day snapshots. Either the save interval hasn't triggered yet since deploy, or the stats recording was broken by the restarts. Check `internal/persistence/db.go` for how `stats_history` gets written and ensure it fires on daily ticks.
+`/api/v1/stats/history` returns `[]` — empty. Check `internal/persistence/db.go` for how `stats_history` gets written and ensure it fires on daily ticks.
 
 ### P2: Gardener startup race condition
 
-Gardener always fails its first observation because it starts before worldsim's HTTP server is ready. Cosmetic but noisy. Fix: add a startup delay (e.g., `time.Sleep(10 * time.Second)`) or retry loop in the gardener's initial observation.
-
-## Implementation Order
-
-1. **Grain threshold** — 2-line change, immediate survival impact
-2. **Wealth decay → treasury redirect** — stops permanent crown destruction
-3. **Settlement wage** — closes the treasury→agent loop
-4. **Fisher production boost** — helps fisher mood + food supply
-5. **Stats history check** — observability
-6. **Gardener retry** — polish
+Gardener always fails its first observation because it starts before worldsim's HTTP server is ready. Cosmetic but noisy. Fix: add a startup delay or retry loop in the gardener's initial observation.
 
 ## Success Criteria
 
-After implementing, run `/observe` and check:
+Run `/observe` after fixes have had time to take effect and check:
 - Avg survival > 0.4
 - Births:deaths ratio improving toward 1:1
 - Grain price trending down (< 6.0)
 - Agent wealth stabilizing (not deflating)
 - Trade volume maintained or growing
 - Fisher Tier 2 mood improving (> -0.3)
+- Treasury levels stabilizing (wealth decay flows in, wages flow out)

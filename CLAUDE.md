@@ -96,7 +96,8 @@ mini-world/
 │   ├── 05-claude-gardener.md    # Gardener design
 │   ├── 06-monetary-system.md    # Monetary analysis (pre-closed-economy)
 │   ├── 07-closed-economy-implementation.md  # Closed economy design
-│   └── 08-closed-economy-changelog.md       # Post-deploy monitoring notes
+│   ├── 08-closed-economy-changelog.md       # Post-deploy monitoring notes
+│   └── 09-post-closed-economy-todo.md       # Survival crisis diagnosis + fixes
 ├── cmd/worldsim/
 │   └── main.go                  # Entry point
 ├── cmd/gardener/
@@ -276,10 +277,21 @@ Economy closed — crowns are conserved. See `docs/07-closed-economy-implementat
 20. **Zero births after economy closure** — FIXED: Removing fallback wages also removed belonging boost on failed production. Resource producers spiraled below `Belonging > 0.4` birth threshold. Restored `+0.001 belonging` on failed production (no wage, just social signal).
 21. **Near-zero trade volume** — FIXED: Clearing prices at Agnosis floor rounded to 0-1 crowns; the 1-crown minimum killed trades for agents with 0 wealth. Removed the floor — 0-crown trades now execute as barter.
 
+### Tuning Round 5: Survival Crisis & Welfare
+
+The closed economy transition was too harsh — crowns pooled in treasuries with no path back to agents. Population was declining at 4.5:1 deaths:births. See `docs/09-post-closed-economy-todo.md` for diagnosis and `docs/summaries/2026-02-22-survival-crisis-fixes.md` for full writeup.
+
+22. **Grain supply crisis** — FIXED: Surplus threshold lowered (producers 5→3, others 3→2). More food reaches the market.
+23. **Treasury hoarding** — FIXED: `paySettlementWages()` pays 1 crown/day to agents with Wealth < 20 from settlement treasury (capped at 1% of treasury/day). Closes the treasury→agent loop.
+24. **Wealth decay destroying crowns** — FIXED: `decayWealth()` redirects decayed crowns to home settlement treasury instead of destroying them. Treasury upkeep sink removed from `collectTaxes()`.
+25. **Fisher mood spiral** — FIXED: Fisher production multiplier boosted (2→3). Fish added as alternative food demand — all hungry agents demand both grain and fish.
+
 ### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
+- Stats history not recording — `/api/v1/stats/history` returns empty. P2.
+- Gardener startup race condition — cosmetic, first observation fails. P2.
 
 ## Ethics Note
 
