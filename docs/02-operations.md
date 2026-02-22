@@ -128,7 +128,7 @@ ssh -i <key> debian@<ip> 'free -m && echo "---" && df -h / && echo "---" && ls -
 
 ### Download the database for local inspection
 ```bash
-scp -i <key> debian@<ip>:/opt/worldsim/data/crossroads.db ./crossroads-backup.db
+scp -i <key> debian@<ip>:/opt/worldsim/data/crossworlds.db ./crossroads-backup.db
 ```
 
 ## Deploying Updates
@@ -176,7 +176,7 @@ sudo systemctl edit worldsim
 | Path | Contents |
 |------|----------|
 | `/opt/worldsim/worldsim` | The binary |
-| `/opt/worldsim/data/crossroads.db` | SQLite world state |
+| `/opt/worldsim/data/crossworlds.db` | SQLite world state |
 | `/etc/systemd/system/worldsim.service` | systemd service |
 | `/etc/fail2ban/jail.local` | fail2ban SSH config |
 

@@ -15,7 +15,7 @@ Read the server host from `deploy/config.local` (the HOST variable). Fetch these
 - `http://<HOST>/api/v1/settlements` — all settlements with governance and health
 
 ### 2. SQLite Database Queries (deeper analysis)
-The production database is remote, but a local copy may exist at `data/crossroads.db`. If it exists, run analytical queries using `sqlite3 data/crossroads.db`. Key queries:
+The production database is remote, but a local copy may exist at `data/crossworlds.db`. If it exists, run analytical queries using `sqlite3 data/crossworlds.db`. Key queries:
 
 ```sql
 -- Needs distribution: how many agents have each need above/below thresholds

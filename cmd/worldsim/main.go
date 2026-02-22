@@ -38,7 +38,7 @@ func main() {
 	)
 
 	seed := int64(42)
-	dbPath := "data/crossroads.db"
+	dbPath := "data/crossworlds.db"
 	apiPort := 80
 
 	// ── Database ──────────────────────────────────────────────────────

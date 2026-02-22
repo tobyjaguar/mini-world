@@ -155,7 +155,7 @@ The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for 
 | Frontend | `https://crossworlds.xyz` (Next.js on Vercel, separate repo) |
 | SSH | `ssh -i <your-key> debian@<server-ip>` |
 | Service | systemd `worldsim.service`, auto-restarts, starts on boot |
-| Database | `/opt/worldsim/data/crossroads.db` (SQLite, auto-saves daily) |
+| Database | `/opt/worldsim/data/crossworlds.db` (SQLite, auto-saves daily) |
 | Security | UFW (ports 22+80 only), fail2ban, no root login, no passwords |
 | CORS | Configured via `CORS_ORIGINS` env var for `crossworlds.xyz` |
 | Swap | 1GB at `/swapfile` |
