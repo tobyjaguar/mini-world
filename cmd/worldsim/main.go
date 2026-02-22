@@ -240,10 +240,13 @@ func main() {
 		sim.InitFactions()
 	}
 
-	// Load agent memories from database (if any exist).
+	// Load agent memories and relationships from database (if any exist).
 	if startTick > 0 {
 		if err := db.LoadMemories(sim.AgentIndex); err != nil {
 			slog.Warn("failed to load memories", "error", err)
+		}
+		if err := db.LoadRelationships(sim.AgentIndex); err != nil {
+			slog.Warn("failed to load relationships", "error", err)
 		}
 	}
 

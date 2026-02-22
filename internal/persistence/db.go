@@ -121,10 +121,18 @@ func (db *DB) migrate() error {
 		gini REAL NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS relationships (
+		agent_id INTEGER NOT NULL,
+		target_id INTEGER NOT NULL,
+		sentiment REAL NOT NULL,
+		trust REAL NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_events_tick ON events(tick);
 	CREATE INDEX IF NOT EXISTS idx_agents_settlement ON agents(home_settlement_id);
 	CREATE INDEX IF NOT EXISTS idx_agents_alive ON agents(alive);
 	CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id);
+	CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(agent_id);
 	`
 	_, err := db.conn.Exec(schema)
 	if err != nil {
@@ -403,6 +411,9 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	if err := db.SaveMemories(sim.Agents); err != nil {
 		return fmt.Errorf("save memories: %w", err)
 	}
+	if err := db.SaveRelationships(sim.Agents); err != nil {
+		return fmt.Errorf("save relationships: %w", err)
+	}
 	if err := db.SaveEvents(sim.Events); err != nil {
 		return fmt.Errorf("save events: %w", err)
 	}
@@ -599,6 +610,64 @@ func (db *DB) LoadMemories(agentIndex map[agents.AgentID]*agents.Agent) error {
 			Tick:       r.Tick,
 			Content:    r.Content,
 			Importance: r.Importance,
+		})
+	}
+	return nil
+}
+
+// SaveRelationships writes all agent relationships to the database (full replace).
+func (db *DB) SaveRelationships(agentList []*agents.Agent) error {
+	tx, err := db.conn.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM relationships"); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Preparex("INSERT INTO relationships (agent_id, target_id, sentiment, trust) VALUES (?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, a := range agentList {
+		for _, r := range a.Relationships {
+			if _, err := stmt.Exec(a.ID, r.TargetID, r.Sentiment, r.Trust); err != nil {
+				return fmt.Errorf("insert relationship for agent %d: %w", a.ID, err)
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadRelationships reads all relationships and attaches them to agents by ID.
+func (db *DB) LoadRelationships(agentIndex map[agents.AgentID]*agents.Agent) error {
+	type relRow struct {
+		AgentID   uint64  `db:"agent_id"`
+		TargetID  uint64  `db:"target_id"`
+		Sentiment float32 `db:"sentiment"`
+		Trust     float32 `db:"trust"`
+	}
+
+	var rows []relRow
+	if err := db.conn.Select(&rows, "SELECT agent_id, target_id, sentiment, trust FROM relationships"); err != nil {
+		// Table might not exist yet in old databases — not fatal.
+		return nil
+	}
+
+	for _, r := range rows {
+		a, ok := agentIndex[agents.AgentID(r.AgentID)]
+		if !ok {
+			continue
+		}
+		a.Relationships = append(a.Relationships, agents.Relationship{
+			TargetID:  agents.AgentID(r.TargetID),
+			Sentiment: r.Sentiment,
+			Trust:     r.Trust,
 		})
 	}
 	return nil
