@@ -9,6 +9,7 @@ import (
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/llm"
+	"github.com/talgya/mini-world/internal/phi"
 )
 
 // processTier2Decisions runs LLM-powered decisions for a batch of Tier 2 agents.
@@ -255,4 +256,233 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 	})
 
 	slog.Debug("tier 2 action", "agent", a.Name, "action", d.Action, "target", d.Target)
+}
+
+// processOracleVisions runs weekly LLM visions for Liberated agents.
+// ~5 agents max — no batching needed.
+func (s *Simulation) processOracleVisions(tick uint64) {
+	if s.LLM == nil || !s.LLM.Enabled() {
+		return
+	}
+
+	// Collect living Liberated agents.
+	var oracles []*agents.Agent
+	for _, a := range s.Agents {
+		if a.Alive && a.Soul.State == agents.Liberated {
+			oracles = append(oracles, a)
+		}
+	}
+
+	if len(oracles) == 0 {
+		return
+	}
+
+	occNames := []string{
+		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
+		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
+	}
+	govNames := map[uint8]string{0: "Monarchy", 1: "Council", 2: "Merchant Republic", 3: "Commune"}
+	stateNames := map[agents.StateOfBeing]string{
+		agents.Embodied: "Embodied", agents.Centered: "Centered", agents.Liberated: "Liberated",
+	}
+	elementNames := map[agents.ElementType]string{
+		agents.ElementHelium: "Helium", agents.ElementHydrogen: "Hydrogen",
+		agents.ElementGold: "Gold", agents.ElementUranium: "Uranium",
+	}
+
+	gini := s.GiniCoefficient()
+
+	for _, a := range oracles {
+		ctx := s.buildOracleContext(a, occNames, govNames, stateNames, elementNames, gini)
+		vision, err := llm.GenerateOracleVision(s.LLM, ctx)
+		if err != nil {
+			slog.Debug("oracle vision failed", "agent", a.Name, "error", err)
+			continue
+		}
+
+		s.applyOracleVision(a, vision, tick)
+	}
+
+	slog.Info("oracle visions processed", "count", len(oracles))
+}
+
+func (s *Simulation) buildOracleContext(
+	a *agents.Agent,
+	occNames []string,
+	govNames map[uint8]string,
+	stateNames map[agents.StateOfBeing]string,
+	elementNames map[agents.ElementType]string,
+	gini float64,
+) *llm.OracleContext {
+	occName := "Unknown"
+	if int(a.Occupation) < len(occNames) {
+		occName = occNames[a.Occupation]
+	}
+
+	ctx := &llm.OracleContext{
+		Name:      a.Name,
+		Age:       a.Age,
+		Wealth:    a.Wealth,
+		Coherence: a.Soul.CittaCoherence,
+		State:     stateNames[a.Soul.State],
+		Element:   elementNames[a.Soul.Element()],
+		Archetype: a.Archetype,
+		Season:    SeasonName(s.CurrentSeason),
+		Faction:   "unaffiliated",
+		AvgMood:   s.Stats.AvgMood,
+		Gini:      gini,
+		Occupation: occName,
+	}
+
+	// Settlement context.
+	if a.HomeSettID != nil {
+		if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+			ctx.Settlement = sett.Name
+			ctx.Governance = govNames[uint8(sett.Governance)]
+			ctx.Treasury = sett.Treasury
+			ctx.Population = len(s.SettlementAgents[sett.ID])
+		}
+	}
+
+	// Weather.
+	if s.CurrentWeather.Description != "" {
+		ctx.Weather = s.CurrentWeather.Description
+	}
+
+	// Top 10 important memories (oracles draw from depth, not recency).
+	important := agents.ImportantMemories(a, 10)
+	for _, m := range important {
+		ctx.Memories = append(ctx.Memories, m.Content)
+	}
+
+	// Top 5 relationships by absolute sentiment.
+	if len(a.Relationships) > 0 {
+		rels := make([]agents.Relationship, len(a.Relationships))
+		copy(rels, a.Relationships)
+		sort.Slice(rels, func(i, j int) bool {
+			ai := rels[i].Sentiment
+			if ai < 0 {
+				ai = -ai
+			}
+			aj := rels[j].Sentiment
+			if aj < 0 {
+				aj = -aj
+			}
+			return ai > aj
+		})
+		for i, r := range rels {
+			if i >= 5 {
+				break
+			}
+			target, ok := s.AgentIndex[r.TargetID]
+			if !ok {
+				continue
+			}
+			ctx.Relationships = append(ctx.Relationships,
+				fmt.Sprintf("%s (sentiment: %.1f, trust: %.1f)", target.Name, r.Sentiment, r.Trust))
+		}
+	}
+
+	// Faction.
+	if a.FactionID != nil {
+		for _, f := range s.Factions {
+			if uint64(f.ID) == *a.FactionID {
+				ctx.Faction = f.Name
+				break
+			}
+		}
+	}
+
+	return ctx
+}
+
+func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision, tick uint64) {
+	// Record the prophecy as a high-importance memory for the oracle.
+	prophecyMemory := fmt.Sprintf("Vision: %s", vision.Prophecy)
+	agents.AddMemory(a, tick, prophecyMemory, 0.9)
+
+	// Spread prophecy to Centered and Liberated agents in the same settlement.
+	if a.HomeSettID != nil {
+		for _, other := range s.SettlementAgents[*a.HomeSettID] {
+			if other.Alive && other.ID != a.ID && other.Soul.State >= agents.Centered {
+				spreadMemory := fmt.Sprintf("%s spoke a vision: %s", a.Name, vision.Prophecy)
+				agents.AddMemory(other, tick, spreadMemory, 0.7)
+			}
+		}
+	}
+
+	// Apply the oracle's action.
+	switch vision.Action {
+	case "trade":
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				if sett.Market != nil {
+					earned := uint64(a.Skills.Trade*5) + 2
+					a.Wealth += earned
+					a.Skills.Trade += 0.005
+				}
+			}
+		}
+
+	case "advocate":
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				influence := float64(a.Soul.CittaCoherence) * 0.02
+				sett.GovernanceScore += influence
+				if sett.GovernanceScore > 1.0 {
+					sett.GovernanceScore = 1.0
+				}
+			}
+		}
+
+	case "invest":
+		investment := a.Wealth / 10
+		if investment > 0 {
+			a.Wealth -= investment
+			if a.HomeSettID != nil {
+				if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+					sett.Treasury += investment
+				}
+			}
+		}
+
+	case "speak":
+		s.Events = append(s.Events, Event{
+			Tick:        tick,
+			Description: fmt.Sprintf("%s prophesies: \"%s\"", a.Name, vision.Target),
+			Category:    "oracle",
+		})
+
+	case "bless":
+		if a.HomeSettID != nil {
+			for _, candidate := range s.SettlementAgents[*a.HomeSettID] {
+				if candidate.Alive && candidate.Name == vision.Target {
+					nudge := float32(phi.Agnosis * 0.1) // ~0.024
+					candidate.Soul.CittaCoherence += nudge
+					if candidate.Soul.CittaCoherence > 0.7 {
+						candidate.Soul.CittaCoherence = 0.7 // Can't create Liberated via blessing
+					}
+					candidate.Soul.UpdateState()
+					s.Events = append(s.Events, Event{
+						Tick:        tick,
+						Description: fmt.Sprintf("%s blessed %s, nudging their coherence toward clarity", a.Name, candidate.Name),
+						Category:    "oracle",
+					})
+					break
+				}
+			}
+		}
+	}
+
+	// Log the oracle's action.
+	detail := fmt.Sprintf("Oracle %s received a vision and chose to %s (%s): %s",
+		a.Name, vision.Action, vision.Target, vision.Reasoning)
+	agents.AddMemory(a, tick, detail, 0.6)
+	s.Events = append(s.Events, Event{
+		Tick:        tick,
+		Description: fmt.Sprintf("Oracle %s: \"%s\" — %s %s", a.Name, vision.Prophecy, vision.Action, vision.Target),
+		Category:    "oracle",
+	})
+
+	slog.Debug("oracle vision applied", "agent", a.Name, "action", vision.Action, "target", vision.Target)
 }
