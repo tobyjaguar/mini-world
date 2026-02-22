@@ -1093,7 +1093,7 @@ func (s *Server) handleStatsHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fromTick := uint64(0)
-	toTick := uint64(^uint64(0))
+	toTick := uint64(1<<63 - 1) // Max int64 — avoids uint64 high-bit SQLite driver issue.
 	limit := 30
 
 	if f := r.URL.Query().Get("from"); f != "" {

@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -47,6 +48,11 @@ func main() {
 	observer := gardener.NewObserver(apiURL)
 	actor := gardener.NewActor(apiURL, adminKey)
 	llmClient := llm.NewClient(anthropicKey)
+
+	// Wait for worldsim API to be ready before first cycle.
+	// systemd After= only ensures process start, not HTTP readiness.
+	slog.Info("waiting for worldsim API...")
+	waitForAPI(apiURL)
 
 	// Run first cycle immediately.
 	runCycle(observer, actor, llmClient)
@@ -132,4 +138,33 @@ func envIntOrDefault(key string, defaultVal int) int {
 		}
 	}
 	return defaultVal
+}
+
+// waitForAPI polls the worldsim status endpoint with exponential backoff
+// until it responds. Exits after 5 minutes if the API never becomes ready.
+func waitForAPI(apiURL string) {
+	backoff := 2 * time.Second
+	maxBackoff := 30 * time.Second
+	deadline := time.Now().Add(5 * time.Minute)
+
+	for {
+		resp, err := http.Get(apiURL + "/api/v1/status")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				slog.Info("worldsim API is ready")
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			slog.Error("worldsim API did not become ready within 5 minutes")
+			os.Exit(1)
+		}
+		slog.Info("worldsim not ready, retrying...", "backoff", backoff)
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
 }
