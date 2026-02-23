@@ -249,6 +249,89 @@ func birthEligible(a *agents.Agent, simDay uint64) bool {
 	return float64(hash)/1000.0 < prob
 }
 
+// processWeeklyTier2Replenishment fills Tier 2 vacancies by promoting the
+// most notable Tier 0 adults. Tier 2 promotion only ran at world generation,
+// so dead Tier 2 agents (e.g. all merchants) were never replaced. This runs
+// weekly and promotes up to 2 agents per cycle to avoid sudden surges.
+func (s *Simulation) processWeeklyTier2Replenishment() {
+	const targetTier2 = 30 // Same as initial PromoteToTier2 count
+	const maxPerCycle = 2  // Gradual — don't flood with Tier 2 at once
+
+	aliveTier2 := 0
+	for _, a := range s.Agents {
+		if a.Alive && a.Tier == agents.Tier2 {
+			aliveTier2++
+		}
+	}
+
+	vacancies := targetTier2 - aliveTier2
+	if vacancies <= 0 {
+		return
+	}
+	if vacancies > maxPerCycle {
+		vacancies = maxPerCycle
+	}
+
+	// Collect eligible Tier 0 adults.
+	var eligible []*agents.Agent
+	for _, a := range s.Agents {
+		if a.Alive && a.Tier == agents.Tier0 && a.Age >= 16 {
+			eligible = append(eligible, a)
+		}
+	}
+
+	agents.PromoteToTier2(eligible, vacancies)
+
+	// Log promotions.
+	promoted := 0
+	for _, a := range eligible {
+		if a.Tier == agents.Tier2 {
+			promoted++
+			slog.Info("tier 2 promotion",
+				"agent", a.Name,
+				"occupation", a.Occupation,
+				"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
+			)
+			s.Events = append(s.Events, Event{
+				Tick:        s.LastTick,
+				Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
+				Category:    "social",
+			})
+			if promoted >= vacancies {
+				break
+			}
+		}
+	}
+}
+
+// occupationLabel returns a human-readable label for an occupation.
+func occupationLabel(occ agents.Occupation) string {
+	switch occ {
+	case agents.OccupationFarmer:
+		return "farming"
+	case agents.OccupationMiner:
+		return "mining"
+	case agents.OccupationFisher:
+		return "fishing"
+	case agents.OccupationHunter:
+		return "hunting"
+	case agents.OccupationCrafter:
+		return "crafting"
+	case agents.OccupationMerchant:
+		return "trade"
+	case agents.OccupationLaborer:
+		return "labor"
+	case agents.OccupationSoldier:
+		return "the military"
+	case agents.OccupationScholar:
+		return "scholarship"
+	case agents.OccupationAlchemist:
+		return "alchemy"
+	default:
+		return "their craft"
+	}
+}
+
 // addAgent registers a new agent in all indexes.
 func (s *Simulation) addAgent(a *agents.Agent) {
 	s.Agents = append(s.Agents, a)

@@ -293,6 +293,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processInfrastructureGrowth(tick)
 	s.processSettlementOvermass(tick)
 	s.processSettlementAbandonment(tick)
+	s.processWeeklyTier2Replenishment()
 	s.updateArchetypeTemplates(tick)
 	s.processOracleVisions(tick)
 	s.processRandomEvents(tick)

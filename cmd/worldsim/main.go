@@ -257,6 +257,19 @@ func main() {
 				slog.Info("abandoned weeks restored", "settlements", len(aw))
 			}
 		}
+		// Restore cumulative counters (births, trade volume).
+		if birthsStr, err := db.GetMeta("births"); err == nil {
+			if v, err := strconv.Atoi(birthsStr); err == nil {
+				sim.Stats.Births = v
+				slog.Info("births counter restored", "births", v)
+			}
+		}
+		if tvStr, err := db.GetMeta("trade_volume"); err == nil {
+			if v, err := strconv.ParseUint(tvStr, 10, 64); err == nil {
+				sim.Stats.TradeVolume = v
+				slog.Info("trade volume counter restored", "volume", v)
+			}
+		}
 	}
 
 	// Load agent memories and relationships from database (if any exist).

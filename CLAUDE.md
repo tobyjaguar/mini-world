@@ -368,10 +368,15 @@ The Gardener had been running for ~47K ticks with zero observable effect. Docs 1
 
 **Key lesson:** The doom loop was invisible from aggregate stats because 40% of agents (crafters, laborers) had good satisfaction, averaging out the 60% of producers at deeply negative values. Per-occupation breakdowns (Tier 2 data) are essential for diagnosis.
 
+### Persistence & Tier 2 Fixes (tick ~223K)
+
+60. **NonViableWeeks/AbandonedWeeks reset on deploy** — FIXED: Both maps now persisted as JSON in `world_meta` via `SaveWorldState()` and restored on startup in `main.go`. The 2-week grace period for tiny settlement consolidation now survives deploys.
+61. **Birth/trade counters reset on deploy** — FIXED: `Stats.Births` and `Stats.TradeVolume` now persisted to `world_meta` and restored on startup. Eliminates counter reset noise in `stats_history`.
+62. **Dead Tier 2 agents never replaced** — FIXED: `processWeeklyTier2Replenishment()` in `population.go` counts alive Tier 2, promotes up to 2 Tier 0 adults per week to fill vacancies (target 30). Uses same scoring as initial `PromoteToTier2`. Wired into `TickWeek`.
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
-- Merchant extinction — all Tier 2 merchants dead after price normalization. May recover with equilibrium. P2.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
 ## Ethics Note

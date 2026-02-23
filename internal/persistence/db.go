@@ -443,6 +443,14 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		}
 	}
 
+	// Persist cumulative counters that can't be derived from agent/settlement state.
+	if err := db.SaveMeta("births", fmt.Sprintf("%d", sim.Stats.Births)); err != nil {
+		return fmt.Errorf("save births: %w", err)
+	}
+	if err := db.SaveMeta("trade_volume", fmt.Sprintf("%d", sim.Stats.TradeVolume)); err != nil {
+		return fmt.Errorf("save trade_volume: %w", err)
+	}
+
 	slog.Info("world state saved")
 	return nil
 }
