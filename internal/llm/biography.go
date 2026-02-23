@@ -19,7 +19,9 @@ type BiographyContext struct {
 	Archetype     string
 	Faction       string
 	Settlement    string
-	Mood          float32
+	Mood          float32 // Effective mood (blended)
+	Satisfaction  float32 // Material needs satisfaction
+	Alignment     float32 // Coherence-derived inner harmony
 	Relationships []string // e.g. "friendly with Aldric Voss", "hostile toward Brenna Thorn"
 	Memories      []string // Top memories by importance
 }
@@ -37,7 +39,7 @@ func GenerateBiography(client *Client, ctx BiographyContext) (string, error) {
 	details = append(details, fmt.Sprintf("Wealth: %d crowns", ctx.Wealth))
 	details = append(details, fmt.Sprintf("Coherence: %.2f (%s)", ctx.Coherence, ctx.State))
 	details = append(details, fmt.Sprintf("Element: %s", ctx.Element))
-	details = append(details, fmt.Sprintf("Mood: %.2f", ctx.Mood))
+	details = append(details, fmt.Sprintf("Effective mood: %.2f (satisfaction: %.2f, alignment: %.2f)", ctx.Mood, ctx.Satisfaction, ctx.Alignment))
 
 	if ctx.Archetype != "" {
 		details = append(details, fmt.Sprintf("Archetype: %s", ctx.Archetype))

@@ -82,9 +82,9 @@ type Agent struct {
 	Role          SocialRole     `json:"role"`
 
 	// Cognition
-	Tier      CognitionTier `json:"tier"`
-	Archetype string        `json:"archetype,omitempty"` // For Tier 1
-	Mood      float32       `json:"mood"`                // -1.0 (despair) to 1.0 (elation)
+	Tier      CognitionTier  `json:"tier"`
+	Archetype string         `json:"archetype,omitempty"` // For Tier 1
+	Wellbeing WellbeingState `json:"wellbeing"`           // Dual-register mood model
 
 	// Soul — Wheeler coherence model (Section 16.2)
 	Soul AgentSoul `json:"soul"`
@@ -141,4 +141,14 @@ type Relationship struct {
 	TargetID  AgentID `json:"target_id"`
 	Sentiment float32 `json:"sentiment"` // -1.0 (hatred) to 1.0 (love)
 	Trust     float32 `json:"trust"`     // 0.0 to 1.0
+}
+
+// WellbeingState holds the dual-register mood model.
+// Satisfaction tracks material needs fulfillment (-1 to +1).
+// Alignment tracks coherence-derived inner harmony (0 to +1).
+// EffectiveMood blends both, weighted by coherence² × Φ⁻¹.
+type WellbeingState struct {
+	Satisfaction  float32 `json:"satisfaction"`   // Material needs satisfaction, -1.0 to +1.0
+	Alignment     float32 `json:"alignment"`      // Coherence-derived harmony, 0.0 to +1.0
+	EffectiveMood float32 `json:"effective_mood"` // Blended mood for external consumers
 }

@@ -95,10 +95,12 @@ func (s *Spawner) spawnOne(position world.HexCoord, settlementID uint64, terrain
 		Skills:     skills,
 		Role:       RoleCommoner,
 		Tier:       Tier0,
-		Mood:       s.rng.Float32()*0.6 - 0.1, // Slightly positive on average
-		Soul:       soul,
-		Needs:      needs,
-		BornTick:   0,
+		Wellbeing: WellbeingState{
+			Satisfaction: s.rng.Float32()*0.6 - 0.1, // Slightly positive on average
+		},
+		Soul:     soul,
+		Needs:    needs,
+		BornTick: 0,
 		Alive:      true,
 	}
 }
@@ -352,8 +354,10 @@ func (s *Spawner) SpawnChild(position world.HexCoord, settlementID uint64, terra
 		Skills:     skills,
 		Role:       RoleCommoner,
 		Tier:       Tier0,
-		Mood:       0.3 + s.rng.Float32()*0.3, // Babies start happy
-		Soul:       soul,
+		Wellbeing: WellbeingState{
+			Satisfaction: 0.3 + s.rng.Float32()*0.3, // Babies start happy
+		},
+		Soul: soul,
 		Needs: NeedsState{
 			Survival:  0.8,
 			Safety:    0.7,

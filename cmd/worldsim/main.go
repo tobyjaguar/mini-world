@@ -325,6 +325,8 @@ func main() {
 			AvgCoherence:    sim.AvgCoherence(),
 			SettlementCount: len(sim.Settlements),
 			Gini:            sim.GiniCoefficient(),
+			AvgSatisfaction: float64(sim.Stats.AvgSatisfaction),
+			AvgAlignment:    float64(sim.Stats.AvgAlignment),
 		}
 		if err := db.SaveStatsSnapshot(statsRow); err != nil {
 			slog.Error("stats snapshot failed", "error", err)

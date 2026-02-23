@@ -323,6 +323,14 @@ Post-recovery `/observe` at tick 118,329 showed the economy working (96.9% marke
 39. **Welfare threshold too low** — FIXED: `paySettlementWages()` threshold changed from fixed 50 crowns to `avgWealth * Agnosis` (~24% of settlement average, min 50). At avg 18,800 crowns, threshold jumps to ~4,437 — welfare reaches most agents instead of just the destitute.
 40. **Survival gate traps agents in tiny settlements** — FIXED: `processSeasonalMigration()` removes the `Survival > 0.3` requirement for settlements with pop < 25. Agents migrate seeking community, not just food — isolation is deprivation even when fed.
 
+### Tuning Round 10: Dual-Register Wellbeing Model
+
+The single `Mood float32` was purely needs-driven — coherence had zero influence on agent wellbeing. A liberated fisherman and a scattered fisherman in identical material conditions had the same mood, inverting the world's ontological claim. See `docs/10-mood-revision-proposal.md` for the design rationale and `docs/summaries/2026-02-22-dual-register-wellbeing.md` for the implementation summary.
+
+41. **Mood ignores coherence** — FIXED: Replaced `Mood float32` with `WellbeingState { Satisfaction, Alignment, EffectiveMood }`. Satisfaction = old mood formula (material needs). Alignment = `ComputeAlignment()` with three phases (Embodied slope, Awakening valley, Liberation rise). EffectiveMood blends both, weighted by `c² × Φ⁻¹`. At c=0: pure satisfaction. At c=1.0: 62% alignment weight.
+42. **No extraction paradox visible** — FIXED: Mid-coherence agents (0.382–0.7) experience an alignment valley — the "dark night of the soul". Alignment dips below embodied levels before surging at Liberation.
+43. **Liberated agents flee poor settlements** — FIXED: Liberated agents now have positive EffectiveMood despite low Satisfaction, anchoring struggling settlements instead of migrating.
+
 ### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.

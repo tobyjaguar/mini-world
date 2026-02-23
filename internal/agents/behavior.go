@@ -156,7 +156,7 @@ func applyEat(a *Agent) []string {
 	if a.Needs.Belonging > 1.0 {
 		a.Needs.Belonging = 1.0
 	}
-	a.Mood += 0.05
+	a.Wellbeing.Satisfaction += 0.05
 	return nil
 }
 
@@ -308,7 +308,7 @@ func applyRest(a *Agent) []string {
 	if a.Health > 1.0 {
 		a.Health = 1.0
 	}
-	a.Mood += 0.03
+	a.Wellbeing.Satisfaction += 0.03
 	a.Needs.Survival += 0.02
 	clampNeeds(&a.Needs)
 	return nil
@@ -318,7 +318,7 @@ func applySocialize(a *Agent) []string {
 	a.Needs.Belonging += 0.05
 	a.Needs.Safety += 0.003
 	a.Needs.Purpose += 0.002
-	a.Mood += 0.02
+	a.Wellbeing.Satisfaction += 0.02
 	clampNeeds(&a.Needs)
 	return nil
 }
@@ -390,10 +390,39 @@ func DecayNeeds(a *Agent) {
 		}
 	}
 
-	// Mood drifts toward a baseline influenced by overall satisfaction.
+	// Dual-register wellbeing model.
+	// Satisfaction drifts toward needs-based target (material conditions).
 	satisfaction := a.Needs.OverallSatisfaction()
-	moodTarget := satisfaction*2 - 1 // Map 0–1 satisfaction to -1..+1 mood
-	a.Mood += (moodTarget - a.Mood) * 0.01
+	satTarget := satisfaction*2 - 1 // Map 0–1 satisfaction to -1..+1
+	a.Wellbeing.Satisfaction += (satTarget - a.Wellbeing.Satisfaction) * 0.01
+
+	// Clamp satisfaction to [-1, +1].
+	if a.Wellbeing.Satisfaction < -1 {
+		a.Wellbeing.Satisfaction = -1
+	}
+	if a.Wellbeing.Satisfaction > 1 {
+		a.Wellbeing.Satisfaction = 1
+	}
+
+	// Alignment: recomputed from coherence each tick (stateless).
+	a.Wellbeing.Alignment = a.Soul.ComputeAlignment()
+
+	// Effective mood: blend satisfaction and alignment.
+	// Alignment weight = c² × Φ⁻¹. At c=0: pure satisfaction. At c=1: ~62% alignment.
+	c := float32(a.Soul.CittaCoherence)
+	alignWeight := c * c * float32(phi.Matter)
+	satWeight := 1.0 - alignWeight
+	// Map alignment [0,1] to mood-scale [-1,+1] for blending: 2*a - 1
+	alignMood := 2*a.Wellbeing.Alignment - 1
+	a.Wellbeing.EffectiveMood = satWeight*a.Wellbeing.Satisfaction + alignWeight*alignMood
+
+	// Clamp effective mood to [-1, +1].
+	if a.Wellbeing.EffectiveMood < -1 {
+		a.Wellbeing.EffectiveMood = -1
+	}
+	if a.Wellbeing.EffectiveMood > 1 {
+		a.Wellbeing.EffectiveMood = 1
+	}
 
 	clampNeeds(&a.Needs)
 }

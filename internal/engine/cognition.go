@@ -76,13 +76,13 @@ func (s *Simulation) buildTier2Context(a *agents.Agent, occNames []string, govNa
 
 	moodDesc := "content"
 	switch {
-	case a.Mood > 0.5:
+	case a.Wellbeing.EffectiveMood > 0.5:
 		moodDesc = "elated"
-	case a.Mood > 0.2:
+	case a.Wellbeing.EffectiveMood > 0.2:
 		moodDesc = "content"
-	case a.Mood > -0.2:
+	case a.Wellbeing.EffectiveMood > -0.2:
 		moodDesc = "uneasy"
-	case a.Mood > -0.5:
+	case a.Wellbeing.EffectiveMood > -0.5:
 		moodDesc = "anxious"
 	default:
 		moodDesc = "despairing"

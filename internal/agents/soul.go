@@ -3,6 +3,8 @@
 package agents
 
 import (
+	"math"
+
 	"github.com/talgya/mini-world/internal/phi"
 )
 
@@ -124,4 +126,42 @@ func (s *AgentSoul) AdjustCoherence(delta float32) {
 // High-coherence agents leave disproportionate marks.
 func (s *AgentSoul) WisdomContribution() float64 {
 	return float64(s.WisdomScore) * phi.Psyche
+}
+
+// ComputeAlignment derives inner harmony from coherence.
+// Three phases model the Wheeler journey:
+//   - Phase 1 (Embodied, c < Psyche ~0.382): gentle slope — ordinary contentment
+//   - Phase 2 (Awakening, Psyche <= c < 0.7): extraction paradox / dark night valley
+//   - Phase 3 (Liberation, c >= 0.7): steep rise — self-similar clarity
+func (s *AgentSoul) ComputeAlignment() float32 {
+	c := float64(s.CittaCoherence)
+
+	var alignment float64
+	switch {
+	case c < phi.Psyche:
+		// Embodied: linear climb, max ~0.236 at boundary
+		alignment = c * phi.Matter
+	case c < 0.7:
+		// Awakening: dip into the valley. The extraction paradox —
+		// seeing clearly enough to suffer, not yet free.
+		// Quadratic valley with minimum near c=0.55
+		mid := (phi.Psyche + 0.7) / 2 // ~0.541
+		depth := 0.15                  // valley depth
+		norm := (c - mid) / (0.7 - mid)
+		alignment = phi.Psyche*phi.Matter - depth*(1-norm*norm)
+	default:
+		// Liberation: steep ascent. Wisdom bonus from via negativa.
+		wisdomBonus := math.Min(float64(s.WisdomScore)*0.1, 0.1)
+		alignment = phi.Matter + (c-phi.Matter)*phi.Being + wisdomBonus
+	}
+
+	// Clamp to [0, 1]
+	if alignment < 0 {
+		alignment = 0
+	}
+	if alignment > 1 {
+		alignment = 1
+	}
+
+	return float32(alignment)
 }

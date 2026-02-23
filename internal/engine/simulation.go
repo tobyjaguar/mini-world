@@ -86,7 +86,9 @@ type SimStats struct {
 	TotalWealth     uint64  `json:"total_wealth"`
 	Deaths          int     `json:"deaths"`
 	Births          int     `json:"births"`
-	AvgMood         float32 `json:"avg_mood"`
+	AvgMood         float32 `json:"avg_mood"`         // Effective mood (blended)
+	AvgSatisfaction float32 `json:"avg_satisfaction"`  // Material satisfaction
+	AvgAlignment    float32 `json:"avg_alignment"`     // Coherence-derived alignment
 	AvgSurvival     float32 `json:"avg_survival"`
 	TradeVolume     uint64  `json:"trade_volume"` // Merchant trade completions
 }
@@ -382,7 +384,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 		for _, a := range s.SettlementAgents[sett.ID] {
 			if a.Alive {
 				a.Health -= 0.1
-				a.Mood -= 0.2
+				a.Wellbeing.Satisfaction -= 0.2
 				if a.Health < 0 {
 					a.Health = 0
 				}
@@ -626,6 +628,8 @@ func (s *Simulation) updateStats() {
 	alive := 0
 	totalWealth := uint64(0)
 	totalMood := float32(0)
+	totalSatisfaction := float32(0)
+	totalAlignment := float32(0)
 	totalSurvival := float32(0)
 	deaths := 0
 
@@ -633,7 +637,9 @@ func (s *Simulation) updateStats() {
 		if a.Alive {
 			alive++
 			totalWealth += a.Wealth
-			totalMood += a.Mood
+			totalMood += a.Wellbeing.EffectiveMood
+			totalSatisfaction += a.Wellbeing.Satisfaction
+			totalAlignment += a.Wellbeing.Alignment
 			totalSurvival += a.Needs.Survival
 		} else {
 			deaths++
@@ -645,6 +651,8 @@ func (s *Simulation) updateStats() {
 	s.Stats.Deaths = deaths
 	if alive > 0 {
 		s.Stats.AvgMood = totalMood / float32(alive)
+		s.Stats.AvgSatisfaction = totalSatisfaction / float32(alive)
+		s.Stats.AvgAlignment = totalAlignment / float32(alive)
 		s.Stats.AvgSurvival = totalSurvival / float32(alive)
 	}
 }

@@ -218,9 +218,9 @@ func (s *Simulation) processRivalries(alive []*agents.Agent) {
 
 			// Rivalry: competitive pressure gives skill growth but costs mood.
 			a.Skills.Trade += 0.002
-			a.Mood -= 0.02
-			if a.Mood < -1 {
-				a.Mood = -1
+			a.Wellbeing.Satisfaction -= 0.02
+			if a.Wellbeing.Satisfaction < -1 {
+				a.Wellbeing.Satisfaction = -1
 			}
 		}
 	}

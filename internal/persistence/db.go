@@ -161,6 +161,10 @@ func (db *DB) migrate() error {
 	migrations := []string{
 		"ALTER TABLE events ADD COLUMN narrated TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE settlements ADD COLUMN abandoned INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE agents ADD COLUMN satisfaction REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE agents ADD COLUMN alignment REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE stats_history ADD COLUMN avg_satisfaction REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE stats_history ADD COLUMN avg_alignment REAL NOT NULL DEFAULT 0",
 	}
 	for _, m := range migrations {
 		db.conn.Exec(m) // Ignore errors — column may already exist.
@@ -184,8 +188,8 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	stmt, err := tx.Preparex(`INSERT INTO agents
 		(id, name, age, sex, health, pos_q, pos_r, home_settlement_id,
 		 occupation, wealth, tier, mood, alive, born_tick, role, faction_id, archetype,
-		 skills_json, needs_json, soul_json, inventory_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		 skills_json, needs_json, soul_json, inventory_json, satisfaction, alignment)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -205,9 +209,10 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 		_, err := stmt.Exec(
 			a.ID, a.Name, a.Age, a.Sex, a.Health,
 			a.Position.Q, a.Position.R, a.HomeSettID,
-			a.Occupation, a.Wealth, a.Tier, a.Mood,
+			a.Occupation, a.Wealth, a.Tier, a.Wellbeing.EffectiveMood,
 			alive, a.BornTick, a.Role, a.FactionID, a.Archetype,
 			string(skillsJSON), string(needsJSON), string(soulJSON), string(invJSON),
+			a.Wellbeing.Satisfaction, a.Wellbeing.Alignment,
 		)
 		if err != nil {
 			return fmt.Errorf("insert agent %d: %w", a.ID, err)
@@ -459,6 +464,8 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 		NeedsJSON        string  `db:"needs_json"`
 		SoulJSON         string  `db:"soul_json"`
 		InventoryJSON    string  `db:"inventory_json"`
+		Satisfaction     float32 `db:"satisfaction"`
+		Alignment        float32 `db:"alignment"`
 	}
 
 	var rows []agentRow
@@ -468,6 +475,12 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 
 	result := make([]*agents.Agent, 0, len(rows))
 	for _, r := range rows {
+		// Seed wellbeing from stored values. Old data: satisfaction/alignment
+		// default to 0; mood seeds EffectiveMood. Alignment recomputes on first tick.
+		sat := r.Satisfaction
+		if sat == 0 && r.Mood != 0 {
+			sat = r.Mood // Seed from old mood column on first load
+		}
 		a := &agents.Agent{
 			ID:         agents.AgentID(r.ID),
 			Name:       r.Name,
@@ -479,11 +492,15 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 			Occupation: agents.Occupation(r.Occupation),
 			Wealth:     r.Wealth,
 			Tier:       agents.CognitionTier(r.Tier),
-			Mood:       r.Mood,
-			Alive:      r.Alive != 0,
-			BornTick:   r.BornTick,
-			Role:       agents.SocialRole(r.Role),
-			FactionID:  r.FactionID,
+			Wellbeing: agents.WellbeingState{
+				Satisfaction:  sat,
+				Alignment:     r.Alignment,
+				EffectiveMood: r.Mood,
+			},
+			Alive:    r.Alive != 0,
+			BornTick: r.BornTick,
+			Role:     agents.SocialRole(r.Role),
+			FactionID: r.FactionID,
 		}
 		if r.Archetype != nil {
 			a.Archetype = *r.Archetype
@@ -696,6 +713,8 @@ type StatsRow struct {
 	AvgCoherence    float64 `json:"avg_coherence" db:"avg_coherence"`
 	SettlementCount int     `json:"settlement_count" db:"settlement_count"`
 	Gini            float64 `json:"gini" db:"gini"`
+	AvgSatisfaction float64 `json:"avg_satisfaction" db:"avg_satisfaction"`
+	AvgAlignment    float64 `json:"avg_alignment" db:"avg_alignment"`
 }
 
 // SaveStatsSnapshot records a daily statistics snapshot.
@@ -703,11 +722,11 @@ func (db *DB) SaveStatsSnapshot(row StatsRow) error {
 	_, err := db.conn.Exec(
 		`INSERT OR REPLACE INTO stats_history
 		(tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
-		 trade_volume, avg_coherence, settlement_count, gini)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Tick, row.Population, row.TotalWealth, row.AvgMood, row.AvgSurvival,
 		row.Births, row.Deaths, row.TradeVolume, row.AvgCoherence,
-		row.SettlementCount, row.Gini,
+		row.SettlementCount, row.Gini, row.AvgSatisfaction, row.AvgAlignment,
 	)
 	return err
 }
@@ -720,7 +739,7 @@ func (db *DB) LoadStatsHistory(fromTick, toTick uint64, limit int) ([]StatsRow, 
 	}
 	err := db.conn.Select(&rows,
 		`SELECT tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
-		 trade_volume, avg_coherence, settlement_count, gini
+		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment
 		 FROM stats_history WHERE tick >= ? AND tick <= ?
 		 ORDER BY tick DESC LIMIT ?`,
 		fromTick, toTick, limit,

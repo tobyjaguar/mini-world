@@ -148,11 +148,11 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 			// seeking community, not just food. Isolation is deprivation
 			// even when fed.
 			if isTiny {
-				if !a.Alive || a.Mood > moodThreshold {
+				if !a.Alive || a.Wellbeing.EffectiveMood > moodThreshold {
 					continue
 				}
 			} else {
-				if !a.Alive || a.Mood > moodThreshold || a.Needs.Survival > 0.3 {
+				if !a.Alive || a.Wellbeing.EffectiveMood > moodThreshold || a.Needs.Survival > 0.3 {
 					continue
 				}
 			}

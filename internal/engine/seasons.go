@@ -252,7 +252,7 @@ func (s *Simulation) winterHardship(tick uint64) {
 		hasWarmth := a.Inventory[agents.GoodClothing] > 0 || a.Inventory[agents.GoodFurs] > 0
 		if !hasWarmth {
 			a.Health -= 0.05
-			a.Mood -= 0.1
+			a.Wellbeing.Satisfaction -= 0.1
 			if a.Health < 0 {
 				a.Health = 0
 			}

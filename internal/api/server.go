@@ -267,15 +267,17 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	tier := r.URL.Query().Get("tier")
 
 	type agentSummary struct {
-		ID         agents.AgentID `json:"id"`
-		Name       string         `json:"name"`
-		Age        uint16         `json:"age"`
-		Occupation string         `json:"occupation"`
-		Tier       int            `json:"tier"`
-		Coherence  float32        `json:"coherence"`
-		Mood       float32        `json:"mood"`
-		Wealth     uint64         `json:"wealth"`
-		Alive      bool           `json:"alive"`
+		ID           agents.AgentID `json:"id"`
+		Name         string         `json:"name"`
+		Age          uint16         `json:"age"`
+		Occupation   string         `json:"occupation"`
+		Tier         int            `json:"tier"`
+		Coherence    float32        `json:"coherence"`
+		Mood         float32        `json:"mood"`          // Effective mood (blended)
+		Satisfaction float32        `json:"satisfaction"`   // Material needs satisfaction
+		Alignment    float32        `json:"alignment"`      // Coherence-derived harmony
+		Wealth       uint64         `json:"wealth"`
+		Alive        bool           `json:"alive"`
 	}
 
 	occNames := []string{
@@ -300,15 +302,17 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		}
 
 		result = append(result, agentSummary{
-			ID:         a.ID,
-			Name:       a.Name,
-			Age:        a.Age,
-			Occupation: occName,
-			Tier:       int(a.Tier),
-			Coherence:  a.Soul.CittaCoherence,
-			Mood:       a.Mood,
-			Wealth:     a.Wealth,
-			Alive:      a.Alive,
+			ID:           a.ID,
+			Name:         a.Name,
+			Age:          a.Age,
+			Occupation:   occName,
+			Tier:         int(a.Tier),
+			Coherence:    a.Soul.CittaCoherence,
+			Mood:         a.Wellbeing.EffectiveMood,
+			Satisfaction: a.Wellbeing.Satisfaction,
+			Alignment:    a.Wellbeing.Alignment,
+			Wealth:       a.Wealth,
+			Alive:        a.Alive,
 		})
 	}
 	writeJSON(w, result)
@@ -397,15 +401,17 @@ func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent 
 	}
 
 	ctx := llm.BiographyContext{
-		Name:      agent.Name,
-		Age:       agent.Age,
-		Occupation: occName,
-		Wealth:    agent.Wealth,
-		Coherence: agent.Soul.CittaCoherence,
-		State:     stateNames[agent.Soul.State],
-		Element:   elementNames[agent.Soul.Element()],
-		Archetype: agent.Archetype,
-		Mood:      agent.Mood,
+		Name:         agent.Name,
+		Age:          agent.Age,
+		Occupation:   occName,
+		Wealth:       agent.Wealth,
+		Coherence:    agent.Soul.CittaCoherence,
+		State:        stateNames[agent.Soul.State],
+		Element:      elementNames[agent.Soul.Element()],
+		Archetype:    agent.Archetype,
+		Mood:         agent.Wellbeing.EffectiveMood,
+		Satisfaction: agent.Wellbeing.Satisfaction,
+		Alignment:    agent.Wellbeing.Alignment,
 	}
 
 	// Settlement name.
@@ -743,7 +749,7 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 				Age:        a.Age,
 				Occupation: occName,
 				Wealth:     a.Wealth,
-				Mood:       fmt.Sprintf("%.2f", a.Mood),
+				Mood:       fmt.Sprintf("%.2f", a.Wellbeing.EffectiveMood),
 				State:      stateName,
 				Element:    elemName,
 				Coherence:  a.Soul.CittaCoherence,
