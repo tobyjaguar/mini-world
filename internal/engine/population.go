@@ -102,11 +102,13 @@ func (s *Simulation) processBirths(tick uint64) {
 			continue
 		}
 
-		// Count eligible parents: adults (18-45) with decent health and belonging.
+		// Count eligible parents: adults (18-45) with decent health and survival.
+		// Belonging gates birth via sigmoid probability (not hard threshold)
+		// to prevent cliff dynamics causing wild birth oscillations.
 		var eligibleParents []*agents.Agent
 		for _, a := range settAgents {
 			if a.Alive && a.Age >= 18 && a.Age <= 45 && a.Health > 0.5 &&
-				a.Needs.Belonging > 0.3 && a.Needs.Survival > 0.3 {
+				a.Needs.Survival > 0.3 && birthEligible(a, simDay) {
 				eligibleParents = append(eligibleParents, a)
 			}
 		}
@@ -177,8 +179,8 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 		}
 
 		// Minimum population floor: refugees arrive if below 10.
-		// Skip for non-viable settlements (pop < 15 for 4+ weeks) — let them naturally decline.
-		if aliveCount < 10 && s.NonViableWeeks[sett.ID] < 4 {
+		// Skip for non-viable settlements (pop < 25 for 2+ weeks) — let them naturally decline.
+		if aliveCount < 10 && s.NonViableWeeks[sett.ID] < 2 {
 			needed := 10 - aliveCount
 			hex := s.WorldMap.Get(sett.Position)
 			terrain := world.TerrainPlains
@@ -212,6 +214,39 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 			})
 		}
 	}
+}
+
+// birthEligible uses a sigmoid probability curve on Belonging to determine
+// if an agent is eligible to be a parent. This replaces the hard threshold
+// (Belonging > 0.3) which caused cliff dynamics — small Belonging shifts
+// pushed thousands of agents across the threshold simultaneously, creating
+// wild birth oscillations (564 → 5,024 → 564 between snapshots).
+//
+// Sigmoid centered at 0.3 (old threshold):
+//
+//	At Belonging 0.15: ~5% chance (hard floor below 0.15)
+//	At Belonging 0.20: ~20% chance
+//	At Belonging 0.30: ~50% chance (matches old threshold behavior)
+//	At Belonging 0.40: ~80% chance
+//	At Belonging 0.50: ~95% chance
+//
+// Uses agent ID + simDay for deterministic per-agent-per-day evaluation.
+func birthEligible(a *agents.Agent, simDay uint64) bool {
+	b := float64(a.Needs.Belonging)
+
+	// Hard floor: truly isolated agents don't reproduce.
+	if b < 0.15 {
+		return false
+	}
+
+	// Sigmoid: 1 / (1 + exp(-steepness * (b - midpoint)))
+	midpoint := 0.3
+	steepness := 10.0 * phi.Being // ~16.18
+	prob := 1.0 / (1.0 + math.Exp(-steepness*(b-midpoint)))
+
+	// Deterministic check: hash agent ID with simDay for stable daily result.
+	hash := (uint64(a.ID)*2654435761 + simDay*40503) % 1000
+	return float64(hash)/1000.0 < prob
 }
 
 // addAgent registers a new agent in all indexes.

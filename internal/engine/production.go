@@ -3,6 +3,8 @@
 package engine
 
 import (
+	"math"
+
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/world"
 )
@@ -87,10 +89,18 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	applySkillGrowth(a)
 
 	// Working improves all social needs.
-	a.Needs.Esteem += 0.01
-	a.Needs.Safety += 0.005
-	a.Needs.Belonging += 0.003
-	a.Needs.Purpose += 0.002
+	// Producing real goods (food, ore, furs) is ontologically grounded work —
+	// the material substrate on which everything else depends.
+	a.Needs.Esteem += 0.012
+	a.Needs.Safety += 0.008
+	a.Needs.Belonging += 0.004
+	a.Needs.Purpose += 0.004
+
+	// Food producers who successfully produced get a direct Survival boost.
+	// They made the food — they know they can eat tomorrow.
+	if a.Occupation == agents.OccupationFarmer || a.Occupation == agents.OccupationFisher || a.Occupation == agents.OccupationHunter {
+		a.Needs.Survival += 0.003
+	}
 	clampAgentNeeds(&a.Needs)
 
 	return nil
@@ -112,7 +122,15 @@ func productionAmount(a *agents.Agent) int {
 		}
 		return p
 	case agents.OccupationFisher:
-		p := int(a.Skills.Farming * 3) // Boosted — fish is alternative food, fishers need viable income.
+		// Fisher skill: max of farming and combat, with floor of 0.5.
+		// Fishing draws on provisioning knowledge and physical fitness.
+		// Multiplier 5 (not 3) — nets/boats yield more per trip than farming.
+		// At spawn (Farming 0.32-0.56): produces 2-3 fish/tick.
+		fishSkill := math.Max(float64(a.Skills.Farming), float64(a.Skills.Combat))
+		if fishSkill < 0.5 {
+			fishSkill = 0.5
+		}
+		p := int(fishSkill * 5)
 		if p < 1 {
 			p = 1
 		}

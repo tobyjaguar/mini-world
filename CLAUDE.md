@@ -332,11 +332,20 @@ The single `Mood float32` was purely needs-driven — coherence had zero influen
 42. **No extraction paradox visible** — FIXED: Mid-coherence agents (0.382–0.7) experience an alignment valley — the "dark night of the soul". Alignment dips below embodied levels before surging at Liberation.
 43. **Liberated agents flee poor settlements** — FIXED: Liberated agents now have positive EffectiveMood despite low Satisfaction, anchoring struggling settlements instead of migrating.
 
+### Tuning Round 11: Producer Crisis + Birth Smoothing + Settlement Consolidation
+
+`/observe` at tick 165,844 showed 18:1 death:birth ratio, producer misery gap (Hunters -0.46, Farmers -0.40, Fishers -0.23 mood vs Crafters +0.62, Laborers +0.61), market supply at floor, trade volume collapsed to 278. See `docs/12-observation-tick-165844.md` for diagnosis and `docs/13-producer-crisis-implementation-plan.md` for plan.
+
+44. **Fisher production skill bug** — FIXED: `productionAmount()` used `Skills.Farming * 3` for Fishers — most had Farming 0.32-0.56, producing 1 fish/tick (truncated). Changed to `max(Farming, Combat, 0.5) * 5` — fishers now produce 2-3 fish/tick, enough to exceed surplus threshold and sell.
+45. **Producer needs too low** — FIXED: `ResolveWork` successful production boosts increased: Safety 0.005→0.008, Esteem 0.01→0.012, Belonging 0.003→0.004, Purpose 0.002→0.004. Food producers (Farmer, Fisher, Hunter) get +0.003 Survival per production tick.
+46. **Birth cliff dynamics** — FIXED: Hard `Belonging > 0.3` threshold in `processBirths()` replaced with sigmoid probability curve (center 0.3, steepness 10×Φ). At 0.20: ~20% chance. At 0.30: ~50%. At 0.50: ~95%. Deterministic per-agent-per-day. Survival > 0.3 remains as hard gate.
+47. **Settlement fragmentation (234 settlements < 25 pop)** — FIXED: Viability threshold raised from 15→25 pop, grace period shortened from 4→2 weeks. Non-viable settlements trigger force-migration to nearest settlement with pop ≥ 50 within 8 hexes. Migration for tiny settlements uses Satisfaction (not EffectiveMood) — liberated agents still leave dying villages.
+
 ### Remaining Minor Issues
-- `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
 - Merchant extinction — all Tier 2 merchants dead after price normalization. May recover with equilibrium. P2.
+- Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
 ## Ethics Note
 

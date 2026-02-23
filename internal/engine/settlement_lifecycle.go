@@ -318,9 +318,12 @@ func (s *Simulation) processInfrastructureGrowth(tick uint64) {
 }
 
 // processViabilityCheck tracks settlements with persistently low population.
-// After 4 consecutive weeks below 15 pop, the settlement is marked non-viable
-// and refugee spawning is disabled, allowing natural decline and absorption.
+// After 2 consecutive weeks below 25 pop, the settlement is marked non-viable,
+// refugee spawning is disabled, and remaining agents are force-migrated to the
+// nearest viable settlement. This accelerates consolidation of the 234
+// settlements with pop < 25 that are economic dead zones.
 func (s *Simulation) processViabilityCheck(tick uint64) {
+	migrated := false
 	for _, sett := range s.Settlements {
 		aliveCount := 0
 		for _, a := range s.SettlementAgents[sett.ID] {
@@ -329,10 +332,40 @@ func (s *Simulation) processViabilityCheck(tick uint64) {
 			}
 		}
 
-		if aliveCount < 15 {
+		if aliveCount < 25 {
 			s.NonViableWeeks[sett.ID]++
+
+			// After 2 weeks non-viable: force-migrate all agents out.
+			if s.NonViableWeeks[sett.ID] >= 2 && aliveCount > 0 {
+				target := s.findNearestViableSettlement(sett, 8)
+				if target == nil {
+					continue // No viable target — let them be.
+				}
+				for _, a := range s.SettlementAgents[sett.ID] {
+					if !a.Alive {
+						continue
+					}
+					newID := target.ID
+					a.HomeSettID = &newID
+					a.Position = target.Position
+					migrated = true
+				}
+				slog.Info("non-viable settlement force-migration",
+					"settlement", sett.Name,
+					"population", aliveCount,
+					"target", target.Name,
+				)
+				s.Events = append(s.Events, Event{
+					Tick:        tick,
+					Description: fmt.Sprintf("The remaining %d souls of %s migrate to %s (settlement non-viable)", aliveCount, sett.Name, target.Name),
+					Category:    "social",
+				})
+			}
 		} else {
 			delete(s.NonViableWeeks, sett.ID)
 		}
+	}
+	if migrated {
+		s.rebuildSettlementAgents()
 	}
 }

@@ -144,11 +144,13 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 
 		settAgents := s.SettlementAgents[sett.ID]
 		for _, a := range settAgents {
-			// For tiny settlements, remove survival gate — agents migrate
-			// seeking community, not just food. Isolation is deprivation
-			// even when fed.
+			// For tiny settlements, use Satisfaction (not EffectiveMood) for
+			// migration decisions. A liberated agent with high alignment but
+			// negative satisfaction should still leave a dying village —
+			// liberation doesn't mean staying somewhere you can't eat.
+			// Also remove survival gate — isolation is deprivation even when fed.
 			if isTiny {
-				if !a.Alive || a.Wellbeing.EffectiveMood > moodThreshold {
+				if !a.Alive || a.Wellbeing.Satisfaction > 0.0 {
 					continue
 				}
 			} else {
@@ -180,14 +182,14 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 	}
 }
 
-// findNearestViableSettlement finds the closest settlement with pop >= 25
+// findNearestViableSettlement finds the closest settlement with pop >= 50
 // within maxDist hex distance. Returns nil if none found.
 func (s *Simulation) findNearestViableSettlement(from *social.Settlement, maxDist int) *social.Settlement {
 	var best *social.Settlement
 	bestDist := maxDist + 1
 
 	for _, sett := range s.Settlements {
-		if sett.ID == from.ID || sett.Population < 25 {
+		if sett.ID == from.ID || sett.Population < 50 {
 			continue
 		}
 		dist := world.Distance(from.Position, sett.Position)
