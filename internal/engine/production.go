@@ -21,7 +21,8 @@ var occupationResource = map[agents.Occupation]world.ResourceType{
 // Returns events from the underlying work action.
 // For resource-producing occupations (farmer, miner, fisher, hunter),
 // production is limited by available hex resources.
-func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uint64) []string {
+// boostMul applies a gardener "cultivate" production multiplier (1.0 = no boost).
+func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uint64, boostMul float64) []string {
 	if action.Kind != agents.ActionWork {
 		return agents.ApplyAction(a, action, tick)
 	}
@@ -53,6 +54,12 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 
 	// Calculate production amount (mirrors applyWork logic).
 	produced := productionAmount(a)
+	if boostMul > 1.0 {
+		produced = int(float64(produced) * boostMul)
+		if produced < 1 {
+			produced = 1
+		}
+	}
 
 	// Clamp to available resources.
 	if float64(produced) > available {

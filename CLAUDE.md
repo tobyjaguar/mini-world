@@ -134,6 +134,7 @@ mini-world/
 │   │   ├── relationships.go     #   Family, mentorship, rivalry dynamics
 │   │   ├── crime.go             #   Theft mechanics
 │   │   ├── perpetuation.go      #   Anti-stagnation safeguards
+│   │   ├── intervention.go      #   Gardener intervention handlers (provision, cultivate, consolidate)
 │   │   └── seasons.go           #   Seasonal resource caps, weather modifiers
 │   ├── llm/                     # LLM integration (Haiku)
 │   │   ├── client.go            #   Anthropic API client
@@ -148,8 +149,10 @@ mini-world/
 │   ├── persistence/db.go        # SQLite save/load (WAL mode), stats history
 │   ├── gardener/                # Claude Gardener — autonomous steward
 │   │   ├── observe.go           #   API data collection → WorldSnapshot
+│   │   ├── triage.go            #   Deterministic health check → WorldHealth
 │   │   ├── decide.go            #   Haiku analysis → Decision + guardrails
-│   │   └── act.go               #   Intervention execution via admin API
+│   │   ├── act.go               #   Intervention execution via admin API
+│   │   └── memory.go            #   Cycle memory persistence (last 10 cycles)
 │   └── api/server.go            # HTTP API (public GET, auth POST)
 ├── deploy/
 │   ├── deploy.sh                # Build, upload, restart (worldsim + gardener)
@@ -225,7 +228,7 @@ Admin (POST, requires `Authorization: Bearer <WORLDSIM_ADMIN_KEY>`):
 ```
 POST /api/v1/speed           → Set simulation speed {"speed": N}
 POST /api/v1/snapshot        → Force immediate world save
-POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents
+POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents, provision goods, cultivate production, consolidate settlements
 ```
 
 ## Implementation Phases
@@ -340,6 +343,19 @@ The single `Mood float32` was purely needs-driven — coherence had zero influen
 45. **Producer needs too low** — FIXED: `ResolveWork` successful production boosts increased: Safety 0.005→0.008, Esteem 0.01→0.012, Belonging 0.003→0.004, Purpose 0.002→0.004. Food producers (Farmer, Fisher, Hunter) get +0.003 Survival per production tick.
 46. **Birth cliff dynamics** — FIXED: Hard `Belonging > 0.3` threshold in `processBirths()` replaced with sigmoid probability curve (center 0.3, steepness 10×Φ). At 0.20: ~20% chance. At 0.30: ~50%. At 0.50: ~95%. Deterministic per-agent-per-day. Survival > 0.3 remains as hard gate.
 47. **Settlement fragmentation (234 settlements < 25 pop)** — FIXED: Viability threshold raised from 15→25 pop, grace period shortened from 4→2 weeks. Non-viable settlements trigger force-migration to nearest settlement with pop ≥ 50 within 8 hexes. Migration for tiny settlements uses Satisfaction (not EffectiveMood) — liberated agents still leave dying villages.
+
+### Gardener Upgrade: From Blind Observer to Effective Steward
+
+The Gardener had been running for ~47K ticks with zero observable effect. Docs 14-16 diagnosed why: it couldn't see the crisis (missing death:birth ratio, satisfaction/alignment split), its system prompt biased toward inaction, its cycle interval was 360 real minutes (15 sim-days!), and its action vocabulary was too limited. See `docs/14-gardener-assessment.md` for the full analysis.
+
+48. **GARDENER_INTERVAL was 360 real minutes** — FIXED: Changed default from 360 to 6 (real minutes). At ~17 ticks/sec, 6 minutes ≈ 6,120 ticks ≈ 4.25 sim-days. Cycles ~4x per sim-day instead of once per 15 sim-days.
+49. **Gardener blind to satisfaction/alignment** — FIXED: Added `AvgSatisfaction` and `AvgAlignment` to `WorldStatus` and `StatsHistoryRow` in `observe.go`. API already returned these; gardener just ignored them.
+50. **No pre-LLM triage** — FIXED: New `triage.go` computes death:birth ratio from per-snapshot deltas (not meaningless cumulative totals), settlement size histogram, trade per capita, and crisis level (HEALTHY/WATCH/WARNING/CRITICAL using Φ-derived thresholds).
+51. **System prompt biased toward inaction** — FIXED: Rewrote `decide.go` system prompt. Removed "This is the RIGHT choice most of the time" for `none` and "When in doubt, do nothing." Added crisis detection criteria with Φ-derived thresholds (D:B > Totality = CRITICAL). Crisis policy: healthy = prefer inaction, CRITICAL = prefer action with up to 3 compound interventions.
+52. **Action vocabulary too limited** — FIXED: Expanded from 3 to 7 action types: event, spawn, wealth (existing) + provision (inject goods into market), cultivate (temporary production boost), consolidate (force-migrate from dying settlements). All with guardrails.
+53. **No gardener memory** — FIXED: New `memory.go` persists last 10 cycle summaries to `gardener_memory.json`. Last 5 included in Haiku prompt so it sees its own decision history and avoids repeating ineffective actions.
+54. **Single intervention per cycle** — FIXED: Compound interventions (up to 3 during CRITICAL, 2 during WARNING, 1 otherwise). `Decision.Interventions` slice replaces single `Intervention`.
+55. **Production boosts from gardener** — FIXED: `ActiveBoosts []ProductionBoost` on `Simulation`, applied in `ResolveWork` via `GetSettlementBoost()`. Boosts expire after configurable duration (max 14 sim-days). Cleaned daily in `TickDay`.
 
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.

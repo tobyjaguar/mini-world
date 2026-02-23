@@ -51,8 +51,8 @@ Next.js frontend deployed on Vercel. Separate repo: `github.com/tobyjaguar/cross
 - [ ] **Faction influence heatmap**: Overlay faction influence on hex map
 - [ ] **Trade route visualization**: Show merchant paths between settlements
 
-### Claude Gardener (Future)
-Autonomous steward agent that observes world health and nudges conditions to prevent collapse/stagnation. See `docs/05-claude-gardener.md` for full design.
+### Claude Gardener (Deployed + Upgraded)
+Autonomous steward agent that observes world health and nudges conditions to prevent collapse/stagnation. Upgraded from blind observer to effective steward with deterministic triage, cycle memory, 7 action types (event, spawn, wealth, provision, cultivate, consolidate), compound interventions, and crisis-aware reasoning. Cycles every 6 real minutes (~4.25 sim-days). See `docs/05-claude-gardener.md` for full design and `docs/14-gardener-assessment.md` for the diagnosis that prompted the upgrade.
 
 ### Deeper Emergence (Medium Priority)
 New mechanics that would make the world more interesting.
@@ -81,7 +81,7 @@ The tuning fixes are working (mood +0.64, faction treasuries accumulating), but 
 
 - [x] **Settlement fragmentation**: 714 settlements with 45% under 25 pop. Fixed: raised founding min to 25, added infrastructure growth, non-viable settlement tracking disables refugee spawning after 4 weeks, enhanced migration absorbs tiny settlements. See `docs/05-settlement-fragmentation-fixes.md`.
 - [x] **Unclosed money supply**: Market sells, fallback wages, Tier 2 trade, and merchants all minted crowns from nothing. Fixed: order-matched market engine, treasury-paid merchant/Tier 2 trade, fallback wages removed, remaining mints throttled 60x. See `docs/07-closed-economy-implementation.md` and `docs/08-closed-economy-changelog.md`.
-- [ ] **Fisher skill bug**: `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
+- [x] **Fisher skill bug**: `productionAmount()` now uses `max(Farming, Combat, 0.5) * 5` for fishers. Proper `Skills.Fishing` field still a possible future schema change but current fix is effective.
 
 ### Post-Closed-Economy Issues (observed 2026-02-22)
 

@@ -33,8 +33,10 @@ type WorldStatus struct {
 	Births      int     `json:"births"`
 	Settlements int     `json:"settlements"`
 	Factions    int     `json:"factions"`
-	AvgMood     float32 `json:"avg_mood"`
-	TotalWealth uint64  `json:"total_wealth"`
+	AvgMood         float32 `json:"avg_mood"`
+	AvgSatisfaction float32 `json:"avg_satisfaction"`
+	AvgAlignment    float32 `json:"avg_alignment"`
+	TotalWealth     uint64  `json:"total_wealth"`
 	Weather     struct {
 		Description  string  `json:"description"`
 		TempModifier float64 `json:"temp_modifier"`
@@ -99,6 +101,8 @@ type StatsHistoryRow struct {
 	AvgCoherence    float64 `json:"avg_coherence"`
 	SettlementCount int     `json:"settlement_count"`
 	Gini            float64 `json:"gini"`
+	AvgSatisfaction float64 `json:"avg_satisfaction"`
+	AvgAlignment    float64 `json:"avg_alignment"`
 }
 
 // Observer fetches world state from the API.

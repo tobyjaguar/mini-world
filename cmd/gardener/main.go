@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,7 +28,7 @@ func main() {
 	apiURL := envOrDefault("WORLDSIM_API_URL", "http://localhost")
 	adminKey := os.Getenv("WORLDSIM_ADMIN_KEY")
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	intervalMin := envIntOrDefault("GARDENER_INTERVAL", 360)
+	intervalMin := envIntOrDefault("GARDENER_INTERVAL", 6)
 
 	if adminKey == "" {
 		slog.Error("WORLDSIM_ADMIN_KEY is required")
@@ -48,6 +49,7 @@ func main() {
 	observer := gardener.NewObserver(apiURL)
 	actor := gardener.NewActor(apiURL, adminKey)
 	llmClient := llm.NewClient(anthropicKey)
+	memory := gardener.LoadMemory()
 
 	// Wait for worldsim API to be ready before first cycle.
 	// systemd After= only ensures process start, not HTTP readiness.
@@ -55,7 +57,7 @@ func main() {
 	waitForAPI(apiURL)
 
 	// Run first cycle immediately.
-	runCycle(observer, actor, llmClient)
+	runCycle(observer, actor, llmClient, memory)
 
 	// Timer loop.
 	ticker := time.NewTicker(interval)
@@ -67,7 +69,7 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			runCycle(observer, actor, llmClient)
+			runCycle(observer, actor, llmClient, memory)
 		case sig := <-sigCh:
 			slog.Info("received signal, shutting down", "signal", sig)
 			fmt.Println("Gardener stopped.")
@@ -76,11 +78,11 @@ func main() {
 	}
 }
 
-// runCycle executes one observe → decide → act cycle.
-func runCycle(observer *gardener.Observer, actor *gardener.Actor, llmClient *llm.Client) {
+// runCycle executes one observe → triage → decide → act → record cycle.
+func runCycle(observer *gardener.Observer, actor *gardener.Actor, llmClient *llm.Client, memory *gardener.CycleMemory) {
 	slog.Info("gardener cycle starting")
 
-	// Observe.
+	// 1. Observe.
 	snap, err := observer.Observe()
 	if err != nil {
 		slog.Error("observation failed", "error", err)
@@ -91,37 +93,79 @@ func runCycle(observer *gardener.Observer, actor *gardener.Actor, llmClient *llm
 		"settlements", snap.Status.Settlements,
 		"market_health", fmt.Sprintf("%.2f", snap.Economy.AvgMarketHealth),
 		"avg_mood", fmt.Sprintf("%.2f", snap.Status.AvgMood),
+		"avg_satisfaction", fmt.Sprintf("%.3f", snap.Status.AvgSatisfaction),
+		"avg_alignment", fmt.Sprintf("%.3f", snap.Status.AvgAlignment),
 	)
 
-	// Decide.
-	decision, err := gardener.Decide(llmClient, snap)
+	// 2. Triage — deterministic health check.
+	health := gardener.Triage(snap)
+	dbRatioStr := fmt.Sprintf("%.2f", health.DeathBirthRatio)
+	if math.IsInf(health.DeathBirthRatio, 1) {
+		dbRatioStr = "INF"
+	}
+	slog.Info("triage complete",
+		"crisis_level", health.CrisisLevel,
+		"death_birth_ratio", dbRatioStr,
+		"satisfaction", fmt.Sprintf("%.3f", health.AvgSatisfaction),
+		"alignment", fmt.Sprintf("%.3f", health.AvgAlignment),
+		"tiny_settlements", health.TinySettlements,
+		"trade_per_capita", fmt.Sprintf("%.4f", health.TradePerCapita),
+	)
+
+	// 3. Decide.
+	decision, err := gardener.Decide(llmClient, snap, health, memory)
 	if err != nil {
 		slog.Error("decision failed", "error", err)
 		return
 	}
 	slog.Info("decision made",
 		"action", decision.Action,
+		"interventions", len(decision.Interventions),
 		"rationale", decision.Rationale,
 	)
 
-	// Act.
-	if decision.Action == "none" || decision.Intervention == nil {
+	// 4. Act — execute all interventions.
+	if decision.Action == "none" || len(decision.Interventions) == 0 {
 		slog.Info("gardener cycle complete — no intervention")
-		return
+	} else {
+		for i, iv := range decision.Interventions {
+			result, err := actor.Act(iv)
+			if err != nil {
+				slog.Error("intervention failed", "index", i, "type", iv.Type, "error", err)
+				continue
+			}
+			slog.Info("intervention executed",
+				"index", i,
+				"type", iv.Type,
+				"settlement", iv.Settlement,
+				"success", result.Success,
+				"details", result.Details,
+			)
+		}
 	}
 
-	result, err := actor.Act(decision.Intervention)
-	if err != nil {
-		slog.Error("intervention failed", "error", err)
-		return
+	// 5. Record — save cycle to memory.
+	settlement := ""
+	if len(decision.Interventions) > 0 {
+		settlement = decision.Interventions[0].Settlement
 	}
+	record := gardener.CycleRecord{
+		Tick:         snap.Status.Tick,
+		Action:       decision.Action,
+		DeathBirth:   health.DeathBirthRatio,
+		Satisfaction: health.AvgSatisfaction,
+		Alignment:    health.AvgAlignment,
+		CrisisLevel:  health.CrisisLevel,
+		Settlement:   settlement,
+		Rationale:    decision.Rationale,
+	}
+	if math.IsInf(record.DeathBirth, 1) {
+		record.DeathBirth = 999.0 // JSON can't encode Inf
+	}
+	memory.Record(record)
+	memory.Save()
 
-	slog.Info("intervention executed",
-		"type", decision.Intervention.Type,
-		"settlement", decision.Intervention.Settlement,
-		"success", result.Success,
-		"details", result.Details,
-	)
+	slog.Info("gardener cycle complete")
 }
 
 func envOrDefault(key, defaultVal string) string {

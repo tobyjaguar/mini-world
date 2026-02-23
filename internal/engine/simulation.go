@@ -55,6 +55,9 @@ type Simulation struct {
 	// After 4 weeks, refugee spawning is disabled so the settlement can naturally decline.
 	NonViableWeeks map[uint64]int
 
+	// Active production boosts from gardener "cultivate" interventions.
+	ActiveBoosts []ProductionBoost
+
 	// Statistics tracked per day.
 	Stats SimStats
 }
@@ -151,7 +154,11 @@ func (s *Simulation) TickMinute(tick uint64) {
 		} else {
 			// Resource-producing occupations draw from hex resources.
 			hex := s.WorldMap.Get(a.Position)
-			events = ResolveWork(a, action, hex, tick)
+			boostMul := 1.0
+			if a.HomeSettID != nil {
+				boostMul = s.GetSettlementBoost(*a.HomeSettID)
+			}
+			events = ResolveWork(a, action, hex, tick, boostMul)
 		}
 
 		// Record notable events.
@@ -228,6 +235,7 @@ func (s *Simulation) updateWeather() {
 
 // TickDay runs every sim-day: statistics, daily summary.
 func (s *Simulation) TickDay(tick uint64) {
+	s.CleanExpiredBoosts(tick)
 	s.collectTaxes(tick)
 	s.decayWealth()
 	s.paySettlementWages()

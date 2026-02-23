@@ -1573,12 +1573,16 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Type        string `json:"type"`
-		Description string `json:"description,omitempty"`
-		Category    string `json:"category,omitempty"`
-		Settlement  string `json:"settlement,omitempty"`
-		Amount      int64  `json:"amount,omitempty"`
-		Count       int    `json:"count,omitempty"`
+		Type         string  `json:"type"`
+		Description  string  `json:"description,omitempty"`
+		Category     string  `json:"category,omitempty"`
+		Settlement   string  `json:"settlement,omitempty"`
+		Amount       int64   `json:"amount,omitempty"`
+		Count        int     `json:"count,omitempty"`
+		Good         string  `json:"good,omitempty"`
+		Quantity     int     `json:"quantity,omitempty"`
+		Multiplier   float64 `json:"multiplier,omitempty"`
+		DurationDays int     `json:"duration_days,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -1674,8 +1678,60 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 			"details": fmt.Sprintf("%d immigrants arrived in %s", req.Count, found.Name),
 		})
 
+	case "provision":
+		if req.Settlement == "" || req.Good == "" || req.Quantity <= 0 {
+			http.Error(w, "settlement, good, and quantity required for provision type", http.StatusBadRequest)
+			return
+		}
+		if req.Quantity > 200 {
+			http.Error(w, "max 200 units per provision", http.StatusBadRequest)
+			return
+		}
+		desc, err := s.Sim.ProvisionSettlement(req.Settlement, req.Good, req.Quantity)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"success": true, "details": desc})
+
+	case "cultivate":
+		if req.Settlement == "" || req.Multiplier <= 0 || req.DurationDays <= 0 {
+			http.Error(w, "settlement, multiplier, and duration_days required for cultivate type", http.StatusBadRequest)
+			return
+		}
+		if req.Multiplier > 2.0 {
+			http.Error(w, "max multiplier is 2.0", http.StatusBadRequest)
+			return
+		}
+		if req.DurationDays > 14 {
+			http.Error(w, "max duration is 14 days", http.StatusBadRequest)
+			return
+		}
+		desc, err := s.Sim.CultivateSettlement(req.Settlement, req.Multiplier, req.DurationDays)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"success": true, "details": desc})
+
+	case "consolidate":
+		if req.Settlement == "" || req.Count <= 0 {
+			http.Error(w, "settlement and count required for consolidate type", http.StatusBadRequest)
+			return
+		}
+		if req.Count > 100 {
+			http.Error(w, "max 100 agents per consolidate", http.StatusBadRequest)
+			return
+		}
+		desc, err := s.Sim.ConsolidateSettlement(req.Settlement, req.Count)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"success": true, "details": desc})
+
 	default:
-		http.Error(w, "unknown intervention type (use: event, wealth, spawn)", http.StatusBadRequest)
+		http.Error(w, "unknown intervention type (use: event, wealth, spawn, provision, cultivate, consolidate)", http.StatusBadRequest)
 	}
 }
 
