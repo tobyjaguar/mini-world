@@ -357,6 +357,17 @@ The Gardener had been running for ~47K ticks with zero observable effect. Docs 1
 54. **Single intervention per cycle** — FIXED: Compound interventions (up to 3 during CRITICAL, 2 during WARNING, 1 otherwise). `Decision.Interventions` slice replaces single `Intervention`.
 55. **Production boosts from gardener** — FIXED: `ActiveBoosts []ProductionBoost` on `Simulation`, applied in `ResolveWork` via `GetSettlementBoost()`. Boosts expire after configurable duration (max 14 sim-days). Cleaned daily in `TickDay`.
 
+### Tuning Round 12: Producer Doom Loop
+
+`/observe` at tick ~218K showed avg satisfaction frozen at 0.126 despite population growth (+9.7%) and functional economy (97.4% market health). Root cause: resource producers (~60% of agents) trapped in a doom loop — failed production on depleted hexes punished Safety (-0.003) and Esteem (-0.005) every tick, while survival actions (eat, buy food, forage) gave zero Safety/Esteem/Purpose. Tier 2 data confirmed: all 11 farmers at -0.44 to -0.48 satisfaction vs all 11 crafters at +0.69 to +0.72.
+
+56. **Failed production punishes producers** — FIXED: Three blocks in `ResolveWork()` (nil hex, depleted hex, clamped-to-zero) replaced `-0.005 Esteem, -0.003 Safety` with `+0.001 Safety, +0.002 Belonging, +0.001 Purpose`. A farmer who shows up to a depleted hex didn't fail — the land failed them.
+57. **BuyFood gives no Safety/Purpose** — FIXED: `resolveBuyFood()` now gives `+0.003 Safety` ("I can afford to eat" — economic security) and `+0.001 Purpose` (market participation).
+58. **Eat gives no Safety** — FIXED: `applyEat()` now gives `+0.003 Safety` (having food means safety).
+59. **Forage gives no Safety** — FIXED: `applyForage()` now gives `+0.002 Safety` (found food in the wild).
+
+**Key lesson:** The doom loop was invisible from aggregate stats because 40% of agents (crafters, laborers) had good satisfaction, averaging out the 60% of producers at deeply negative values. Per-occupation breakdowns (Tier 2 data) are essential for diagnosis.
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.

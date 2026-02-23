@@ -153,6 +153,7 @@ func applyEat(a *Agent) []string {
 		a.Needs.Survival = 1.0
 	}
 	a.Needs.Belonging += 0.001 // Eating is a communal act — still part of the settlement.
+	a.Needs.Safety += 0.003    // Having food means safety
 	if a.Needs.Belonging > 1.0 {
 		a.Needs.Belonging = 1.0
 	}
@@ -307,6 +308,7 @@ func applyForage(a *Agent) []string {
 	a.Inventory[GoodGrain]++
 	a.Needs.Survival += 0.05
 	a.Needs.Belonging += 0.001 // Foraging on community land — still part of the settlement.
+	a.Needs.Safety += 0.002    // Found food in the wild — basic safety met
 	clampNeeds(&a.Needs)
 	return nil
 }

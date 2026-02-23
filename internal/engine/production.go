@@ -34,20 +34,20 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	}
 
 	if hex == nil {
-		// No hex data — failed production, needs erode but belonging persists.
-		a.Needs.Esteem -= 0.005
-		a.Needs.Safety -= 0.003
-		a.Needs.Belonging += 0.001 // Tried to work — still part of the community.
+		// No hex data — showed up to work but land unavailable. No punishment.
+		a.Needs.Safety += 0.001    // Went to work — still part of the workforce
+		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
+		a.Needs.Purpose += 0.001   // Has a role even when land is barren
 		clampAgentNeeds(&a.Needs)
 		return nil
 	}
 
 	available := hex.Resources[resType]
 	if available < 1.0 {
-		// Hex depleted — failed production, needs erode but belonging persists.
-		a.Needs.Esteem -= 0.005
-		a.Needs.Safety -= 0.003
-		a.Needs.Belonging += 0.001
+		// Hex depleted — showed up but land is barren. No punishment.
+		a.Needs.Safety += 0.001    // Went to work — still part of the workforce
+		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
+		a.Needs.Purpose += 0.001   // Has a role even when land is barren
 		clampAgentNeeds(&a.Needs)
 		return nil
 	}
@@ -68,10 +68,10 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	if produced < 1 {
 		produced = 1
 		if available < 1.0 {
-			// Failed production — needs erode but belonging persists.
-			a.Needs.Esteem -= 0.005
-			a.Needs.Safety -= 0.003
-			a.Needs.Belonging += 0.001
+			// Clamped to zero — showed up but not enough resources. No punishment.
+			a.Needs.Safety += 0.001    // Went to work — still part of the workforce
+			a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
+			a.Needs.Purpose += 0.001   // Has a role even when land is barren
 			clampAgentNeeds(&a.Needs)
 			return nil
 		}

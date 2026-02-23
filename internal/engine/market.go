@@ -580,7 +580,9 @@ func (s *Simulation) resolveBuyFood(a *agents.Agent) {
 		a.Inventory[bestGood]++
 		// Buying food gives a small survival bump (anticipation of eating).
 		a.Needs.Survival += 0.02
+		a.Needs.Safety += 0.003    // "I can afford to eat" — economic security signal
 		a.Needs.Belonging += 0.001 // Market participation is social.
+		a.Needs.Purpose += 0.001   // Market participation is purposeful activity
 	} else {
 		// Can't afford — forage instead.
 		a.Inventory[agents.GoodGrain]++
