@@ -18,8 +18,10 @@ type MarketEntry struct {
 
 // Market holds the economic state for a single settlement.
 type Market struct {
-	SettlementID uint64                          `json:"settlement_id"`
-	Entries      map[agents.GoodType]*MarketEntry `json:"entries"`
+	SettlementID   uint64                          `json:"settlement_id"`
+	Entries        map[agents.GoodType]*MarketEntry `json:"entries"`
+	TradeCount     int                             `json:"trade_count"`      // Matched trades since last resolution
+	MostTradedGood agents.GoodType                 `json:"most_traded_good"` // Good with highest volume
 }
 
 // NewMarket creates a market for a settlement with base prices for all goods.

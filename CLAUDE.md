@@ -97,7 +97,8 @@ mini-world/
 │   ├── 06-monetary-system.md    # Monetary analysis (pre-closed-economy)
 │   ├── 07-closed-economy-implementation.md  # Closed economy design
 │   ├── 08-closed-economy-changelog.md       # Post-deploy monitoring notes
-│   └── 09-post-closed-economy-todo.md       # Survival crisis diagnosis + fixes
+│   ├── 09-post-closed-economy-todo.md       # Survival crisis diagnosis + fixes
+│   └── 11-ant-farm-design.md               # Ant-farm settlement visualization spec
 ├── cmd/worldsim/
 │   └── main.go                  # Entry point
 ├── cmd/gardener/
@@ -204,11 +205,11 @@ Public (GET, no auth — anyone can observe the world):
 ```
 GET  /api/v1/status          → World clock, population, economy summary
 GET  /api/v1/settlements     → All settlements with governance and health
-GET  /api/v1/settlement/:id  → Settlement detail: market, agents, factions, events
+GET  /api/v1/settlement/:id  → Settlement detail: market, agents, factions, events, occupations, wellbeing, trade stats
 GET  /api/v1/agents          → Notable Tier 2 characters (default) or ?tier=0
 GET  /api/v1/agent/:id       → Full agent detail
 GET  /api/v1/agent/:id/story → Haiku-generated biography (?refresh=true to regenerate)
-GET  /api/v1/events          → Recent world events (?limit=N)
+GET  /api/v1/events          → Recent world events (?limit=N&settlement=NAME)
 GET  /api/v1/stats           → Aggregate statistics
 GET  /api/v1/stats/history   → Time-series stats (?from=TICK&to=TICK&limit=N)
 GET  /api/v1/newspaper       → Weekly Haiku-generated newspaper

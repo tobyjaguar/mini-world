@@ -488,6 +488,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	events := s.Sim.Events
+
+	// Optional settlement filter — returns only events mentioning this settlement.
+	if settlementName := r.URL.Query().Get("settlement"); settlementName != "" {
+		var filtered []engine.Event
+		for _, e := range events {
+			if strings.Contains(e.Description, settlementName) {
+				filtered = append(filtered, e)
+			}
+		}
+		events = filtered
+	}
+
 	start := 0
 	if len(events) > limit {
 		start = len(events) - limit
@@ -1182,18 +1194,56 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Single pass over settlement agents: occupation counts, wellbeing averages.
+	occNames := []string{
+		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
+		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
+	}
+	settAgents := s.Sim.SettlementAgents[id]
+	occupations := make(map[string]int)
+	var totalMood, totalSat, totalAlign float64
+	aliveCount := 0
+	var aliveAgents []*agents.Agent
+	for _, a := range settAgents {
+		if !a.Alive {
+			continue
+		}
+		aliveAgents = append(aliveAgents, a)
+		aliveCount++
+		occName := "Unknown"
+		if int(a.Occupation) < len(occNames) {
+			occName = occNames[a.Occupation]
+		}
+		occupations[occName]++
+		totalMood += float64(a.Wellbeing.EffectiveMood)
+		totalSat += float64(a.Wellbeing.Satisfaction)
+		totalAlign += float64(a.Wellbeing.Alignment)
+	}
+	avgMood := 0.0
+	avgSat := 0.0
+	avgAlign := 0.0
+	if aliveCount > 0 {
+		avgMood = totalMood / float64(aliveCount)
+		avgSat = totalSat / float64(aliveCount)
+		avgAlign = totalAlign / float64(aliveCount)
+	}
+
+	// Trade stats from market.
+	recentTradeVolume := 0
+	mostTradedGood := ""
+	if sett.Market != nil {
+		recentTradeVolume = sett.Market.TradeCount
+		gn := goodNames[sett.Market.MostTradedGood]
+		if gn != "" {
+			mostTradedGood = gn
+		}
+	}
+
 	// Top 5 agents by wealth.
 	type agentBrief struct {
 		ID     agents.AgentID `json:"id"`
 		Name   string         `json:"name"`
 		Wealth uint64         `json:"wealth"`
-	}
-	settAgents := s.Sim.SettlementAgents[id]
-	var aliveAgents []*agents.Agent
-	for _, a := range settAgents {
-		if a.Alive {
-			aliveAgents = append(aliveAgents, a)
-		}
 	}
 	sort.Slice(aliveAgents, func(i, j int) bool { return aliveAgents[i].Wealth > aliveAgents[j].Wealth })
 	var topAgents []agentBrief
@@ -1250,10 +1300,16 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 			"road_level":   sett.RoadLevel,
 			"market_level": sett.MarketLevel,
 		},
-		"market":          market,
-		"top_agents":      topAgents,
-		"faction_presence": factionCounts,
-		"recent_events":   recentEvents,
+		"occupations":          occupations,
+		"avg_mood":             avgMood,
+		"avg_satisfaction":     avgSat,
+		"avg_alignment":        avgAlign,
+		"recent_trade_volume":  recentTradeVolume,
+		"most_traded_good":     mostTradedGood,
+		"market":               market,
+		"top_agents":           topAgents,
+		"faction_presence":     factionCounts,
+		"recent_events":        recentEvents,
 	}
 	writeJSON(w, result)
 }

@@ -141,6 +141,10 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		}
 	}
 
+	// Reset trade stats for this resolution cycle.
+	market.TradeCount = 0
+	maxTraded := 0
+
 	// Match orders per good: sells ascending, buys descending, match until prices cross.
 	for good, entry := range market.Entries {
 		// Filter orders for this good.
@@ -233,6 +237,13 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 				blended = ceiling
 			}
 			entry.Price = blended
+		}
+
+		// Accumulate trade stats for API consumption.
+		market.TradeCount += totalTraded
+		if totalTraded > maxTraded {
+			maxTraded = totalTraded
+			market.MostTradedGood = good
 		}
 	}
 }
