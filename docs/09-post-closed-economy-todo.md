@@ -22,6 +22,9 @@ Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed ec
 | 144,681 | Wave 7 | Food buying in decision tree, progressive welfare, settlement migration fix |
 | 146,312 | Observe | Gini 0.673 (worsening), 714 settlements still frozen, survival 0.414 |
 | 146,312 | Wave 8 | Progressive wealth decay, dynamic welfare threshold, remove survival gate for tiny settlements |
+| 165,844 | Tuning 11 | Fisher skill fix, producer needs boost, sigmoid births, settlement consolidation |
+| ~218,127 | Gardener | Upgraded gardener: triage, cycle memory, 7 actions, compound interventions |
+| ~221,760 | Wave 9 | Producer doom loop: remove punishment, add Safety to survival actions |
 
 ## Root Cause: Price Ratchet in Market Engine
 
@@ -114,7 +117,25 @@ Two remaining structural issues from post-recovery `/observe`:
 
 3. **Survival gate traps agents in tiny settlements** — FIXED: `processSeasonalMigration()` in `perpetuation.go` now removes the `Survival > 0.3` requirement for settlements with pop < 25. Agents in tiny settlements migrate on mood alone (threshold 0.0). Agents migrate seeking community, not just food — isolation is deprivation even when fed. With avg mood at 0.122, agents in non-viable settlements will consolidate into larger ones.
 
+## Wave 9: Producer Doom Loop Fix (tick ~221,760)
+
+`/observe` at tick 218,127 showed avg satisfaction frozen at 0.126 despite population growth (+9.7%) and functional economy (97.4% market health). Diagnosed root cause: resource producers (~60% of agents) trapped in a doom loop where failed production on depleted hexes punished Safety/Esteem, while survival actions gave zero Safety/Esteem/Purpose. Tier 2 data confirmed: all 11 farmers at -0.44 to -0.48 satisfaction vs all 11 crafters at +0.69 to +0.72.
+
+1. **Failed production punishment → small positive** — FIXED: Three blocks in `ResolveWork()` (nil hex, depleted hex, clamped-to-zero) replaced `-0.005 Esteem, -0.003 Safety` with `+0.001 Safety, +0.002 Belonging, +0.001 Purpose`. Farmers who show up to depleted hexes are recognized for effort, not punished.
+
+2. **BuyFood gives no Safety/Purpose** — FIXED: `resolveBuyFood()` now gives `+0.003 Safety` and `+0.001 Purpose` after purchase.
+
+3. **Eat gives no Safety** — FIXED: `applyEat()` now gives `+0.003 Safety`.
+
+4. **Forage gives no Safety** — FIXED: `applyForage()` now gives `+0.002 Safety`.
+
+**Result:** First post-deploy snapshot showed avg satisfaction 0.127 → **0.187** (+47%). Tier 2 farmer satisfaction improved from -0.45 → -0.19.
+
 ## Remaining TODO
+
+### P0: Persist NonViableWeeks across deploys
+
+`NonViableWeeks map[uint64]int` on Simulation resets to empty on every restart. The 2-week grace period for force-migrating tiny settlements never triggers. 234 settlements with pop < 25 are permanently frozen. Same issue for `AbandonedWeeks`. Fix: persist both as JSON in `world_meta`.
 
 ### P2: Fisher skill alias
 
@@ -122,20 +143,25 @@ Two remaining structural issues from post-recovery `/observe`:
 
 ### P2: Merchant extinction
 
-All Tier 2 merchants died during the price normalization. May self-correct as the economy stabilizes. Monitor.
+All 6 Tier 2 merchants dead with 0 wealth and alignment 0.000. No new promotions happening. May need investigation into whether Awakening-valley coherence (0.47-0.61) produces zero alignment by design in `ComputeAlignment()`.
+
+### P2: Hex regen rate
+
+Weekly micro-regen (~4.7%) means fully depleted hexes take ~21 weeks to recover. Farmers no longer punished for depletion (wave 9) but still can't produce. May need faster regen if satisfaction plateaus.
 
 ## Success Criteria
 
-### Achieved (as of tick 142,285)
+### Achieved (as of tick 222,114)
 - Grain price normalized — within Phi bounds (0.47 to 5.0)
-- Births resumed — 4,915 (recovering after restart)
-- Market health 98%
-- Treasury/agent ratio converging — 74% → 41% (target 38%)
-- Population growing — 62,847 (+10K since wave 5)
+- Births resumed — D:B ratio 0.08-0.18 (excellent)
+- Market health 96.8%
+- Treasury/agent ratio at target — 40.5% (target 38.2%)
+- Population growing — 97,304 (from 50K at wave 1)
+- Gini stabilized — 0.582 (down from 0.673 peak)
+- Satisfaction improving — 0.187 (up from 0.126 pre-wave-9)
 
-### Still Monitoring (after wave 8)
-- Gini — 0.673, should decline with progressive decay + dynamic welfare threshold
-- Settlement count — 714, should decline as survival gate removed for tiny settlements
-- Treasury share — 41%, should stay near target with broader welfare distribution
-- Avg mood — 0.122, should improve as settlement consolidation improves belonging
-- Survival — 0.414, should remain stable (food buying working)
+### Still Monitoring (after wave 9)
+- Satisfaction — 0.187, should continue climbing toward 0.30+ as doom loop fix matures
+- Farmer Tier 2 satisfaction — -0.19, should converge toward 0.0+
+- Settlement count — 714, still frozen until NonViableWeeks is persisted
+- Survival — 0.398, stable (food economy working)

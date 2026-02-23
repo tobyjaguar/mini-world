@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -238,6 +239,24 @@ func main() {
 		}
 	} else {
 		sim.InitFactions()
+	}
+
+	// Restore settlement viability tracking from database.
+	if startTick > 0 {
+		if nvJSON, err := db.GetMeta("non_viable_weeks"); err == nil {
+			var nv map[uint64]int
+			if json.Unmarshal([]byte(nvJSON), &nv) == nil && len(nv) > 0 {
+				sim.NonViableWeeks = nv
+				slog.Info("non-viable weeks restored", "settlements", len(nv))
+			}
+		}
+		if awJSON, err := db.GetMeta("abandoned_weeks"); err == nil {
+			var aw map[uint64]int
+			if json.Unmarshal([]byte(awJSON), &aw) == nil && len(aw) > 0 {
+				sim.AbandonedWeeks = aw
+				slog.Info("abandoned weeks restored", "settlements", len(aw))
+			}
+		}
 	}
 
 	// Load agent memories and relationships from database (if any exist).

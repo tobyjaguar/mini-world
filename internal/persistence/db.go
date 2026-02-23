@@ -429,6 +429,20 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		return fmt.Errorf("save meta: %w", err)
 	}
 
+	// Persist settlement viability tracking maps so they survive restarts.
+	if len(sim.NonViableWeeks) > 0 {
+		nvJSON, _ := json.Marshal(sim.NonViableWeeks)
+		if err := db.SaveMeta("non_viable_weeks", string(nvJSON)); err != nil {
+			return fmt.Errorf("save non_viable_weeks: %w", err)
+		}
+	}
+	if len(sim.AbandonedWeeks) > 0 {
+		awJSON, _ := json.Marshal(sim.AbandonedWeeks)
+		if err := db.SaveMeta("abandoned_weeks", string(awJSON)); err != nil {
+			return fmt.Errorf("save abandoned_weeks: %w", err)
+		}
+	}
+
 	slog.Info("world state saved")
 	return nil
 }
