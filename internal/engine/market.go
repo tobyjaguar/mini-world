@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"math"
 	"sort"
 
 	"github.com/talgya/mini-world/internal/agents"
@@ -404,9 +405,16 @@ func (s *Simulation) decayWealth() {
 		if !a.Alive || a.Wealth <= 20 {
 			continue
 		}
-		// Lose ~0.24% of wealth above 20 crowns per day (Agnosis * 0.01).
-		// At 1000 crowns this is ~2/day; at 100k it's ~236/day.
-		decay := uint64(float64(a.Wealth-20) * phi.Agnosis * 0.01)
+		// Progressive decay: rate scales logarithmically with wealth.
+		// rate = Agnosis * 0.01 * (1 + Agnosis * log2(wealth/20))
+		// At 20 crowns:    0.24%/day (unchanged baseline)
+		// At 1,000:        0.56%/day
+		// At 18,800 (avg): 0.80%/day
+		// At 100,000:      0.94%/day
+		// Compresses the top without destroying the economy.
+		baseRate := phi.Agnosis * 0.01
+		scaledRate := baseRate * (1.0 + phi.Agnosis*math.Log2(float64(a.Wealth)/20.0))
+		decay := uint64(float64(a.Wealth-20) * scaledRate)
 		if decay < 1 {
 			decay = 1
 		}
@@ -464,11 +472,25 @@ func (s *Simulation) paySettlementWages() {
 			budget = 2
 		}
 
-		// Progressive welfare: poorer agents get a larger share.
-		// Weight = (threshold - wealth) / threshold. Agent at 0 gets weight 1.0,
-		// agent at 49 gets weight 0.02. Prevents inequality spike.
-		const threshold = 50.0
+		// Dynamic welfare threshold: Agnosis fraction (~24%) of settlement avg wealth.
+		// At avg 18,800: threshold ≈ 4,437 — welfare reaches many more agents.
+		// Minimum 50 to ensure welfare still flows in poor settlements.
 		settAgents := s.SettlementAgents[sett.ID]
+		avgWealth := 0.0
+		aliveCount := 0
+		for _, a := range settAgents {
+			if a.Alive {
+				avgWealth += float64(a.Wealth)
+				aliveCount++
+			}
+		}
+		if aliveCount > 0 {
+			avgWealth /= float64(aliveCount)
+		}
+		threshold := avgWealth * phi.Agnosis
+		if threshold < 50 {
+			threshold = 50
+		}
 		totalWeight := 0.0
 		for _, a := range settAgents {
 			if a.Alive && a.Wealth < uint64(threshold) {

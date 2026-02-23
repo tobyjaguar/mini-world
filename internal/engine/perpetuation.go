@@ -144,8 +144,17 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 
 		settAgents := s.SettlementAgents[sett.ID]
 		for _, a := range settAgents {
-			if !a.Alive || a.Mood > moodThreshold || a.Needs.Survival > 0.3 {
-				continue
+			// For tiny settlements, remove survival gate — agents migrate
+			// seeking community, not just food. Isolation is deprivation
+			// even when fed.
+			if isTiny {
+				if !a.Alive || a.Mood > moodThreshold {
+					continue
+				}
+			} else {
+				if !a.Alive || a.Mood > moodThreshold || a.Needs.Survival > 0.3 {
+					continue
+				}
 			}
 
 			// For tiny settlements, migrate to nearest viable settlement

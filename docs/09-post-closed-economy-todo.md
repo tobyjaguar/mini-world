@@ -20,6 +20,8 @@ Assessment from `/observe` at tick 92,290 (Spring Day 65, Year 1). The closed ec
 | 128,232 | Wave 6 | Dynamic wage from budget — treasury outflow now matches computed rate |
 | 142,285 | Observe | Treasury 41% (converging), Gini 0.645 (worsening), survival stuck 0.385 |
 | 144,681 | Wave 7 | Food buying in decision tree, progressive welfare, settlement migration fix |
+| 146,312 | Observe | Gini 0.673 (worsening), 714 settlements still frozen, survival 0.414 |
+| 146,312 | Wave 8 | Progressive wealth decay, dynamic welfare threshold, remove survival gate for tiny settlements |
 
 ## Root Cause: Price Ratchet in Market Engine
 
@@ -102,6 +104,16 @@ Two remaining structural issues from post-recovery `/observe`:
 
    **Fix:** Added `rebuildSettlementAgents()` called after migration. Reconstructs the map from current `HomeSettID` values and updates population counts. Settlements that lose population through migration will now correctly reflect lower pop and trigger viability/abandonment.
 
+## Wave 8: Gini Inequality + Settlement Consolidation (tick 146,312)
+
+`/observe` at tick 146,312 showed Gini climbing (0.614→0.673) despite progressive welfare. The richest 10% held 60% of wealth. Meanwhile, 714 settlements remained frozen — the wave 7 migration fix rebuilt the map correctly, but the `Survival > 0.3` gate now trapped agents because food buying had improved survival to 0.414.
+
+1. **Flat wealth decay ignores concentration** — FIXED: `decayWealth()` in `market.go` now uses progressive logarithmic scaling instead of a flat 0.24% rate. `rate = Agnosis * 0.01 * (1 + Agnosis * log2(wealth/20))`. At 20 crowns: 0.24%/day (unchanged baseline). At 1,000: 0.56%. At 18,800 (avg): 0.80%. At 100,000: 0.94%. All decay still flows to home settlement treasury. Φ-aligned soft cap compresses extreme wealth without destroying the economy.
+
+2. **Welfare threshold too low for actual wealth levels** — FIXED: `paySettlementWages()` in `market.go` replaced `const threshold = 50` with per-settlement dynamic threshold: `avgWealth * Agnosis` (~24% of settlement average wealth, minimum 50). At avg 18,800 crowns, threshold jumps from 50 to ~4,437. Progressive weighting formula unchanged — just reaches many more agents. Combined with progressive decay, creates a two-pronged compression: rich agents decay faster, poor agents receive welfare longer.
+
+3. **Survival gate traps agents in tiny settlements** — FIXED: `processSeasonalMigration()` in `perpetuation.go` now removes the `Survival > 0.3` requirement for settlements with pop < 25. Agents in tiny settlements migrate on mood alone (threshold 0.0). Agents migrate seeking community, not just food — isolation is deprivation even when fed. With avg mood at 0.122, agents in non-viable settlements will consolidate into larger ones.
+
 ## Remaining TODO
 
 ### P2: Fisher skill alias
@@ -121,9 +133,9 @@ All Tier 2 merchants died during the price normalization. May self-correct as th
 - Treasury/agent ratio converging — 74% → 41% (target 38%)
 - Population growing — 62,847 (+10K since wave 5)
 
-### Still Monitoring (after wave 7)
-- Avg mood — 0.105, should improve as food buying drives survival up
-- Gini — 0.645, should improve with progressive welfare
-- Settlement count — 714 frozen, should start declining with migration fix
-- Trade volume — 4,244, should surge as food buying creates demand
-- Survival — 0.385, should improve as agents buy food instead of foraging
+### Still Monitoring (after wave 8)
+- Gini — 0.673, should decline with progressive decay + dynamic welfare threshold
+- Settlement count — 714, should decline as survival gate removed for tiny settlements
+- Treasury share — 41%, should stay near target with broader welfare distribution
+- Avg mood — 0.122, should improve as settlement consolidation improves belonging
+- Survival — 0.414, should remain stable (food buying working)

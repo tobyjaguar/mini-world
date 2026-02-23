@@ -315,6 +315,14 @@ Post-recovery `/observe` at tick 118,329 showed the economy working (96.9% marke
 36. **Gini spike from flat welfare** — FIXED: `paySettlementWages()` now uses progressive welfare — wage scales inversely with wealth. Agent at 0 gets full share, agent at 49 gets 2%. Same total budget, fairer distribution.
 37. **Settlement migration bug** — FIXED: `processSeasonalMigration()` in `perpetuation.go` changed `a.HomeSettID` but never rebuilt `SettlementAgents` map. Population counts stayed stale, 714 settlements frozen. Added `rebuildSettlementAgents()` in `simulation.go`, called after migration.
 
+### Tuning Round 9: Gini Inequality + Settlement Consolidation
+
+`/observe` at tick 146,312 showed Gini climbing (0.614→0.673, richest 10% hold 60%) and 714 settlements still frozen despite migration fix — the survival > 0.3 gate trapped agents now that food buying improved survival to 0.414.
+
+38. **Flat wealth decay ignores concentration** — FIXED: `decayWealth()` now uses progressive logarithmic scaling. Rate = `Agnosis * 0.01 * (1 + Agnosis * log2(wealth/20))`. At 20 crowns: 0.24%/day (unchanged). At 18,800: 0.80%/day. At 100k: 0.94%/day. Compresses the top without destroying the economy.
+39. **Welfare threshold too low** — FIXED: `paySettlementWages()` threshold changed from fixed 50 crowns to `avgWealth * Agnosis` (~24% of settlement average, min 50). At avg 18,800 crowns, threshold jumps to ~4,437 — welfare reaches most agents instead of just the destitute.
+40. **Survival gate traps agents in tiny settlements** — FIXED: `processSeasonalMigration()` removes the `Survival > 0.3` requirement for settlements with pop < 25. Agents migrate seeking community, not just food — isolation is deprivation even when fed.
+
 ### Remaining Minor Issues
 - `productionAmount()` uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Low priority — works but technically wrong.
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
