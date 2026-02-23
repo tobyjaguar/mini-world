@@ -5,6 +5,7 @@ package engine
 import (
 	"log/slog"
 
+	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
@@ -14,6 +15,7 @@ import (
 func (s *Simulation) processAntiStagnation(tick uint64) {
 	s.economicCircuitBreaker(tick)
 	s.culturalDrift(tick)
+	s.reassignMismatchedProducers(tick)
 	s.updateSettlementPopulations()
 }
 
@@ -199,4 +201,83 @@ func (s *Simulation) findNearestViableSettlement(from *social.Settlement, maxDis
 		}
 	}
 	return best
+}
+
+// reassignMismatchedProducers checks resource-producing agents and reassigns
+// those whose hex lacks their required resource. A fisher on a plains hex can
+// never produce fish — they should become a farmer instead.
+func (s *Simulation) reassignMismatchedProducers(tick uint64) {
+	reassigned := 0
+	for _, a := range s.Agents {
+		if !a.Alive {
+			continue
+		}
+
+		resType, needsResource := occupationResource[a.Occupation]
+		if !needsResource {
+			continue // Crafters, laborers, etc. don't need hex resources.
+		}
+
+		hex := s.WorldMap.Get(a.Position)
+		if hex == nil {
+			continue
+		}
+
+		// Check if the hex has any of the required resource.
+		if hex.Resources[resType] >= 1.0 {
+			continue // Resource available — no reassignment needed.
+		}
+
+		// Hex lacks the required resource. Reassign to match hex terrain.
+		newOcc := bestOccupationForHex(hex)
+		if newOcc == a.Occupation {
+			continue
+		}
+
+		old := a.Occupation
+		a.Occupation = newOcc
+		reassigned++
+
+		slog.Debug("reassigned mismatched producer",
+			"agent", a.Name,
+			"from", old,
+			"to", newOcc,
+			"terrain", hex.Terrain,
+		)
+	}
+
+	if reassigned > 0 {
+		slog.Info("reassigned mismatched producers", "count", reassigned, "tick", tick)
+	}
+}
+
+// bestOccupationForHex returns the primary resource-producing occupation
+// that matches the hex's available resources. Falls back to Farmer (most
+// versatile) if no clear match.
+func bestOccupationForHex(hex *world.Hex) agents.Occupation {
+	// Check which resources the hex actually has, pick the richest.
+	type candidate struct {
+		occ agents.Occupation
+		amt float64
+	}
+	candidates := []candidate{
+		{agents.OccupationFarmer, hex.Resources[world.ResourceGrain]},
+		{agents.OccupationMiner, hex.Resources[world.ResourceIronOre]},
+		{agents.OccupationFisher, hex.Resources[world.ResourceFish]},
+		{agents.OccupationHunter, hex.Resources[world.ResourceFurs]},
+	}
+
+	best := candidates[0] // Default to Farmer.
+	for _, c := range candidates[1:] {
+		if c.amt > best.amt {
+			best = c
+		}
+	}
+
+	// If the best resource is still 0, fall back to Farmer — grain is
+	// the most universally available resource.
+	if best.amt < 1.0 {
+		return agents.OccupationFarmer
+	}
+	return best.occ
 }

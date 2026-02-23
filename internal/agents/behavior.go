@@ -180,7 +180,15 @@ func applyWork(a *Agent, tick uint64) []string {
 		a.Inventory[GoodIronOre] += produced
 		a.Skills.Mining += 0.001
 	case OccupationFisher:
-		produced := int(a.Skills.Farming * 2)
+		// Mirror production.go: max(Farming, Combat, 0.5) * 5
+		fishSkill := float64(a.Skills.Farming)
+		if float64(a.Skills.Combat) > fishSkill {
+			fishSkill = float64(a.Skills.Combat)
+		}
+		if fishSkill < 0.5 {
+			fishSkill = 0.5
+		}
+		produced := int(fishSkill * 5)
 		if produced < 1 {
 			produced = 1
 		}
