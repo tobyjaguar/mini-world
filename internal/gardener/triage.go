@@ -44,9 +44,13 @@ func Triage(snap *WorldSnapshot) *WorldHealth {
 		h.TradePerCapita = float64(snap.Economy.TradeVolume) / float64(snap.Status.Population)
 	}
 
-	// Death:Birth ratio from last two history snapshots (delta of cumulative values).
+	// Death:Birth ratio from consecutive history snapshots (delta of cumulative values).
 	// The /status endpoint returns cumulative totals — dividing those is meaningless.
 	// Instead we use per-snapshot deltas from /stats/history.
+	//
+	// Counter reset detection: worldsim restarts reset cumulative birth/death
+	// counters to 0. If newer.Births < older.Births, a restart happened between
+	// those two snapshots. We skip that pair and scan backwards for a usable one.
 	if len(snap.History) >= 2 {
 		// History is sorted by tick DESC, so [0] is newest.
 		for i := len(snap.History) - 1; i >= 0; i-- {
@@ -54,20 +58,50 @@ func Triage(snap *WorldSnapshot) *WorldHealth {
 			h.DeathTrend = append(h.DeathTrend, snap.History[i].Deaths)
 		}
 
-		newest := snap.History[0]
-		older := snap.History[1]
-		deltaBirths := newest.Births - older.Births
-		deltaDeaths := newest.Deaths - older.Deaths
+		// Find a consecutive pair without a counter reset between them.
+		foundPair := false
+		for i := 0; i < len(snap.History)-1; i++ {
+			newer := snap.History[i]
+			older := snap.History[i+1]
 
-		if deltaBirths > 0 {
-			h.DeathBirthRatio = float64(deltaDeaths) / float64(deltaBirths)
-		} else if deltaDeaths > 0 {
-			h.DeathBirthRatio = math.Inf(1) // births stalled, deaths continuing
-		} else {
-			h.DeathBirthRatio = 1.0 // both zero — neutral
+			// Counter reset: cumulative values went backwards.
+			if newer.Births < older.Births || newer.Deaths < older.Deaths {
+				continue
+			}
+
+			deltaBirths := newer.Births - older.Births
+			deltaDeaths := newer.Deaths - older.Deaths
+
+			if deltaBirths > 0 {
+				h.DeathBirthRatio = float64(deltaDeaths) / float64(deltaBirths)
+			} else if deltaDeaths > 0 {
+				h.DeathBirthRatio = math.Inf(1) // births genuinely stalled
+			} else {
+				h.DeathBirthRatio = 1.0 // both zero — neutral
+			}
+			foundPair = true
+			break
 		}
 
-		// Also capture satisfaction/alignment from newest history if available.
+		if !foundPair {
+			// All pairs span a restart — use population delta as fallback.
+			newest := snap.History[0]
+			oldest := snap.History[len(snap.History)-1]
+			if newest.Population < oldest.Population {
+				// Population shrinking — estimate crisis from decline rate.
+				declinePct := float64(oldest.Population-newest.Population) / float64(oldest.Population)
+				if declinePct > 0.1 {
+					h.DeathBirthRatio = phi.Totality + 1 // signal CRITICAL
+				} else {
+					h.DeathBirthRatio = phi.Being // signal WARNING
+				}
+			} else {
+				h.DeathBirthRatio = 1.0 // population growing — assume healthy
+			}
+		}
+
+		// Capture satisfaction/alignment from newest history if available.
+		newest := snap.History[0]
 		if newest.AvgSatisfaction > 0 {
 			h.AvgSatisfaction = newest.AvgSatisfaction
 		}
