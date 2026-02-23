@@ -215,20 +215,22 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := map[string]any{
-		"name":         "Crossworlds",
-		"tick":         s.Sim.CurrentTick(),
-		"sim_time":     engine.SimTime(s.Sim.CurrentTick()),
-		"season":       engine.SeasonName(s.Sim.CurrentSeason),
-		"speed":        s.Eng.Speed,
-		"running":      s.Eng.Running,
-		"population":   s.Sim.Stats.TotalPopulation,
-		"deaths":       s.Sim.Stats.Deaths,
-		"births":       s.Sim.Stats.Births,
-		"settlements":  len(s.Sim.Settlements),
-		"factions":     len(s.Sim.Factions),
-		"avg_mood":     s.Sim.Stats.AvgMood,
-		"total_wealth": s.Sim.Stats.TotalWealth,
-		"weather":      weatherInfo,
+		"name":             "Crossworlds",
+		"tick":             s.Sim.CurrentTick(),
+		"sim_time":         engine.SimTime(s.Sim.CurrentTick()),
+		"season":           engine.SeasonName(s.Sim.CurrentSeason),
+		"speed":            s.Eng.Speed,
+		"running":          s.Eng.Running,
+		"population":       s.Sim.Stats.TotalPopulation,
+		"deaths":           s.Sim.Stats.Deaths,
+		"births":           s.Sim.Stats.Births,
+		"settlements":      len(s.Sim.Settlements),
+		"factions":         len(s.Sim.Factions),
+		"avg_mood":         s.Sim.Stats.AvgMood,
+		"avg_satisfaction":  s.Sim.Stats.AvgSatisfaction,
+		"avg_alignment":    s.Sim.Stats.AvgAlignment,
+		"total_wealth":     s.Sim.Stats.TotalWealth,
+		"weather":          weatherInfo,
 	}
 	writeJSON(w, status)
 }
