@@ -65,11 +65,12 @@ Every soul carries coherence — scattered souls react to circumstances, while u
 Make decisions that reflect your personality, circumstances, and inner state.
 
 Respond ONLY with a JSON array of 1-3 actions. Each action has:
-- "action": one of "trade", "socialize", "advocate", "invest", "recruit", "speak"
+- "action": one of "work", "trade", "socialize", "advocate", "invest", "recruit", "speak"
 - "target": who or what the action targets (a name, good, or topic)
 - "reasoning": one sentence explaining why
 
 Valid actions:
+- work: spend the week producing goods from the land (farming, mining, fishing, hunting)
 - trade: buy or sell goods at the market
 - socialize: strengthen a relationship with someone
 - advocate: push for a policy change in your settlement (taxes, governance)
@@ -133,7 +134,7 @@ func parseTier2Response(response string) ([]Tier2Decision, error) {
 
 	// Validate action types.
 	validActions := map[string]bool{
-		"trade": true, "socialize": true, "advocate": true,
+		"work": true, "trade": true, "socialize": true, "advocate": true,
 		"invest": true, "recruit": true, "speak": true,
 	}
 	var valid []Tier2Decision

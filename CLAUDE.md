@@ -395,6 +395,14 @@ Replaces flat regen tuning with a dynamic, self-correcting land health system. S
 71. **Hex health persistence** — NEW: Non-pristine hex health persisted as JSON in `world_meta` key `hex_health`. Restored on startup before defaulting unset hexes to 1.0.
 72. **API exposure** — NEW: Hex detail shows `health` and `last_extracted_tick`. Bulk map includes `health` for non-pristine hexes (omitted when 1.0 to keep payload small).
 
+### Tuning Round 14: Tier 2 Occupation Diversity
+
+`/observe` at tick ~304K showed zero living Tier 2 fishers, hunters, miners, or merchants. Investigation revealed a two-part system design failure: (1) wealth-biased promotion scoring meant resource producers never reached Tier 2, and (2) Tier 2 agents had no "work" action, so any resource producer accidentally promoted would starve.
+
+73. **Tier 2 agents can't work** — FIXED: Added `"work"` action to Tier 2 LLM decision vocabulary (`llm/cognition.go`). Execution in `applyTier2Decision` calls `ResolveWork()` — same production pipeline as Tier 0. Resource producers (farmers, fishers, miners, hunters) can now produce goods as Tier 2 agents.
+74. **Wealth-biased Tier 2 promotion** — FIXED: `PromoteToTier2()` in `spawner.go` scoring changed from `coherence*Nous + gauss*Being + log1p(wealth)*Agnosis` to `coherence*Nous + gauss*Being`. Notability is about inner qualities, not bank accounts.
+75. **No Tier 2 occupation diversity** — FIXED: `processWeeklyTier2Replenishment()` in `population.go` now counts Tier 2 by occupation and prioritizes filling unrepresented occupations before using general scoring. A world where no fisher has individual agency is structurally incomplete.
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.

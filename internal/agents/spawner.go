@@ -4,7 +4,6 @@
 package agents
 
 import (
-	"math"
 	"math/rand"
 
 	"github.com/talgya/mini-world/internal/phi"
@@ -371,7 +370,7 @@ func (s *Spawner) SpawnChild(position world.HexCoord, settlementID uint64, terra
 }
 
 // PromoteToTier2 upgrades the most notable agents in a population to Tier 2.
-// Selects based on coherence, wealth, and gauss (ambition).
+// Selects based on coherence and gauss (ambition) — inner qualities, not wealth.
 // Only considers adults (age 16+).
 func PromoteToTier2(agents []*Agent, count int) {
 	if count <= 0 || len(agents) == 0 {
@@ -388,9 +387,11 @@ func PromoteToTier2(agents []*Agent, count int) {
 		if a.Age < 16 {
 			continue
 		}
+		// Notability = coherence (soul depth) + gauss (ambition).
+		// Wealth removed — a poor fisherman with deep coherence
+		// is more notable than a rich merchant with a scattered soul.
 		s := float64(a.Soul.CittaCoherence)*phi.Nous +
-			float64(a.Soul.Gauss)*phi.Being +
-			math.Log1p(float64(a.Wealth))*phi.Agnosis
+			float64(a.Soul.Gauss)*phi.Being
 		scorable = append(scorable, scored{a, s})
 	}
 

@@ -250,17 +250,20 @@ func birthEligible(a *agents.Agent, simDay uint64) bool {
 }
 
 // processWeeklyTier2Replenishment fills Tier 2 vacancies by promoting the
-// most notable Tier 0 adults. Tier 2 promotion only ran at world generation,
-// so dead Tier 2 agents (e.g. all merchants) were never replaced. This runs
-// weekly and promotes up to 2 agents per cycle to avoid sudden surges.
+// most notable Tier 0 adults. Ensures occupation diversity — prioritizes
+// occupations with zero Tier 2 representation so fishers, hunters, and miners
+// get individual agency alongside farmers and crafters.
 func (s *Simulation) processWeeklyTier2Replenishment() {
 	const targetTier2 = 30 // Same as initial PromoteToTier2 count
 	const maxPerCycle = 2  // Gradual — don't flood with Tier 2 at once
 
+	// Count alive Tier 2 by occupation.
+	tier2ByOcc := make(map[agents.Occupation]int)
 	aliveTier2 := 0
 	for _, a := range s.Agents {
 		if a.Alive && a.Tier == agents.Tier2 {
 			aliveTier2++
+			tier2ByOcc[a.Occupation]++
 		}
 	}
 
@@ -279,26 +282,87 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 			eligible = append(eligible, a)
 		}
 	}
+	if len(eligible) == 0 {
+		return
+	}
 
-	agents.PromoteToTier2(eligible, vacancies)
-
-	// Log promotions.
 	promoted := 0
-	for _, a := range eligible {
-		if a.Tier == agents.Tier2 {
+
+	// Priority pass: fill slots for occupations with zero Tier 2 representation.
+	// A world where no fisher has individual agency is structurally incomplete.
+	allOccupations := []agents.Occupation{
+		agents.OccupationFarmer, agents.OccupationMiner, agents.OccupationCrafter,
+		agents.OccupationMerchant, agents.OccupationLaborer, agents.OccupationFisher,
+		agents.OccupationHunter,
+	}
+	for _, occ := range allOccupations {
+		if promoted >= vacancies {
+			break
+		}
+		if tier2ByOcc[occ] > 0 {
+			continue // This occupation already has Tier 2 representation
+		}
+		// Find the best candidate of this occupation.
+		var best *agents.Agent
+		var bestScore float64
+		for _, a := range eligible {
+			if a.Occupation != occ {
+				continue
+			}
+			score := float64(a.Soul.CittaCoherence)*phi.Nous +
+				float64(a.Soul.Gauss)*phi.Being
+			if best == nil || score > bestScore {
+				best = a
+				bestScore = score
+			}
+		}
+		if best != nil {
+			best.Tier = agents.Tier2
 			promoted++
-			slog.Info("tier 2 promotion",
-				"agent", a.Name,
-				"occupation", a.Occupation,
-				"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
+			slog.Info("tier 2 diversity promotion",
+				"agent", best.Name,
+				"occupation", best.Occupation,
+				"coherence", fmt.Sprintf("%.3f", best.Soul.CittaCoherence),
 			)
 			s.Events = append(s.Events, Event{
 				Tick:        s.LastTick,
-				Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
+				Description: fmt.Sprintf("%s rises to prominence in %s", best.Name, occupationLabel(best.Occupation)),
 				Category:    "social",
 			})
-			if promoted >= vacancies {
-				break
+		}
+	}
+
+	// Remaining slots: promote top scorers from any occupation.
+	if promoted < vacancies {
+		remaining := vacancies - promoted
+		agents.PromoteToTier2(eligible, remaining)
+		for _, a := range eligible {
+			if a.Tier == agents.Tier2 && promoted < vacancies {
+				// Check if this was just promoted (not from the priority pass).
+				// PromoteToTier2 sets Tier but we already set some above.
+				// Count new promotions by checking if they weren't already logged.
+				alreadyLogged := false
+				for _, evt := range s.Events {
+					if evt.Tick == s.LastTick && evt.Category == "social" &&
+						len(evt.Description) > len(a.Name) &&
+						evt.Description[:len(a.Name)] == a.Name {
+						alreadyLogged = true
+						break
+					}
+				}
+				if !alreadyLogged {
+					promoted++
+					slog.Info("tier 2 promotion",
+						"agent", a.Name,
+						"occupation", a.Occupation,
+						"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
+					)
+					s.Events = append(s.Events, Event{
+						Tick:        s.LastTick,
+						Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
+						Category:    "social",
+					})
+				}
 			}
 		}
 	}
