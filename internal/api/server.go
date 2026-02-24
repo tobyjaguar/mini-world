@@ -73,6 +73,7 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/settlement/", s.handleSettlementDetail)
 	mux.HandleFunc("/api/v1/faction/", s.handleFactionDetail)
 	mux.HandleFunc("/api/v1/map", s.handleMapRoutes)
+	mux.HandleFunc("/api/v1/map/", s.handleMapRoutes)
 	mux.HandleFunc("/api/v1/stats/history", s.handleStatsHistory)
 
 	// Admin endpoints (POST, require bearer token).
