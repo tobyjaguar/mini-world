@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/economy"
@@ -160,6 +161,25 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 		if aliveCount == 0 {
 			s.AbandonedWeeks[sett.ID]++
 			if s.AbandonedWeeks[sett.ID] >= 2 {
+				// Redistribute treasury to nearest active settlements.
+				if sett.Treasury > 0 {
+					nearest := s.nearestActiveSettlements(sett.Position, 3)
+					if len(nearest) > 0 {
+						share := sett.Treasury / uint64(len(nearest))
+						for _, neighbor := range nearest {
+							neighbor.Treasury += share
+						}
+						remainder := sett.Treasury - share*uint64(len(nearest))
+						nearest[0].Treasury += remainder
+						s.Events = append(s.Events, Event{
+							Tick:        tick,
+							Description: fmt.Sprintf("%s's treasury of %d crowns distributed to neighboring settlements", sett.Name, sett.Treasury),
+							Category:    "economy",
+						})
+						sett.Treasury = 0
+					}
+				}
+
 				// Mark as abandoned — remove from active settlements.
 				slog.Info("settlement abandoned", "name", sett.Name, "id", sett.ID)
 				s.Events = append(s.Events, Event{
@@ -182,6 +202,29 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 			delete(s.AbandonedWeeks, sett.ID)
 		}
 	}
+}
+
+// nearestActiveSettlements returns the N closest settlements with population > 0.
+func (s *Simulation) nearestActiveSettlements(from world.HexCoord, n int) []*social.Settlement {
+	type distSett struct {
+		dist int
+		sett *social.Settlement
+	}
+	var candidates []distSett
+	for _, st := range s.Settlements {
+		if st.Population > 0 {
+			d := world.Distance(from, st.Position)
+			candidates = append(candidates, distSett{d, st})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].dist < candidates[j].dist
+	})
+	result := make([]*social.Settlement, 0, n)
+	for i := 0; i < n && i < len(candidates); i++ {
+		result = append(result, candidates[i].sett)
+	}
+	return result
 }
 
 // foundSettlement creates a new settlement at the given hex with founding agents.

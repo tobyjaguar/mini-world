@@ -374,6 +374,14 @@ The Gardener had been running for ~47K ticks with zero observable effect. Docs 1
 61. **Birth/trade counters reset on deploy** — FIXED: `Stats.Births` and `Stats.TradeVolume` now persisted to `world_meta` and restored on startup. Eliminates counter reset noise in `stats_history`.
 62. **Dead Tier 2 agents never replaced** — FIXED: `processWeeklyTier2Replenishment()` in `population.go` counts alive Tier 2, promotes up to 2 Tier 0 adults per week to fill vacancies (target 30). Uses same scoring as initial `PromoteToTier2`. Wired into `TickWeek`.
 
+### Tuning Round 13: Treasury Reclamation, Crime Flooding, Hex Regen
+
+`/observe` at tick 294,564 showed a healthy world (pop 129K, satisfaction 0.300, D:B 0.04-0.06) but three quality-of-life issues: 60M crowns locked in abandoned settlement treasuries, crime events flooding the event log (90% of events), and hex regen too slow for farmer satisfaction.
+
+63. **Abandoned settlement treasury sink** — FIXED: `processSettlementAbandonment()` in `settlement_lifecycle.go` now redistributes treasury to the 3 nearest active settlements before marking abandoned. Added `nearestActiveSettlements()` helper. Prevents growing wealth sink as settlements consolidate.
+64. **Crime events flood event log** — FIXED: Removed event logging for successful food theft and wealth theft in `processCrime()`. Only "caught stealing / branded outlaw" events are logged. Crime mechanics unchanged — theft still happens, relationships damaged, factions affected. Event buffer now shows births, oracle visions, social events instead of 450+ theft reports.
+65. **Hex regen too slow (4.7%/week)** — FIXED: `weeklyResourceRegen()` multiplier doubled from `Agnosis * 0.2` to `Agnosis * 0.4` (~9.4% of deficit/week). Depleted hexes recover in ~10 weeks instead of ~21. Farmer satisfaction should improve as production succeeds more often.
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.

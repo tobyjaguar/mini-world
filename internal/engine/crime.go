@@ -68,11 +68,6 @@ func (s *Simulation) processCrime(tick uint64) {
 					// Damage relationship.
 					damageRelationship(victim, a.ID, 0.3, 0.2)
 					s.adjustFactionInfluenceFromCrime(sett.ID)
-					s.Events = append(s.Events, Event{
-						Tick:        tick,
-						Description: fmt.Sprintf("%s stole food from %s in %s", a.Name, victim.Name, sett.Name),
-						Category:    "crime",
-					})
 				}
 			} else if a.Wealth < 5 && victim.Wealth > 20 {
 				// Steal crowns.
@@ -84,12 +79,6 @@ func (s *Simulation) processCrime(tick uint64) {
 				a.Wealth += stolen
 				damageRelationship(victim, a.ID, 0.4, 0.3)
 				s.adjustFactionInfluenceFromCrime(sett.ID)
-
-				s.Events = append(s.Events, Event{
-					Tick:        tick,
-					Description: fmt.Sprintf("%s robbed %s of %d crowns in %s", a.Name, victim.Name, stolen, sett.Name),
-					Category:    "crime",
-				})
 			}
 
 			// Check for faction betrayal (crime against fellow faction member).

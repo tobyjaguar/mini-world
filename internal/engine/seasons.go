@@ -205,7 +205,7 @@ func (s *Simulation) weeklyResourceRegen() {
 				maxQty := resourceCap(hex.Terrain, res)
 				if qty < maxQty {
 					deficit := maxQty - qty
-					regen := deficit * phi.Agnosis * 0.2 // ~4.7% of deficit per week
+					regen := deficit * phi.Agnosis * 0.4 // ~9.4% of deficit per week
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty
