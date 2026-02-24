@@ -56,7 +56,7 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 		if ok {
 			leaderName = leader.Name
 		}
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s of %s has died, causing a succession crisis", leaderName, sett.Name),
 			Category:    "political",
@@ -90,7 +90,7 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 		sett.LeaderID = &id
 		newLeader.Role = agents.RoleLeader
 
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s becomes leader of %s", newLeader.Name, sett.Name),
 			Category:    "political",
@@ -224,7 +224,7 @@ func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Ag
 		social.GovCommune:         "Commune",
 	}
 
-	s.Events = append(s.Events, Event{
+	s.EmitEvent(Event{
 		Tick: tick,
 		Description: fmt.Sprintf("REVOLUTION in %s! %s leads uprising backed by %s. Governance changes from %s to %s. %d crowns seized.",
 			sett.Name, revolutionary.Name, dominantFaction.Name,

@@ -253,7 +253,7 @@ func (s *Simulation) autumnHarvest(tick uint64) {
 		}
 	}
 	if harvestCount > 0 {
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("Autumn harvest: %d farmers bring in the crop", harvestCount),
 			Category:    "economy",

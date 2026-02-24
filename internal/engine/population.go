@@ -61,7 +61,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 				if a.Age > 65 || (a.Age > 55 && a.Health < 0.5) {
 					a.Alive = false
 					a.Health = 0
-					s.Events = append(s.Events, Event{
+					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("%s has died of old age at %d", a.Name, a.Age),
 						Category:    "death",
@@ -77,7 +77,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 			a.Health -= 0.01
 			if a.Health <= 0 {
 				a.Alive = false
-				s.Events = append(s.Events, Event{
+				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has died of illness", a.Name),
 					Category:    "death",
@@ -147,7 +147,7 @@ func (s *Simulation) processBirths(tick uint64) {
 			child := s.Spawner.SpawnChild(sett.Position, sett.ID, terrain, tick, parent)
 			s.addAgent(child)
 
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s is born in %s", child.Name, sett.Name),
 				Category:    "birth",
@@ -193,7 +193,7 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 				s.addAgent(r)
 			}
 			sett.Population = uint32(aliveCount + needed)
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%d refugees arrive in %s", needed, sett.Name),
 				Category:    "social",
@@ -207,7 +207,7 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 					a.Inventory[agents.GoodGrain] += 3
 				}
 			}
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("Emergency food relief arrives in %s", sett.Name),
 				Category:    "economy",
@@ -324,7 +324,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 				"occupation", best.Occupation,
 				"coherence", fmt.Sprintf("%.3f", best.Soul.CittaCoherence),
 			)
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        s.LastTick,
 				Description: fmt.Sprintf("%s rises to prominence in %s", best.Name, occupationLabel(best.Occupation)),
 				Category:    "social",
@@ -357,7 +357,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 						"occupation", a.Occupation,
 						"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
 					)
-					s.Events = append(s.Events, Event{
+					s.EmitEvent(Event{
 						Tick:        s.LastTick,
 						Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
 						Category:    "social",

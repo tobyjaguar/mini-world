@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/talgya/mini-world/internal/agents"
@@ -25,6 +26,8 @@ import (
 	"github.com/talgya/mini-world/internal/world"
 )
 
+const maxSSEConns = 2
+
 // Server serves the world state over HTTP.
 type Server struct {
 	Sim      *engine.Simulation
@@ -33,6 +36,10 @@ type Server struct {
 	DB       *persistence.DB
 	Port     int
 	AdminKey string // Bearer token for POST endpoints. Empty = POST disabled.
+	RelayKey string // Bearer token for SSE stream endpoint. Empty = streaming disabled.
+
+	// Active SSE connection count (atomic).
+	sseConns int32
 
 	// Cached newspaper (regenerated at most once per sim-day).
 	newspaperMu    sync.Mutex
@@ -76,13 +83,16 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/map/", s.handleMapRoutes)
 	mux.HandleFunc("/api/v1/stats/history", s.handleStatsHistory)
 
+	// SSE streaming endpoint (GET, requires bearer token — relay only).
+	mux.HandleFunc("/api/v1/stream", s.handleStream)
+
 	// Admin endpoints (POST, require bearer token).
 	mux.HandleFunc("/api/v1/speed", s.adminOnly(s.handleSpeed))
 	mux.HandleFunc("/api/v1/snapshot", s.adminOnly(s.handleSnapshot))
 	mux.HandleFunc("/api/v1/intervention", s.adminOnly(s.handleIntervention))
 
 	addr := fmt.Sprintf(":%d", s.Port)
-	slog.Info("HTTP API starting", "addr", addr, "admin_auth", s.AdminKey != "")
+	slog.Info("HTTP API starting", "addr", addr, "admin_auth", s.AdminKey != "", "relay_auth", s.RelayKey != "")
 
 	go func() {
 		handler := corsMiddleware(mux)
@@ -1618,7 +1628,7 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		if cat == "" {
 			cat = "intervention"
 		}
-		s.Sim.Events = append(s.Sim.Events, engine.Event{
+		s.Sim.EmitEvent(engine.Event{
 			Tick:        tick,
 			Description: req.Description,
 			Category:    cat,
@@ -1750,6 +1760,88 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unknown intervention type (use: event, wealth, spawn, provision, cultivate, consolidate)", http.StatusBadRequest)
 	}
+}
+
+// handleStream provides an SSE endpoint for real-time event streaming.
+// Requires bearer token auth and limits concurrent connections.
+func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
+	// Auth check — uses separate relay key, not admin key.
+	if s.RelayKey == "" {
+		http.Error(w, "streaming disabled (no relay key)", http.StatusForbidden)
+		return
+	}
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != s.RelayKey {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Connection limit.
+	current := atomic.AddInt32(&s.sseConns, 1)
+	if current > maxSSEConns {
+		atomic.AddInt32(&s.sseConns, -1)
+		http.Error(w, "too many SSE connections", http.StatusServiceUnavailable)
+		return
+	}
+	defer atomic.AddInt32(&s.sseConns, -1)
+
+	// SSE headers.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Subscribe to events.
+	subID, ch := s.Sim.Subscribe()
+	defer s.Sim.Unsubscribe(subID)
+
+	// Send recent events as catch-up (last 50).
+	events := s.Sim.Events
+	start := len(events) - 50
+	if start < 0 {
+		start = 0
+	}
+	for _, e := range events[start:] {
+		writeSSEEvent(w, e)
+	}
+	flusher.Flush()
+
+	slog.Info("SSE client connected", "sub_id", subID)
+
+	// Stream loop with heartbeat.
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case e, ok := <-ch:
+			if !ok {
+				return
+			}
+			writeSSEEvent(w, e)
+			flusher.Flush()
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			slog.Info("SSE client disconnected", "sub_id", subID)
+			return
+		}
+	}
+}
+
+// writeSSEEvent writes a single event in SSE format.
+func writeSSEEvent(w http.ResponseWriter, e engine.Event) {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Category, data)
 }
 
 func writeJSON(w http.ResponseWriter, data any) {

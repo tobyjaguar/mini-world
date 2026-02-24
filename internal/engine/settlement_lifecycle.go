@@ -130,7 +130,7 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 
 		desc := fmt.Sprintf("%d citizens leave %s and found %s (overmass diaspora)",
 			len(emigrants), sett.Name, newSett.Name)
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
 			Category:    "political",
@@ -171,7 +171,7 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 						}
 						remainder := sett.Treasury - share*uint64(len(nearest))
 						nearest[0].Treasury += remainder
-						s.Events = append(s.Events, Event{
+						s.EmitEvent(Event{
 							Tick:        tick,
 							Description: fmt.Sprintf("%s's treasury of %d crowns distributed to neighboring settlements", sett.Name, sett.Treasury),
 							Category:    "economy",
@@ -182,7 +182,7 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 
 				// Mark as abandoned — remove from active settlements.
 				slog.Info("settlement abandoned", "name", sett.Name, "id", sett.ID)
-				s.Events = append(s.Events, Event{
+				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has been abandoned — no living souls remain", sett.Name),
 					Category:    "political",
@@ -333,7 +333,7 @@ func (s *Simulation) processInfrastructureGrowth(tick uint64) {
 				"road_level", sett.RoadLevel,
 				"cost", cost,
 			)
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s upgrades roads to level %d", sett.Name, sett.RoadLevel),
 				Category:    "economy",
@@ -351,7 +351,7 @@ func (s *Simulation) processInfrastructureGrowth(tick uint64) {
 				"wall_level", sett.WallLevel,
 				"cost", cost,
 			)
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s upgrades walls to level %d", sett.Name, sett.WallLevel),
 				Category:    "economy",
@@ -398,7 +398,7 @@ func (s *Simulation) processViabilityCheck(tick uint64) {
 					"population", aliveCount,
 					"target", target.Name,
 				)
-				s.Events = append(s.Events, Event{
+				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("The remaining %d souls of %s migrate to %s (settlement non-viable)", aliveCount, sett.Name, target.Name),
 					Category:    "social",

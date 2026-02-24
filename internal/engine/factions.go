@@ -333,7 +333,7 @@ func (s *Simulation) checkFactionTensions(tick uint64) {
 				f1.Relations[f2.ID] -= phi.Agnosis * 5
 				f2.Relations[f1.ID] -= phi.Agnosis * 5
 
-				s.Events = append(s.Events, Event{
+				s.EmitEvent(Event{
 					Tick: tick,
 					Description: fmt.Sprintf("Tension rises between %s and %s in %s",
 						f1.Name, f2.Name, sett.Name),

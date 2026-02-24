@@ -141,7 +141,7 @@ func (s *Simulation) formFamilies(sett interface{ }, alive []*agents.Agent, tick
 			boostRelationship(a, bestMatch.ID, 0.3, 0.2)
 			boostRelationship(bestMatch, a.ID, 0.3, 0.2)
 
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s and %s have formed a family", a.Name, bestMatch.Name),
 				Category:    "social",
@@ -245,7 +245,7 @@ func (s *Simulation) processFactionRecruitment(alive []*agents.Agent, tick uint6
 			fid := *a.FactionID
 			target.FactionID = &fid
 
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s recruited %s to their faction", a.Name, target.Name),
 				Category:    "social",
@@ -275,7 +275,7 @@ func (s *Simulation) ProcessBetrayalExpulsion(criminal, victim *agents.Agent, ti
 
 	criminal.FactionID = nil
 
-	s.Events = append(s.Events, Event{
+	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: fmt.Sprintf("%s expelled from %s for betrayal against %s", criminal.Name, factionName, victim.Name),
 		Category:    "political",

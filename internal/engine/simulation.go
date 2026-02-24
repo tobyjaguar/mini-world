@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/economy"
@@ -58,6 +59,11 @@ type Simulation struct {
 	// Active production boosts from gardener "cultivate" interventions.
 	ActiveBoosts []ProductionBoost
 
+	// Event streaming support.
+	eventSubMu sync.RWMutex
+	eventSubs  map[int]chan Event
+	nextSubID  int
+
 	// Statistics tracked per day.
 	Stats SimStats
 }
@@ -65,6 +71,44 @@ type Simulation struct {
 // CurrentTick returns the most recently processed tick number.
 func (s *Simulation) CurrentTick() uint64 {
 	return s.LastTick
+}
+
+// Subscribe returns a subscriber ID and a buffered channel that receives events.
+func (s *Simulation) Subscribe() (int, chan Event) {
+	s.eventSubMu.Lock()
+	defer s.eventSubMu.Unlock()
+	if s.eventSubs == nil {
+		s.eventSubs = make(map[int]chan Event)
+	}
+	id := s.nextSubID
+	s.nextSubID++
+	ch := make(chan Event, 64)
+	s.eventSubs[id] = ch
+	return id, ch
+}
+
+// Unsubscribe removes a subscriber and closes its channel.
+func (s *Simulation) Unsubscribe(id int) {
+	s.eventSubMu.Lock()
+	defer s.eventSubMu.Unlock()
+	if ch, ok := s.eventSubs[id]; ok {
+		close(ch)
+		delete(s.eventSubs, id)
+	}
+}
+
+// EmitEvent appends an event to the stored slice and broadcasts to all subscribers.
+func (s *Simulation) EmitEvent(e Event) {
+	s.Events = append(s.Events, e)
+	s.eventSubMu.RLock()
+	defer s.eventSubMu.RUnlock()
+	for _, ch := range s.eventSubs {
+		select {
+		case ch <- e:
+		default:
+			// Subscriber buffer full — drop event for slow consumers.
+		}
+	}
 }
 
 // Event is a notable occurrence in the world.
@@ -163,7 +207,7 @@ func (s *Simulation) TickMinute(tick uint64) {
 
 		// Record notable events.
 		for _, desc := range events {
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: desc,
 				Category:    "agent",
@@ -173,7 +217,7 @@ func (s *Simulation) TickMinute(tick uint64) {
 		// Check for death (starvation).
 		if !a.Alive {
 			deathDesc := fmt.Sprintf("%s has died", a.Name)
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: deathDesc,
 				Category:    "death",
@@ -401,7 +445,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 		}
 
 		desc := fmt.Sprintf("%s strikes %s! Treasury loses %d crowns", disasters[dIdx], sett.Name, damage)
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
 			Category:    "disaster",
@@ -469,7 +513,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			desc = fmt.Sprintf("Discovery near %s: %s found! Treasury gains %d crowns", sett.Name, discoveries[dIdx], bonus)
 		}
 
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
 			Category:    "discovery",
@@ -492,7 +536,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			alchemist.Soul.AdjustCoherence(0.05)
 			alchemist.Inventory[agents.GoodExotics] += 5
 			desc := fmt.Sprintf("Alchemical breakthrough: %s discovers a new transmutation technique", alchemist.Name)
-			s.Events = append(s.Events, Event{
+			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: desc,
 				Category:    "discovery",

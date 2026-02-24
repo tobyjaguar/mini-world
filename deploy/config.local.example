@@ -5,6 +5,7 @@ HOST=your-server-ip
 USER=debian
 KEY=$HOME/.ssh/your-key.pem
 ADMIN_KEY=your-secret-admin-key-here
+RELAY_KEY=your-secret-relay-key-here
 
 # Phase 4: LLM & External Entropy
 ANTHROPIC_API_KEY=your-anthropic-api-key

@@ -34,6 +34,7 @@ echo "=== Updating environment ==="
 # Values are double-quoted in the override to handle spaces and commas (e.g. "San Diego,US").
 OVERRIDE="[Service]"
 OVERRIDE="${OVERRIDE}\nEnvironment=\"WORLDSIM_ADMIN_KEY=${ADMIN_KEY}\""
+[ -n "${RELAY_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"WORLDSIM_RELAY_KEY=${RELAY_KEY}\""
 [ -n "${ANTHROPIC_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\""
 [ -n "${WEATHER_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"WEATHER_API_KEY=${WEATHER_API_KEY}\""
 [ -n "${WEATHER_LOCATION:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"WEATHER_LOCATION=${WEATHER_LOCATION}\""

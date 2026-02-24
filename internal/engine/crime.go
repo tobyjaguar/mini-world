@@ -96,7 +96,7 @@ func (s *Simulation) processCrime(tick uint64) {
 				a.Wealth -= fine
 				sett.Treasury += fine
 
-				s.Events = append(s.Events, Event{
+				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s was caught stealing and branded an outlaw in %s", a.Name, sett.Name),
 					Category:    "crime",

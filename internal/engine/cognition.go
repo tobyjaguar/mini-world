@@ -234,7 +234,7 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 				if candidate.Alive && candidate.Name == d.Target && candidate.FactionID == nil {
 					fid := *a.FactionID
 					candidate.FactionID = &fid
-					s.Events = append(s.Events, Event{
+					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("%s recruited %s to their faction", a.Name, candidate.Name),
 						Category:    "social",
@@ -246,7 +246,7 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 
 	case "speak":
 		// Generate a quote — stored as an event for narrative color.
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s declares: \"%s\"", a.Name, d.Target),
 			Category:    "social",
@@ -256,7 +256,7 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 	// Log the decision and create a memory.
 	detail := fmt.Sprintf("%s decided to %s (%s): %s", a.Name, d.Action, d.Target, d.Reasoning)
 	agents.AddMemory(a, tick, detail, 0.5)
-	s.Events = append(s.Events, Event{
+	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: detail,
 		Category:    "agent",
@@ -452,7 +452,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 		}
 
 	case "speak":
-		s.Events = append(s.Events, Event{
+		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s prophesies: \"%s\"", a.Name, vision.Target),
 			Category:    "oracle",
@@ -468,7 +468,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 						candidate.Soul.CittaCoherence = 0.7 // Can't create Liberated via blessing
 					}
 					candidate.Soul.UpdateState()
-					s.Events = append(s.Events, Event{
+					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("%s blessed %s, nudging their coherence toward clarity", a.Name, candidate.Name),
 						Category:    "oracle",
@@ -483,7 +483,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 	detail := fmt.Sprintf("Oracle %s received a vision and chose to %s (%s): %s",
 		a.Name, vision.Action, vision.Target, vision.Reasoning)
 	agents.AddMemory(a, tick, detail, 0.6)
-	s.Events = append(s.Events, Event{
+	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: fmt.Sprintf("Oracle %s: \"%s\" — %s %s", a.Name, vision.Prophecy, vision.Action, vision.Target),
 		Category:    "oracle",

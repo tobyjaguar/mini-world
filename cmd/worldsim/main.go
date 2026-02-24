@@ -414,6 +414,10 @@ func main() {
 	if adminKey == "" {
 		slog.Warn("WORLDSIM_ADMIN_KEY not set — admin POST endpoints will be disabled")
 	}
+	relayKey := os.Getenv("WORLDSIM_RELAY_KEY")
+	if relayKey == "" {
+		slog.Warn("WORLDSIM_RELAY_KEY not set — SSE streaming will be disabled")
+	}
 
 	apiServer := &api.Server{
 		Sim:      sim,
@@ -422,6 +426,7 @@ func main() {
 		DB:       db,
 		Port:     apiPort,
 		AdminKey: adminKey,
+		RelayKey: relayKey,
 	}
 	apiServer.Start()
 

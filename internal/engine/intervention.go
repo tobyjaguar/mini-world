@@ -39,7 +39,7 @@ func (s *Simulation) ProvisionSettlement(name, goodName string, quantity int) (s
 	entry.Supply += float64(quantity)
 	desc := fmt.Sprintf("A merchant caravan arrives in %s bearing %d units of %s", name, quantity, goodName)
 
-	s.Events = append(s.Events, Event{
+	s.EmitEvent(Event{
 		Tick:        s.LastTick,
 		Description: desc,
 		Category:    "gardener",
@@ -64,7 +64,7 @@ func (s *Simulation) CultivateSettlement(name string, multiplier float64, durati
 	})
 
 	desc := fmt.Sprintf("A bountiful season blesses the workers of %s (%.1fx production for %d days)", name, multiplier, durationDays)
-	s.Events = append(s.Events, Event{
+	s.EmitEvent(Event{
 		Tick:        s.LastTick,
 		Description: desc,
 		Category:    "gardener",
@@ -123,7 +123,7 @@ func (s *Simulation) ConsolidateSettlement(name string, count int) (string, erro
 	s.rebuildSettlementAgents()
 
 	desc := fmt.Sprintf("Refugees from %s (%d souls) seek shelter in %s", name, moved, targetSett.Name)
-	s.Events = append(s.Events, Event{
+	s.EmitEvent(Event{
 		Tick:        s.LastTick,
 		Description: desc,
 		Category:    "gardener",
