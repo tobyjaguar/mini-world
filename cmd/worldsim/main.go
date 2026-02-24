@@ -207,6 +207,35 @@ func main() {
 		}
 	}
 
+	// Restore hex health from database (must happen before the default-to-pristine loop).
+	if startTick > 0 {
+		if healthStr, err := db.GetMeta("hex_health"); err == nil {
+			var hexHealth map[string]struct {
+				H float64 `json:"h"`
+				T uint64  `json:"t"`
+			}
+			if json.Unmarshal([]byte(healthStr), &hexHealth) == nil && len(hexHealth) > 0 {
+				for key, entry := range hexHealth {
+					var q, r int
+					fmt.Sscanf(key, "%d,%d", &q, &r)
+					if hex := worldMap.Get(world.HexCoord{Q: q, R: r}); hex != nil {
+						hex.Health = entry.H
+						hex.LastExtractedTick = entry.T
+					}
+				}
+				slog.Info("hex health restored", "degraded_hexes", len(hexHealth))
+			}
+		}
+	}
+
+	// Default any hex with zero health to pristine (handles first deploy
+	// where no hex_health metadata exists yet).
+	for _, hex := range worldMap.Hexes {
+		if hex.Health == 0 && hex.LastExtractedTick == 0 {
+			hex.Health = 1.0
+		}
+	}
+
 	// Link settlement hex references (needed for both fresh and loaded worlds).
 	for _, st := range allSettlements {
 		sid := st.ID

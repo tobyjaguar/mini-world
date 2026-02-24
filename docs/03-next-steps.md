@@ -111,7 +111,7 @@ Persisted `births` and `trade_volume` counters to `world_meta`. Restored on star
 ### Current Issues (observed 2026-02-23, tick 229,763)
 
 **P2 — Farmer satisfaction still negative (-0.10):**
-Farmer Tier 2 satisfaction improved from -0.45 to -0.10 but remains the lowest occupation. Structural cause: hex depletion means farmers often can't produce even without punishment. Weekly micro-regen (~4.7%) means fully depleted hexes take ~21 weeks to recover. If satisfaction plateaus, consider faster regen.
+Farmer Tier 2 satisfaction improved from -0.45 to -0.10 but remains the lowest occupation. Structural cause: hex depletion means farmers often can't produce even without punishment. **Phase 7A (hex health model) deployed** — dynamic health-scaled regen should address this by creating fallow recovery cycles instead of flat-rate regen. Monitor farmer satisfaction after deploy.
 
 **P3 — Faction imbalance (Crown dominates):**
 Crown faction influence significantly outweighs other factions in monarchies. Not blocking anything but could be explored for deeper political dynamics. The Merchant's Compact and Iron Brotherhood are relatively weak.
@@ -122,16 +122,83 @@ NonViableWeeks persistence deployed — viability counters are now accumulating.
 **P3 — Fisher skill alias:**
 `productionAmount()` still uses `max(Farming, Combat, 0.5) * 5` for fishers instead of a dedicated `Skills.Fishing` field. Works correctly but technically wrong. Low priority schema change.
 
+### Land Management — Phase A Deployed, Phase B Pending
+
+**Phase 7A (hex health model) deployed.** See `docs/15-land-management-proposal.md` for full research proposal.
+
+What's live:
+- Hex `Health` field (0.0–1.0) — extraction degrades, fallow recovers
+- Regen scales by health — degraded land regenerates slower (self-correcting)
+- Desertification threshold at Agnosis (0.236) — zero regen below threshold
+- Fallow recovery — un-extracted hexes regain ~1.2% health/week
+- Carrying capacity metric — `SettlementCarryingCapacity()` sums health-weighted resource caps
+- Hex health persisted to `world_meta` — survives restarts
+- API exposure — health in hex detail, bulk map, and settlement detail (`carrying_capacity`, `population_pressure`)
+
+**Phase B (pending observation of Phase A for 1+ week):**
+- Settlement hex claims (Ostrom principle 1: boundaries)
+- Infrastructure investment in hexes (treasury → improvement level)
+- Fallow/rotation as explicit agent behavior choice
+- Coherence-based extraction policy (governance type affects land stewardship)
+- Carrying capacity as settlement strategic metric (expand vs. intensify decisions)
+
+### External Data Integration — Underutilized
+
+Three external data sources are wired up but only lightly used. All three could deepen the world if connected to more systems.
+
+**Weather API (OpenWeatherMap)** — fetched hourly, produces 3 modifiers:
+- `TempModifier` — **not used by any mechanic**
+- `FoodDecayMod` — affects inventory spoilage only
+- `TravelPenalty` — affects travel time only
+- Weather description is passed to oracle visions and newspaper but has no mechanical effect on the world
+
+*Potential integration with land management:*
+- Hot/dry weather → accelerated hex health degradation (drought stress)
+- Rain → boosted fallow recovery and regen rate (via hex `Rainfall` field)
+- Storms → direct hex health damage (erosion, flooding)
+- Seasonal weather patterns → per-terrain regen modifiers (e.g. plains benefit from spring rain, tundra suffers in summer thaw)
+- Weather-driven crop failure events for settlement hexes
+
+**random.org API** — true randomness, used in exactly one place:
+- `processRandomEvents()` — weekly disaster (2%), discovery (5%), alchemy (3%) rolls
+- No connection to land, economy, agent decisions, or any other system
+
+*Potential integration:*
+- Random weather extremes (drought, flood) that affect hex health across a region
+- Discovery events that reveal hex potential (hidden mineral deposits, fertile soil)
+- Plague/blight events that degrade hex health in an area
+- True randomness for gardener triage tie-breaking
+
+**Oracle Visions (Haiku LLM)** — weekly prophecies for Liberated agents:
+- Oracles receive world context (season, weather, mood, Gini) and produce prophecies + actions
+- Actions: trade, advocate, invest, speak, bless — none affect the physical world
+- Visions become memories and events but have no mechanical consequences beyond coherence nudges
+
+*Potential integration with land management:*
+- Oracle "invest" action → direct hex improvement investment from agent wealth
+- Oracle "advocate" action → influence settlement land policy (conservation vs. extraction)
+- Oracle visions could perceive hex health degradation and warn settlements
+- New oracle action "tend" — oracle spends time restoring a degraded hex (fallow boost)
+- Prophecies about land health could trigger settlement-level behavioral shifts (Phase B)
+
+**The integration thesis:** External data sources are the world's connection to reality. Weather makes the world breathe with real atmospheric rhythms. True randomness prevents deterministic loops. Oracle visions are the only place where LLM intelligence touches the physical world. Currently all three are cosmetic — connecting them to land health would make outside information *matter*.
+
 ## Roadmap
 
-### Step 1 (Current): Monitor & Stabilize
-All critical fixes deployed. World is healthy: population 100K+, satisfaction 0.300, D:B ratio 0.07, market health 96.8%, Gini 0.575. Monitor tiny settlement consolidation (NonViableWeeks now persistent) and Tier 2 replenishment over the next few sim-weeks.
+### Step 1 (Current): Monitor Phase 7A & Stabilize
+Hex health model deployed. Monitor: farmer satisfaction trends, hex health distribution across the map, desertification frequency, fallow recovery rates. Use `/observe` and hex detail API. If health degrades too fast, tune `Agnosis * 0.01` extraction rate. If too slow, the system has no effect.
 
-### Step 2: Factions + Social UI
+### Step 2: External Data → Land Health
+Wire weather and randomness into the hex health system. Hot/dry weather accelerates degradation; rain boosts recovery. Random events can damage or restore regional hex health. This makes the world responsive to real outside conditions.
+
+### Step 3: Phase 7B — Land Governance
+Settlement hex claims, infrastructure investment, coherence-based extraction policy. Depends on Phase A data showing hex health dynamics are meaningful.
+
+### Step 4: Factions + Social UI
 Add the missing frontend pages for factions (list + detail with influence per settlement) and social graph (relationship network visualization). API endpoints already exist.
 
-### Step 3: Infrastructure Effects
+### Step 5: Infrastructure Effects
 Make walls/roads/markets mechanically meaningful. Roads reduce travel time for merchants, walls reduce crime/theft, market level improves trade efficiency. Currently these exist as numbers but have no gameplay effect.
 
-### Step 4: Deeper Emergence
+### Step 6: Deeper Emergence
 Inter-settlement diplomacy, warfare, religion/philosophy, agent life events. See "Deeper Emergence" section above.

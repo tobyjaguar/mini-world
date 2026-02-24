@@ -443,6 +443,26 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		}
 	}
 
+	// Persist hex health state (only non-pristine hexes, to keep payload small).
+	type hexHealthEntry struct {
+		H float64 `json:"h"`
+		T uint64  `json:"t"`
+	}
+	hexHealth := make(map[string]hexHealthEntry)
+	for coord, hex := range sim.WorldMap.Hexes {
+		if hex.Health < 1.0 || hex.LastExtractedTick > 0 {
+			key := fmt.Sprintf("%d,%d", coord.Q, coord.R)
+			hexHealth[key] = hexHealthEntry{H: hex.Health, T: hex.LastExtractedTick}
+		}
+	}
+	if len(hexHealth) > 0 {
+		hexHealthJSON, _ := json.Marshal(hexHealth)
+		if err := db.SaveMeta("hex_health", string(hexHealthJSON)); err != nil {
+			return fmt.Errorf("save hex_health: %w", err)
+		}
+		slog.Info("hex health persisted", "degraded_hexes", len(hexHealth))
+	}
+
 	// Persist cumulative counters that can't be derived from agent/settlement state.
 	if err := db.SaveMeta("births", fmt.Sprintf("%d", sim.Stats.Births)); err != nil {
 		return fmt.Errorf("save births: %w", err)

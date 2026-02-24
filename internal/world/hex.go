@@ -46,6 +46,11 @@ type Hex struct {
 
 	// Settlement on this hex, if any.
 	SettlementID *uint64 `json:"settlement_id,omitempty"`
+
+	// Land health: 0.0 (degraded) to 1.0 (pristine).
+	// Extraction degrades health; fallow hexes recover.
+	Health            float64 `json:"health"`
+	LastExtractedTick uint64  `json:"last_extracted_tick"`
 }
 
 // ResourceType enumerates primary resources harvestable from terrain.

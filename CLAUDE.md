@@ -239,6 +239,7 @@ POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents, pro
 4. **LLM Integration** — COMPLETE: Haiku API client, Tier 2 cognition, Tier 1 archetypes, newspaper generation, event narration, agent biographies, oracle visions
 5. **Polish & Perpetuation** — COMPLETE: Population dynamics (births/aging/death/migration), resource regen, anti-stagnation, settlement lifecycle (founding/abandonment), stats history, admin endpoints, random.org entropy, weather integration
 6. **Closed Economy** — COMPLETE: Order-matched market engine, merchant/Tier 2 trade closed via treasury, fallback wages removed, remaining mints throttled 60x. See `docs/08-closed-economy-changelog.md`.
+7. **Land Management** — PHASE A COMPLETE: Hex health model (0.0–1.0), extraction degrades health, regen scales by health, desertification threshold at Agnosis, fallow recovery, carrying capacity metric, hex health persisted across restarts. Phase B (settlement claims, infrastructure investment, coherence-based policy) pending observation. See `docs/15-land-management-proposal.md`.
 
 ## Tuning Fixes Applied
 
@@ -381,6 +382,18 @@ The Gardener had been running for ~47K ticks with zero observable effect. Docs 1
 63. **Abandoned settlement treasury sink** — FIXED: `processSettlementAbandonment()` in `settlement_lifecycle.go` now redistributes treasury to the 3 nearest active settlements before marking abandoned. Added `nearestActiveSettlements()` helper. Prevents growing wealth sink as settlements consolidate.
 64. **Crime events flood event log** — FIXED: Removed event logging for successful food theft and wealth theft in `processCrime()`. Only "caught stealing / branded outlaw" events are logged. Crime mechanics unchanged — theft still happens, relationships damaged, factions affected. Event buffer now shows births, oracle visions, social events instead of 450+ theft reports.
 65. **Hex regen too slow (4.7%/week)** — FIXED: `weeklyResourceRegen()` multiplier doubled from `Agnosis * 0.2` to `Agnosis * 0.4` (~9.4% of deficit/week). Depleted hexes recover in ~10 weeks instead of ~21. Farmer satisfaction should improve as production succeeds more often.
+
+### Phase 7A: Hex Health Model
+
+Replaces flat regen tuning with a dynamic, self-correcting land health system. See `docs/15-land-management-proposal.md` for the full research proposal.
+
+66. **Hex health field** — NEW: Every hex has `Health` (0.0–1.0) and `LastExtractedTick`. Pristine at 1.0, degrades with extraction at `Agnosis * 0.01` (~0.00236) per production tick.
+67. **Health-scaled regen** — CHANGED: Both seasonal and weekly regen multiply by `hex.Health`. Degraded land regenerates slower, creating a positive feedback loop: let land rest → health improves → faster regen.
+68. **Desertification threshold** — NEW: Hexes below `Agnosis` (0.236) health get zero regen. Must recover health through fallow before resources return.
+69. **Fallow recovery** — NEW: Hexes not extracted for >1 sim-day recover `Agnosis * 0.05` (~1.2%) health per week. Full recovery from desertified takes ~66 weeks.
+70. **Carrying capacity metric** — NEW: `SettlementCarryingCapacity()` sums health-weighted resource caps for settlement hex + neighbors. Exposed as `carrying_capacity` and `population_pressure` in settlement detail API.
+71. **Hex health persistence** — NEW: Non-pristine hex health persisted as JSON in `world_meta` key `hex_health`. Restored on startup before defaulting unset hexes to 1.0.
+72. **API exposure** — NEW: Hex detail shows `health` and `last_extracted_tick`. Bulk map includes `health` for non-pristine hexes (omitted when 1.0 to keep payload small).
 
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.

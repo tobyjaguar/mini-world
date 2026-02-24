@@ -103,6 +103,7 @@ func Generate(cfg GenConfig) *Map {
 				Rainfall:    rain,
 				Temperature: temp,
 				Resources:   makeResources(terrain, elev, rain),
+			Health:      1.0, // Pristine land at world generation
 			}
 
 			m.Set(hex)

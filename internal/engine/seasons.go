@@ -119,13 +119,19 @@ func (s *Simulation) regenerateResources() {
 				continue
 			}
 
-			// Regenerate based on terrain type.
+			// Desertified hexes don't regenerate resources until health recovers.
+			if hex.Health < phi.Agnosis {
+				continue
+			}
+
+			// Regenerate based on terrain type, scaled by hex health.
 			for res, qty := range hex.Resources {
-				maxQty := resourceCap(hex.Terrain, res)
+				maxQty := ResourceCap(hex.Terrain, res)
 				if qty < maxQty {
-					// Regrow at rate proportional to Matter (Φ⁻¹ ≈ 62% of deficit per season).
+					// Regrow at rate proportional to Matter, scaled by hex health.
+					// Degraded land regenerates slower.
 					deficit := maxQty - qty
-					regen := deficit * phi.Matter * 0.3 // ~18.5% of deficit per season
+					regen := deficit * phi.Matter * 0.3 * hex.Health
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty
@@ -136,8 +142,8 @@ func (s *Simulation) regenerateResources() {
 	}
 }
 
-// resourceCap returns the maximum resource quantity for a terrain/resource combo.
-func resourceCap(terrain world.Terrain, res world.ResourceType) float64 {
+// ResourceCap returns the maximum resource quantity for a terrain/resource combo.
+func ResourceCap(terrain world.Terrain, res world.ResourceType) float64 {
 	switch terrain {
 	case world.TerrainPlains:
 		if res == world.ResourceGrain {
@@ -201,11 +207,24 @@ func (s *Simulation) weeklyResourceRegen() {
 				continue
 			}
 
+			// Fallow recovery: un-extracted hexes regain health.
+			if hex.LastExtractedTick == 0 || s.LastTick-hex.LastExtractedTick > TicksPerSimDay {
+				hex.Health += phi.Agnosis * 0.05 // ~1.2% health per week when fallow
+				if hex.Health > 1.0 {
+					hex.Health = 1.0
+				}
+			}
+
+			// Desertified hexes don't regenerate resources until health recovers.
+			if hex.Health < phi.Agnosis {
+				continue
+			}
+
 			for res, qty := range hex.Resources {
-				maxQty := resourceCap(hex.Terrain, res)
+				maxQty := ResourceCap(hex.Terrain, res)
 				if qty < maxQty {
 					deficit := maxQty - qty
-					regen := deficit * phi.Agnosis * 0.4 // ~9.4% of deficit per week
+					regen := deficit * phi.Agnosis * 0.4 * hex.Health // ~9.4% scaled by health
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty

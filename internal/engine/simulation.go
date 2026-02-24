@@ -666,6 +666,41 @@ func (s *Simulation) updateStats() {
 	}
 }
 
+// SettlementCarryingCapacity computes the carrying capacity for a settlement
+// based on the health-weighted resource cap of its hex and neighboring hexes.
+func (s *Simulation) SettlementCarryingCapacity(settID uint64) (capacity float64, pressure float64) {
+	sett, ok := s.SettlementIndex[settID]
+	if !ok {
+		return 0, 0
+	}
+
+	hex := s.WorldMap.Get(sett.Position)
+	if hex == nil {
+		return 0, 0
+	}
+
+	// Sum health-weighted resource caps for settlement hex and neighbors.
+	addHexCapacity := func(h *world.Hex) {
+		for res, _ := range h.Resources {
+			cap := ResourceCap(h.Terrain, res)
+			capacity += cap * h.Health
+		}
+	}
+
+	addHexCapacity(hex)
+	for _, nc := range sett.Position.Neighbors() {
+		nh := s.WorldMap.Get(nc)
+		if nh != nil && nh.Terrain != world.TerrainOcean {
+			addHexCapacity(nh)
+		}
+	}
+
+	if capacity > 0 {
+		pressure = float64(sett.Population) / capacity
+	}
+	return capacity, pressure
+}
+
 // rebuildSettlementAgents reconstructs the settlement→agents map from agent HomeSettIDs.
 // Must be called after any operation that changes agent HomeSettID (e.g. migration, diaspora).
 func (s *Simulation) rebuildSettlementAgents() {

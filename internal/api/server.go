@@ -138,11 +138,12 @@ func (s *Server) handleMapRoutes(w http.ResponseWriter, r *http.Request) {
 // handleBulkMap returns all hexes for the hex map renderer.
 func (s *Server) handleBulkMap(w http.ResponseWriter, r *http.Request) {
 	type hexEntry struct {
-		Q            int     `json:"q"`
-		R            int     `json:"r"`
-		Terrain      uint8   `json:"terrain"`
-		Elevation    float64 `json:"elevation"`
-		SettlementID *uint64 `json:"settlement_id,omitempty"`
+		Q            int      `json:"q"`
+		R            int      `json:"r"`
+		Terrain      uint8    `json:"terrain"`
+		Elevation    float64  `json:"elevation"`
+		SettlementID *uint64  `json:"settlement_id,omitempty"`
+		Health       *float64 `json:"health,omitempty"` // Omitted when pristine (1.0)
 	}
 
 	type settlementEntry struct {
@@ -155,13 +156,19 @@ func (s *Server) handleBulkMap(w http.ResponseWriter, r *http.Request) {
 
 	hexes := make([]hexEntry, 0, len(s.Sim.WorldMap.Hexes))
 	for _, h := range s.Sim.WorldMap.Hexes {
-		hexes = append(hexes, hexEntry{
+		entry := hexEntry{
 			Q:            h.Coord.Q,
 			R:            h.Coord.R,
 			Terrain:      uint8(h.Terrain),
 			Elevation:    h.Elevation,
 			SettlementID: h.SettlementID,
-		})
+		}
+		// Only include health for non-pristine hexes to keep payload small.
+		if h.Health < 1.0 {
+			health := h.Health
+			entry.Health = &health
+		}
+		hexes = append(hexes, entry)
 	}
 
 	settlements := make([]settlementEntry, 0, len(s.Sim.Settlements))
@@ -1269,6 +1276,9 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Carrying capacity from hex health.
+	carryingCapacity, populationPressure := s.Sim.SettlementCarryingCapacity(id)
+
 	// Recent events mentioning this settlement.
 	var recentEvents []engine.Event
 	for _, e := range s.Sim.Events {
@@ -1311,6 +1321,8 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		"market":               market,
 		"top_agents":           topAgents,
 		"faction_presence":     factionCounts,
+		"carrying_capacity":    carryingCapacity,
+		"population_pressure":  populationPressure,
 		"recent_events":        recentEvents,
 	}
 	writeJSON(w, result)
@@ -1531,17 +1543,19 @@ func (s *Server) handleHexDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := map[string]any{
-		"q":           q,
-		"r":           rr,
-		"terrain":     terrainName,
-		"elevation":   hex.Elevation,
-		"rainfall":    hex.Rainfall,
-		"temperature": hex.Temperature,
-		"resources":   resources,
-		"settlement":  settlement,
-		"agent_count": agentCount,
-		"agents":      agentsOnHex,
-		"neighbors":   neighbors,
+		"q":                  q,
+		"r":                  rr,
+		"terrain":            terrainName,
+		"elevation":          hex.Elevation,
+		"rainfall":           hex.Rainfall,
+		"temperature":        hex.Temperature,
+		"health":             hex.Health,
+		"last_extracted_tick": hex.LastExtractedTick,
+		"resources":          resources,
+		"settlement":         settlement,
+		"agent_count":        agentCount,
+		"agents":             agentsOnHex,
+		"neighbors":          neighbors,
 	}
 	writeJSON(w, result)
 }

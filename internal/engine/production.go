@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/world"
 )
 
@@ -82,6 +83,13 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	if hex.Resources[resType] < 0 {
 		hex.Resources[resType] = 0
 	}
+
+	// Extraction degrades hex health.
+	hex.Health -= phi.Agnosis * 0.01 // ~0.00236 per extraction tick
+	if hex.Health < 0 {
+		hex.Health = 0
+	}
+	hex.LastExtractedTick = tick
 
 	// Apply production to agent inventory.
 	good := occupationGood(a.Occupation)
