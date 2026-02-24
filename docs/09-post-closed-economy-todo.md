@@ -133,35 +133,41 @@ Two remaining structural issues from post-recovery `/observe`:
 
 ## Remaining TODO
 
-### P0: Persist NonViableWeeks across deploys
+### FIXED: Persist NonViableWeeks across deploys
 
-`NonViableWeeks map[uint64]int` on Simulation resets to empty on every restart. The 2-week grace period for force-migrating tiny settlements never triggers. 234 settlements with pop < 25 are permanently frozen. Same issue for `AbandonedWeeks`. Fix: persist both as JSON in `world_meta`.
+Deployed at tick ~222K. Both `NonViableWeeks` and `AbandonedWeeks` maps persisted to `world_meta` as JSON. Restored on startup. Viability counters now accumulating — 234 tiny settlements should start consolidating.
+
+### FIXED: Merchant extinction / Tier 2 replenishment
+
+Added `processWeeklyTier2Replenishment()` in `population.go` — promotes up to 2 Tier 0 adults per week to fill Tier 2 vacancies (target: 30). Deployed at tick ~225K.
+
+### FIXED: Birth/trade counter resets on deploy
+
+Persisted `births` and `trade_volume` counters to `world_meta`. Restored on startup.
 
 ### P2: Fisher skill alias
 
-`productionAmount()` still uses `Skills.Farming` for fishers instead of a dedicated fishing skill. Works but technically wrong.
-
-### P2: Merchant extinction
-
-All 6 Tier 2 merchants dead with 0 wealth and alignment 0.000. No new promotions happening. May need investigation into whether Awakening-valley coherence (0.47-0.61) produces zero alignment by design in `ComputeAlignment()`.
+`productionAmount()` still uses `max(Farming, Combat, 0.5) * 5` for fishers instead of a dedicated fishing skill. Works but technically wrong.
 
 ### P2: Hex regen rate
 
-Weekly micro-regen (~4.7%) means fully depleted hexes take ~21 weeks to recover. Farmers no longer punished for depletion (wave 9) but still can't produce. May need faster regen if satisfaction plateaus.
+Weekly micro-regen (~4.7%) means fully depleted hexes take ~21 weeks to recover. Farmers no longer punished for depletion (wave 9) but still can't produce. Farmer satisfaction at -0.10 (improved from -0.45). May need faster regen if satisfaction plateaus.
 
 ## Success Criteria
 
-### Achieved (as of tick 222,114)
+### Achieved (as of tick 229,763)
 - Grain price normalized — within Phi bounds (0.47 to 5.0)
-- Births resumed — D:B ratio 0.08-0.18 (excellent)
+- Births resumed — D:B ratio 0.07 (excellent)
 - Market health 96.8%
-- Treasury/agent ratio at target — 40.5% (target 38.2%)
-- Population growing — 97,304 (from 50K at wave 1)
-- Gini stabilized — 0.582 (down from 0.673 peak)
-- Satisfaction improving — 0.187 (up from 0.126 pre-wave-9)
+- Treasury/agent ratio at target — stable near 38.2%
+- Population crossed 100K — 100,759 (from 50K at wave 1)
+- Gini stabilized — 0.575 (down from 0.673 peak)
+- Satisfaction stable — **0.300** (up from 0.126 pre-wave-9, +138%)
+- Trade volume surging — active inter-settlement commerce
+- All P0 issues resolved
 
-### Still Monitoring (after wave 9)
-- Satisfaction — 0.187, should continue climbing toward 0.30+ as doom loop fix matures
-- Farmer Tier 2 satisfaction — -0.19, should converge toward 0.0+
-- Settlement count — 714, still frozen until NonViableWeeks is persisted
+### Still Monitoring
+- Tiny settlement consolidation — NonViableWeeks now persistent, 234 settlements awaiting 2-week grace period expiry
+- Tier 2 replenishment — deployed, awaiting first weekly promotion cycle
+- Farmer Tier 2 satisfaction — -0.10, structural hex depletion limits further improvement
 - Survival — 0.398, stable (food economy working)

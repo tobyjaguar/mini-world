@@ -2,7 +2,7 @@
 
 ## Current State (Phases 1–5 + Tuning — Complete)
 
-The world is live and tuned. ~50,000 agents across 714 settlements on a hex grid continent, running 24/7 on DreamCompute. The API serves at `api.crossworlds.xyz` (Cloudflare proxy) and the Next.js frontend is deployed on Vercel at `crossworlds.xyz`.
+The world is live and tuned. ~100,000 agents across 714 settlements on a hex grid continent, running 24/7 on DreamCompute. The API serves at `api.crossworlds.xyz` (Cloudflare proxy) and the Next.js frontend is deployed on Vercel at `crossworlds.xyz`.
 
 ### What's working:
 - **World**: Simplex noise terrain, rivers, coast detection, hex grid (~2,000 hexes)
@@ -94,24 +94,38 @@ Diagnosed via `/observe` after deploying the closed economy. All P0 issues from 
 **RESOLVED — Fisher mood spiral:** Fixed by fisher skill bug fix (tuning round 11), food buying action (wave 7).
 **RESOLVED — Producer doom loop:** Fixed in tuning round 12 (wave 9). See below.
 
-### Current Issues (observed 2026-02-23, tick 222,114)
+### Recently Resolved Issues
 
-**P0 — NonViableWeeks resets on deploy (234 tiny settlements frozen):**
-`NonViableWeeks map[uint64]int` on the Simulation struct resets to empty `make(map[uint64]int)` on every restart. The 2-week grace period for force-migration never triggers because every deploy resets the counter to 0. Same issue affects `AbandonedWeeks`. Fix: persist both maps to `world_meta` as JSON.
+**FIXED — NonViableWeeks resets on deploy (234 tiny settlements frozen):**
+Persisted both `NonViableWeeks` and `AbandonedWeeks` to `world_meta` as JSON. Restored on startup. Deployed at tick ~222K. Accumulating — expect tiny settlements to start consolidating over 2-4 sim-weeks.
 
-**P1 — Monitor satisfaction trend post-doom-loop-fix:**
-Avg satisfaction jumped from 0.127 → 0.187 (+47%) in first snapshot after deploying tuning round 12. Tier 2 farmer satisfaction improved from -0.45 → -0.19. Need to monitor over 3-5 more gardener cycles to see if it continues climbing toward 0.30+.
+**FIXED — Satisfaction frozen at 0.126 (producer doom loop):**
+Avg satisfaction climbed from 0.126 → 0.187 → **0.300** (+138% total) after wave 9 doom loop fix matured. Tier 2 farmer satisfaction improved from -0.45 → -0.10. Stable at 0.300 as of tick 229,763.
 
-**P2 — Merchant extinction:**
-All 6 Tier 2 merchants are dead. No living Tier 2 merchants. All had alignment 0.000 and wealth 0. No new Tier 2 merchant promotions happening. May need to investigate whether merchant coherence values (0.47-0.61, Awakening valley) produce zero alignment by design.
+**FIXED — Merchant extinction / no Tier 2 replenishment:**
+Added `processWeeklyTier2Replenishment()` — promotes up to 2 Tier 0 adults per week to fill Tier 2 vacancies (target: 30). Deployed at tick ~225K.
 
-**P2 — Hex regen rate:**
-Farmers on depleted hexes are no longer punished (tuning round 12), but they still can't produce. Weekly micro-regen (~4.7%) means a fully depleted hex takes ~21 weeks to recover. If farmer satisfaction plateaus, increasing regen rate may help.
+**FIXED — Birth/trade counter resets on deploy:**
+Persisted `births` and `trade_volume` counters to `world_meta`. Restored on startup. Eliminates counter reset noise from deploys.
+
+### Current Issues (observed 2026-02-23, tick 229,763)
+
+**P2 — Farmer satisfaction still negative (-0.10):**
+Farmer Tier 2 satisfaction improved from -0.45 to -0.10 but remains the lowest occupation. Structural cause: hex depletion means farmers often can't produce even without punishment. Weekly micro-regen (~4.7%) means fully depleted hexes take ~21 weeks to recover. If satisfaction plateaus, consider faster regen.
+
+**P3 — Faction imbalance (Crown dominates):**
+Crown faction influence significantly outweighs other factions in monarchies. Not blocking anything but could be explored for deeper political dynamics. The Merchant's Compact and Iron Brotherhood are relatively weak.
+
+**P3 — 234 tiny settlements awaiting consolidation:**
+NonViableWeeks persistence deployed — viability counters are now accumulating. These settlements should start consolidating as the 2-week grace period expires. Monitoring.
+
+**P3 — Fisher skill alias:**
+`productionAmount()` still uses `max(Farming, Combat, 0.5) * 5` for fishers instead of a dedicated `Skills.Fishing` field. Works correctly but technically wrong. Low priority schema change.
 
 ## Roadmap
 
-### Step 1 (Current): Persist NonViableWeeks + AbandonedWeeks
-Save viability tracking maps to database so tiny settlement consolidation survives deploys. Expected to clear 234 tiny settlements over 2-4 weeks of sim-time.
+### Step 1 (Current): Monitor & Stabilize
+All critical fixes deployed. World is healthy: population 100K+, satisfaction 0.300, D:B ratio 0.07, market health 96.8%, Gini 0.575. Monitor tiny settlement consolidation (NonViableWeeks now persistent) and Tier 2 replenishment over the next few sim-weeks.
 
 ### Step 2: Factions + Social UI
 Add the missing frontend pages for factions (list + detail with influence per settlement) and social graph (relationship network visualization). API endpoints already exist.
