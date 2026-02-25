@@ -812,6 +812,15 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 		}
 	}
 
+	// Successful trade gives merchant a sense of accomplishment.
+	// Matches producer successful-work boosts from ResolveWork.
+	if totalRevenue > 0 {
+		a.Needs.Safety += 0.008
+		a.Needs.Esteem += 0.012
+		a.Needs.Belonging += 0.004
+		a.Needs.Purpose += 0.004
+	}
+
 	// Tier 2 merchants at the destination earn a commission on trades
 	// flowing through their settlement — guild masters who facilitate trade.
 	if totalRevenue > 0 {

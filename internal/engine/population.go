@@ -292,14 +292,6 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 		}
 	}
 
-	vacancies := targetTier2 - aliveTier2
-	if vacancies <= 0 {
-		return
-	}
-	if vacancies > maxPerCycle {
-		vacancies = maxPerCycle
-	}
-
 	// Collect eligible Tier 0 adults.
 	var eligible []*agents.Agent
 	for _, a := range s.Agents {
@@ -311,17 +303,19 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 		return
 	}
 
-	promoted := 0
-
-	// Priority pass: fill slots for occupations with zero Tier 2 representation.
+	// Priority pass: ensure occupation diversity even when target is met.
 	// A world where no fisher has individual agency is structurally incomplete.
+	// This runs BEFORE the vacancy check so dead merchants get replaced even
+	// when total alive Tier 2 count meets target.
+	diversityPromoted := 0
+	const maxDiversity = 2
 	allOccupations := []agents.Occupation{
 		agents.OccupationFarmer, agents.OccupationMiner, agents.OccupationCrafter,
 		agents.OccupationMerchant, agents.OccupationLaborer, agents.OccupationFisher,
 		agents.OccupationHunter,
 	}
 	for _, occ := range allOccupations {
-		if promoted >= vacancies {
+		if diversityPromoted >= maxDiversity {
 			break
 		}
 		if tier2ByOcc[occ] > 0 {
@@ -343,7 +337,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 		}
 		if best != nil {
 			best.Tier = agents.Tier2
-			promoted++
+			diversityPromoted++
 			slog.Info("tier 2 diversity promotion",
 				"agent", best.Name,
 				"occupation", best.Occupation,
@@ -361,6 +355,17 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 			})
 		}
 	}
+
+	// Standard vacancy fill — only if there are slots beyond diversity promotions.
+	vacancies := targetTier2 - aliveTier2 - diversityPromoted
+	if vacancies <= 0 {
+		return
+	}
+	if vacancies > maxPerCycle {
+		vacancies = maxPerCycle
+	}
+
+	promoted := 0
 
 	// Remaining slots: promote top scorers from any occupation.
 	if promoted < vacancies {
