@@ -60,6 +60,10 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 			Tick:        tick,
 			Description: fmt.Sprintf("%s of %s has died, causing a succession crisis", leaderName, sett.Name),
 			Category:    "political",
+			Meta: map[string]any{
+				"settlement_id":   sett.ID,
+				"settlement_name": sett.Name,
+			},
 		})
 	}
 
@@ -94,6 +98,13 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 			Tick:        tick,
 			Description: fmt.Sprintf("%s becomes leader of %s", newLeader.Name, sett.Name),
 			Category:    "political",
+			Meta: map[string]any{
+				"agent_id":        newLeader.ID,
+				"agent_name":      newLeader.Name,
+				"settlement_id":   sett.ID,
+				"settlement_name": sett.Name,
+				"governance":      sett.Governance,
+			},
 		})
 	}
 }
@@ -230,5 +241,12 @@ func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Ag
 			sett.Name, revolutionary.Name, dominantFaction.Name,
 			govNames[oldGov], govNames[sett.Governance], seized),
 		Category: "political",
+		Meta: map[string]any{
+			"settlement_id":   sett.ID,
+			"settlement_name": sett.Name,
+			"old_governance":  govNames[oldGov],
+			"new_governance":  govNames[sett.Governance],
+			"faction_name":    dominantFaction.Name,
+		},
 	})
 }

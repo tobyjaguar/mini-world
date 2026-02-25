@@ -338,6 +338,12 @@ func (s *Simulation) checkFactionTensions(tick uint64) {
 					Description: fmt.Sprintf("Tension rises between %s and %s in %s",
 						f1.Name, f2.Name, sett.Name),
 					Category: "political",
+					Meta: map[string]any{
+						"settlement_id":   sett.ID,
+						"settlement_name": sett.Name,
+						"faction_1":       f1.Name,
+						"faction_2":       f2.Name,
+					},
 				})
 			}
 		}

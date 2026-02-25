@@ -134,6 +134,11 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 			Tick:        tick,
 			Description: desc,
 			Category:    "political",
+			Meta: map[string]any{
+				"source_settlement_id": sett.ID,
+				"settlement_name":      newSett.Name,
+				"count":                len(emigrants),
+			},
 		})
 		s.createSettlementMemories(sett.ID, tick, desc, 0.8)
 
@@ -175,6 +180,11 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 							Tick:        tick,
 							Description: fmt.Sprintf("%s's treasury of %d crowns distributed to neighboring settlements", sett.Name, sett.Treasury),
 							Category:    "economy",
+							Meta: map[string]any{
+								"settlement_id":   sett.ID,
+								"settlement_name": sett.Name,
+								"amount":          sett.Treasury,
+							},
 						})
 						sett.Treasury = 0
 					}
@@ -186,6 +196,10 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has been abandoned — no living souls remain", sett.Name),
 					Category:    "political",
+					Meta: map[string]any{
+						"settlement_id":   sett.ID,
+						"settlement_name": sett.Name,
+					},
 				})
 
 				// Clear hex settlement reference.
@@ -337,6 +351,12 @@ func (s *Simulation) processInfrastructureGrowth(tick uint64) {
 				Tick:        tick,
 				Description: fmt.Sprintf("%s upgrades roads to level %d", sett.Name, sett.RoadLevel),
 				Category:    "economy",
+				Meta: map[string]any{
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"type":            "roads",
+					"level":           sett.RoadLevel,
+				},
 			})
 			continue // One upgrade per week max
 		}
@@ -355,6 +375,12 @@ func (s *Simulation) processInfrastructureGrowth(tick uint64) {
 				Tick:        tick,
 				Description: fmt.Sprintf("%s upgrades walls to level %d", sett.Name, sett.WallLevel),
 				Category:    "economy",
+				Meta: map[string]any{
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"type":            "walls",
+					"level":           sett.WallLevel,
+				},
 			})
 		}
 	}
@@ -402,6 +428,12 @@ func (s *Simulation) processViabilityCheck(tick uint64) {
 					Tick:        tick,
 					Description: fmt.Sprintf("The remaining %d souls of %s migrate to %s (settlement non-viable)", aliveCount, sett.Name, target.Name),
 					Category:    "social",
+					Meta: map[string]any{
+						"source_settlement_id":   sett.ID,
+						"target_settlement_id":   target.ID,
+						"target_settlement_name": target.Name,
+						"count":                  aliveCount,
+					},
 				})
 			}
 		} else {

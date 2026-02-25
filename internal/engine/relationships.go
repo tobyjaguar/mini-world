@@ -145,6 +145,11 @@ func (s *Simulation) formFamilies(sett interface{ }, alive []*agents.Agent, tick
 				Tick:        tick,
 				Description: fmt.Sprintf("%s and %s have formed a family", a.Name, bestMatch.Name),
 				Category:    "social",
+				Meta: map[string]any{
+					"agent_name":    a.Name,
+					"partner_name":  bestMatch.Name,
+					"settlement_id": a.HomeSettID,
+				},
 			})
 		}
 	}
@@ -249,6 +254,10 @@ func (s *Simulation) processFactionRecruitment(alive []*agents.Agent, tick uint6
 				Tick:        tick,
 				Description: fmt.Sprintf("%s recruited %s to their faction", a.Name, target.Name),
 				Category:    "social",
+				Meta: map[string]any{
+					"agent_name":  a.Name,
+					"target_name": target.Name,
+				},
 			})
 		}
 	}
@@ -279,5 +288,9 @@ func (s *Simulation) ProcessBetrayalExpulsion(criminal, victim *agents.Agent, ti
 		Tick:        tick,
 		Description: fmt.Sprintf("%s expelled from %s for betrayal against %s", criminal.Name, factionName, victim.Name),
 		Category:    "political",
+		Meta: map[string]any{
+			"agent_name":   criminal.Name,
+			"faction_name": factionName,
+		},
 	})
 }

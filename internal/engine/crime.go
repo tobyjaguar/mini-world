@@ -100,6 +100,12 @@ func (s *Simulation) processCrime(tick uint64) {
 					Tick:        tick,
 					Description: fmt.Sprintf("%s was caught stealing and branded an outlaw in %s", a.Name, sett.Name),
 					Category:    "crime",
+					Meta: map[string]any{
+						"agent_id":        a.ID,
+						"agent_name":      a.Name,
+						"settlement_id":   sett.ID,
+						"settlement_name": sett.Name,
+					},
 				})
 			}
 		}

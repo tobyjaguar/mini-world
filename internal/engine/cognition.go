@@ -238,6 +238,12 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 						Tick:        tick,
 						Description: fmt.Sprintf("%s recruited %s to their faction", a.Name, candidate.Name),
 						Category:    "social",
+						Meta: map[string]any{
+							"agent_id":      a.ID,
+							"agent_name":    a.Name,
+							"target_name":   candidate.Name,
+							"settlement_id": a.HomeSettID,
+						},
 					})
 					break
 				}
@@ -250,6 +256,11 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 			Tick:        tick,
 			Description: fmt.Sprintf("%s declares: \"%s\"", a.Name, d.Target),
 			Category:    "social",
+			Meta: map[string]any{
+				"agent_id":      a.ID,
+				"agent_name":    a.Name,
+				"settlement_id": a.HomeSettID,
+			},
 		})
 	}
 
@@ -260,6 +271,13 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 		Tick:        tick,
 		Description: detail,
 		Category:    "agent",
+		Meta: map[string]any{
+			"agent_id":      a.ID,
+			"agent_name":    a.Name,
+			"occupation":    a.Occupation,
+			"action":        d.Action,
+			"settlement_id": a.HomeSettID,
+		},
 	})
 
 	slog.Debug("tier 2 action", "agent", a.Name, "action", d.Action, "target", d.Target)
@@ -456,6 +474,11 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 			Tick:        tick,
 			Description: fmt.Sprintf("%s prophesies: \"%s\"", a.Name, vision.Target),
 			Category:    "oracle",
+			Meta: map[string]any{
+				"agent_id":      a.ID,
+				"agent_name":    a.Name,
+				"settlement_id": a.HomeSettID,
+			},
 		})
 
 	case "bless":
@@ -472,6 +495,12 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 						Tick:        tick,
 						Description: fmt.Sprintf("%s blessed %s, nudging their coherence toward clarity", a.Name, candidate.Name),
 						Category:    "oracle",
+						Meta: map[string]any{
+							"agent_id":      a.ID,
+							"agent_name":    a.Name,
+							"target_name":   candidate.Name,
+							"settlement_id": a.HomeSettID,
+						},
 					})
 					break
 				}
@@ -487,6 +516,11 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 		Tick:        tick,
 		Description: fmt.Sprintf("Oracle %s: \"%s\" — %s %s", a.Name, vision.Prophecy, vision.Action, vision.Target),
 		Category:    "oracle",
+		Meta: map[string]any{
+			"agent_id":      a.ID,
+			"agent_name":    a.Name,
+			"settlement_id": a.HomeSettID,
+		},
 	})
 
 	slog.Debug("oracle vision applied", "agent", a.Name, "action", vision.Action, "target", vision.Target)

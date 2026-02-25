@@ -113,10 +113,11 @@ func (s *Simulation) EmitEvent(e Event) {
 
 // Event is a notable occurrence in the world.
 type Event struct {
-	Tick                 uint64 `json:"tick" db:"tick"`
-	Description          string `json:"description" db:"description"`
-	NarratedDescription  string `json:"narrated_description,omitempty" db:"narrated"` // LLM-narrated prose (major events only)
-	Category             string `json:"category" db:"category"` // "economy", "social", "death", "birth", "political", "disaster", "discovery", etc.
+	Tick                 uint64         `json:"tick" db:"tick"`
+	Description          string         `json:"description" db:"description"`
+	NarratedDescription  string         `json:"narrated_description,omitempty" db:"narrated"` // LLM-narrated prose (major events only)
+	Category             string         `json:"category" db:"category"` // "economy", "social", "death", "birth", "political", "disaster", "discovery", etc.
+	Meta                 map[string]any `json:"meta,omitempty"`
 }
 
 // SimWeather holds the current weather conditions for the simulation.
@@ -221,6 +222,12 @@ func (s *Simulation) TickMinute(tick uint64) {
 				Tick:        tick,
 				Description: deathDesc,
 				Category:    "death",
+				Meta: map[string]any{
+					"agent_id":      a.ID,
+					"agent_name":    a.Name,
+					"settlement_id": a.HomeSettID,
+					"cause":         "starvation",
+				},
 			})
 			s.inheritWealth(a, tick)
 
@@ -449,6 +456,10 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			Tick:        tick,
 			Description: desc,
 			Category:    "disaster",
+			Meta: map[string]any{
+				"settlement_id":   sett.ID,
+				"settlement_name": sett.Name,
+			},
 		})
 		s.createSettlementMemories(sett.ID, tick, desc, 0.9)
 		slog.Info("random event: disaster", "settlement", sett.Name, "type", disasters[dIdx])
@@ -517,6 +528,10 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			Tick:        tick,
 			Description: desc,
 			Category:    "discovery",
+			Meta: map[string]any{
+				"settlement_id":   sett.ID,
+				"settlement_name": sett.Name,
+			},
 		})
 		s.createSettlementMemories(sett.ID, tick, desc, 0.7)
 		slog.Info("random event: discovery", "settlement", sett.Name, "type", discoveries[dIdx])
@@ -540,6 +555,10 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 				Tick:        tick,
 				Description: desc,
 				Category:    "discovery",
+				Meta: map[string]any{
+					"agent_id":   alchemist.ID,
+					"agent_name": alchemist.Name,
+				},
 			})
 			if alchemist.Tier == agents.Tier2 {
 				agents.AddMemory(alchemist, tick, desc, 0.8)

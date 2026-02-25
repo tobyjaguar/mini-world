@@ -43,6 +43,11 @@ func (s *Simulation) ProvisionSettlement(name, goodName string, quantity int) (s
 		Tick:        s.LastTick,
 		Description: desc,
 		Category:    "gardener",
+		Meta: map[string]any{
+			"settlement_name": name,
+			"good":            goodName,
+			"quantity":         quantity,
+		},
 	})
 
 	slog.Info("provision intervention", "settlement", name, "good", goodName, "quantity", quantity)
@@ -68,6 +73,11 @@ func (s *Simulation) CultivateSettlement(name string, multiplier float64, durati
 		Tick:        s.LastTick,
 		Description: desc,
 		Category:    "gardener",
+		Meta: map[string]any{
+			"settlement_name": name,
+			"multiplier":      multiplier,
+			"duration_days":   durationDays,
+		},
 	})
 
 	slog.Info("cultivate intervention", "settlement", name, "multiplier", multiplier, "duration_days", durationDays, "expires_tick", expiresAt)
@@ -127,6 +137,11 @@ func (s *Simulation) ConsolidateSettlement(name string, count int) (string, erro
 		Tick:        s.LastTick,
 		Description: desc,
 		Category:    "gardener",
+		Meta: map[string]any{
+			"source_settlement_name": name,
+			"target_settlement_name": targetSett.Name,
+			"count":                  moved,
+		},
 	})
 
 	slog.Info("consolidate intervention", "source", name, "target", targetSett.Name, "moved", moved)

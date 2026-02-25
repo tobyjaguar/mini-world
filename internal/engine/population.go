@@ -65,6 +65,12 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 						Tick:        tick,
 						Description: fmt.Sprintf("%s has died of old age at %d", a.Name, a.Age),
 						Category:    "death",
+						Meta: map[string]any{
+							"agent_id":      a.ID,
+							"agent_name":    a.Name,
+							"settlement_id": a.HomeSettID,
+							"cause":         "age",
+						},
 					})
 					s.inheritWealth(a, tick)
 				}
@@ -81,6 +87,12 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has died of illness", a.Name),
 					Category:    "death",
+					Meta: map[string]any{
+						"agent_id":      a.ID,
+						"agent_name":    a.Name,
+						"settlement_id": a.HomeSettID,
+						"cause":         "illness",
+					},
 				})
 				s.inheritWealth(a, tick)
 			}
@@ -151,6 +163,10 @@ func (s *Simulation) processBirths(tick uint64) {
 				Tick:        tick,
 				Description: fmt.Sprintf("%s is born in %s", child.Name, sett.Name),
 				Category:    "birth",
+				Meta: map[string]any{
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+				},
 			})
 			s.Stats.Births++
 			sett.Population++
@@ -197,6 +213,11 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 				Tick:        tick,
 				Description: fmt.Sprintf("%d refugees arrive in %s", needed, sett.Name),
 				Category:    "social",
+				Meta: map[string]any{
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"count":           needed,
+				},
 			})
 		}
 
@@ -211,6 +232,10 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 				Tick:        tick,
 				Description: fmt.Sprintf("Emergency food relief arrives in %s", sett.Name),
 				Category:    "economy",
+				Meta: map[string]any{
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+				},
 			})
 		}
 	}
@@ -328,6 +353,11 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 				Tick:        s.LastTick,
 				Description: fmt.Sprintf("%s rises to prominence in %s", best.Name, occupationLabel(best.Occupation)),
 				Category:    "social",
+				Meta: map[string]any{
+					"agent_id":   best.ID,
+					"agent_name": best.Name,
+					"occupation": best.Occupation,
+				},
 			})
 		}
 	}
@@ -361,6 +391,11 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 						Tick:        s.LastTick,
 						Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
 						Category:    "social",
+						Meta: map[string]any{
+							"agent_id":   a.ID,
+							"agent_name": a.Name,
+							"occupation": a.Occupation,
+						},
 					})
 				}
 			}

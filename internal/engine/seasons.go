@@ -257,6 +257,9 @@ func (s *Simulation) autumnHarvest(tick uint64) {
 			Tick:        tick,
 			Description: fmt.Sprintf("Autumn harvest: %d farmers bring in the crop", harvestCount),
 			Category:    "economy",
+			Meta: map[string]any{
+				"count": harvestCount,
+			},
 		})
 	}
 }
