@@ -242,7 +242,7 @@ POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents, pro
 5. **Polish & Perpetuation** — COMPLETE: Population dynamics (births/aging/death/migration), resource regen, anti-stagnation, settlement lifecycle (founding/abandonment), stats history, admin endpoints, random.org entropy, weather integration
 6. **Closed Economy** — COMPLETE: Order-matched market engine, merchant/Tier 2 trade closed via treasury, fallback wages removed, remaining mints throttled 60x. See `docs/08-closed-economy-changelog.md`.
 7. **Land Management** — PHASE A COMPLETE: Hex health model (0.0–1.0), extraction degrades health, regen scales by health, desertification threshold at Agnosis, fallow recovery, carrying capacity metric, hex health persisted across restarts. Phase B (settlement claims, infrastructure investment, coherence-based policy) pending observation. See `docs/15-land-management-proposal.md`.
-8. **Live View Pipeline** — IN PROGRESS: SSE event streaming endpoint (`/api/v1/stream`, relay-key auth, max 2 conns). Event struct has `Meta map[string]any` with structured metadata (agent IDs, settlement IDs, occupations, amounts) on all 35 event emit sites. Meta is `omitempty` in JSON, not persisted to SQLite — flows only through SSE to the relay. See `docs/17-live-view-animation-design.md`.
+8. **Live View Pipeline** — IN PROGRESS: SSE event streaming endpoint (`/api/v1/stream`, relay-key auth, max 2 conns). Event struct has `Meta map[string]any` with structured metadata (agent IDs, settlement IDs, occupations, amounts) on all 35 event emit sites. Meta is `omitempty` in JSON, not persisted to SQLite — flows only through SSE to the relay. Relay enrichment layer deployed: settlement filtering (`?settlement=ID`), activity tracker (30s rolling window, 10s synthetic `activity` events), pattern detection (`trade_burst`, `crime_wave`, `baby_boom`), governance change detection (`regime_change`). See `docs/17-live-view-animation-design.md`.
 
 ## Tuning Fixes Applied
 
@@ -418,6 +418,14 @@ Two features enabling the live view pipeline (relay enrichment + frontend animat
 
 77. **SSE event streaming endpoint** — NEW: `GET /api/v1/stream` provides real-time Server-Sent Events. Auth via `WORLDSIM_RELAY_KEY` bearer token. Max 2 concurrent connections. Events are JSON `{tick, description, category, meta}`. Subscribers register via `EventSub()`/`EventUnsub()` on Simulation; events fan out via buffered channels (capacity 100, slow consumers dropped).
 78. **Structured event metadata** — NEW: `Meta map[string]any` field on Event struct (`json:"meta,omitempty"`). Populated at all 35 EmitEvent call sites across 10 files (population, crime, governance, settlement_lifecycle, cognition, factions, relationships, seasons, intervention, simulation). Carries machine-readable fields (agent_id, agent_name, settlement_id, settlement_name, occupation, cause, count, etc.) so the relay and frontend can filter/enrich without parsing English prose. Not persisted to SQLite — Meta only flows through SSE.
+
+### Relay Enrichment Layer (crossworlds-relay)
+
+Three enrichment features deployed to the relay, transforming it from a dumb pipe into a light processing layer:
+
+79. **Settlement filtering** — NEW: `GET /stream?settlement=42` delivers only events for that settlement plus global events (activity summaries, season changes). Zero-allocation `extractSettlementID()` string scan in upstream parsing — no JSON unmarshal on the hot path. Filter applied in both fan-out and ring buffer catch-up.
+80. **Activity tracker** — NEW: 3-slot ring of 10-second buckets = 30s rolling window. Per-settlement counters for births, deaths, crimes, migrations, infrastructure. Every 10s emits a synthetic `activity` event with all settlement counts. Frontend uses this to drive settlement energy levels without polling.
+81. **Pattern detection** — NEW: 30s sliding window detects burst patterns and emits synthetic events: `baby_boom` (5+ births), `crime_wave` (2+ crimes), `trade_burst` (3+ economy events). Also detects governance changes from political events and emits `regime_change`. Loop prevention via known worldsim category whitelist — synthetics are never re-processed. All in `enrich.go`, single goroutine, no mutex needed.
 
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
