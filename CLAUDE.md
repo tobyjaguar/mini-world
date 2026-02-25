@@ -98,7 +98,8 @@ mini-world/
 │   ├── 07-closed-economy-implementation.md  # Closed economy design
 │   ├── 08-closed-economy-changelog.md       # Post-deploy monitoring notes
 │   ├── 09-post-closed-economy-todo.md       # Survival crisis diagnosis + fixes
-│   └── 11-ant-farm-design.md               # Ant-farm settlement visualization spec
+│   ├── 11-ant-farm-design.md               # Ant-farm settlement visualization spec
+│   └── health-reports/                      # /observe health reports (dated, per-session)
 ├── cmd/worldsim/
 │   └── main.go                  # Entry point
 ├── cmd/gardener/
@@ -403,9 +404,14 @@ Replaces flat regen tuning with a dynamic, self-correcting land health system. S
 74. **Wealth-biased Tier 2 promotion** — FIXED: `PromoteToTier2()` in `spawner.go` scoring changed from `coherence*Nous + gauss*Being + log1p(wealth)*Agnosis` to `coherence*Nous + gauss*Being`. Notability is about inner qualities, not bank accounts.
 75. **No Tier 2 occupation diversity** — FIXED: `processWeeklyTier2Replenishment()` in `population.go` now counts Tier 2 by occupation and prioritizes filling unrepresented occupations before using general scoring. A world where no fisher has individual agency is structurally incomplete.
 
+### Tuning Round 15: Tier 2 Merchant Commission
+
+All 6 Tier 2 merchants were dead — they couldn't self-sustain because their only income was a throttled wage (~24 crowns/day, minted). Unlike farmers/crafters who produce goods, merchants depend on inter-settlement trade but got no cut from it.
+
+76. **Tier 2 merchants starve** — FIXED: `tier2Commission()` in `market.go` gives Tier 2 merchants at the destination settlement a commission on each inter-settlement trade. Commission = `revenue * Agnosis * 0.1 * (1 + coherence)` (~1-2 crowns per trade, 5-20/day in active settlements). Closed transfer: selling merchant pays a guild fee, no crowns minted. Total commission capped at Agnosis (~23.6%) of revenue. Self-commission excluded.
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
-- Merchant death spiral — FIXED: throttled wage + consignment buying from home treasury. See `docs/08-closed-economy-changelog.md`.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
 ## Ethics Note

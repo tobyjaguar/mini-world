@@ -635,7 +635,7 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			if a.TradeDestSett != nil && len(a.TradeCargo) > 0 {
 				destSett, ok := s.SettlementIndex[*a.TradeDestSett]
 				if ok && destSett.Market != nil {
-					sellMerchantCargo(a, destSett.Market, destSett)
+					sellMerchantCargo(a, destSett.Market, destSett, s)
 					s.Stats.TradeVolume++
 				}
 				// Repay consignment debt to home settlement treasury.
@@ -790,7 +790,9 @@ func routeCost(from, to world.HexCoord, worldMap *world.Map) int {
 
 // sellMerchantCargo sells a merchant's cargo at the destination settlement.
 // Closed transfer: the settlement treasury pays the merchant per unit.
-func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Settlement) {
+// After sale, Tier 2 merchants at the destination earn a commission (guild fee).
+func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Settlement, sim *Simulation) {
+	var totalRevenue uint64
 	for good, qty := range a.TradeCargo {
 		entry, ok := market.Entries[good]
 		if !ok || qty <= 0 {
@@ -806,6 +808,66 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 			}
 			sett.Treasury -= unitPrice
 			a.Wealth += unitPrice
+			totalRevenue += unitPrice
+		}
+	}
+
+	// Tier 2 merchants at the destination earn a commission on trades
+	// flowing through their settlement — guild masters who facilitate trade.
+	if totalRevenue > 0 {
+		tier2Commission(a, sett, totalRevenue, sim)
+	}
+}
+
+// tier2Commission distributes a fraction of trade revenue to Tier 2 merchants
+// in the destination settlement. Reflects their status as trade network facilitators.
+// Closed transfer: selling merchant pays a guild fee, no crowns minted.
+func tier2Commission(seller *agents.Agent, sett *social.Settlement, revenue uint64, sim *Simulation) {
+	settAgents := sim.SettlementAgents[sett.ID]
+	if len(settAgents) == 0 {
+		return
+	}
+
+	// Cap total commission at Agnosis (~23.6%) of revenue so selling merchant still profits.
+	maxTotalCommission := uint64(float64(revenue)*phi.Agnosis + 0.5)
+	if maxTotalCommission == 0 {
+		return
+	}
+
+	var totalPaid uint64
+	for _, a := range settAgents {
+		if a.Tier != agents.Tier2 || a.Occupation != agents.OccupationMerchant {
+			continue
+		}
+		if !a.Alive || a.ID == seller.ID {
+			continue // Don't commission yourself.
+		}
+
+		// Commission = revenue * Agnosis * 0.1 * (1 + coherence)
+		coherence := float64(a.Soul.CittaCoherence)
+		commission := uint64(float64(revenue) * phi.Agnosis * 0.1 * (1.0 + coherence))
+		if commission == 0 {
+			continue
+		}
+
+		// Respect per-trade cap.
+		if totalPaid+commission > maxTotalCommission {
+			commission = maxTotalCommission - totalPaid
+		}
+		// Seller must have enough wealth.
+		if commission > seller.Wealth {
+			commission = seller.Wealth
+		}
+		if commission == 0 {
+			break
+		}
+
+		seller.Wealth -= commission
+		a.Wealth += commission
+		totalPaid += commission
+
+		if totalPaid >= maxTotalCommission {
+			break
 		}
 	}
 }
