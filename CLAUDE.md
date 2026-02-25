@@ -223,6 +223,7 @@ GET  /api/v1/economy         → Economy overview: prices, trade volume, Gini
 GET  /api/v1/social          → Social network overview
 GET  /api/v1/map             → Bulk map: all hexes with terrain, resources, settlements
 GET  /api/v1/map/:q/:r       → Hex detail: terrain, resources, settlement, agents
+GET  /api/v1/stream          → SSE event stream (requires Bearer relay key, max 2 conns)
 ```
 
 Admin (POST, requires `Authorization: Bearer <WORLDSIM_ADMIN_KEY>`):
@@ -241,6 +242,7 @@ POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents, pro
 5. **Polish & Perpetuation** — COMPLETE: Population dynamics (births/aging/death/migration), resource regen, anti-stagnation, settlement lifecycle (founding/abandonment), stats history, admin endpoints, random.org entropy, weather integration
 6. **Closed Economy** — COMPLETE: Order-matched market engine, merchant/Tier 2 trade closed via treasury, fallback wages removed, remaining mints throttled 60x. See `docs/08-closed-economy-changelog.md`.
 7. **Land Management** — PHASE A COMPLETE: Hex health model (0.0–1.0), extraction degrades health, regen scales by health, desertification threshold at Agnosis, fallow recovery, carrying capacity metric, hex health persisted across restarts. Phase B (settlement claims, infrastructure investment, coherence-based policy) pending observation. See `docs/15-land-management-proposal.md`.
+8. **Live View Pipeline** — IN PROGRESS: SSE event streaming endpoint (`/api/v1/stream`, relay-key auth, max 2 conns). Event struct has `Meta map[string]any` with structured metadata (agent IDs, settlement IDs, occupations, amounts) on all 35 event emit sites. Meta is `omitempty` in JSON, not persisted to SQLite — flows only through SSE to the relay. See `docs/17-live-view-animation-design.md`.
 
 ## Tuning Fixes Applied
 
@@ -409,6 +411,13 @@ Replaces flat regen tuning with a dynamic, self-correcting land health system. S
 All 6 Tier 2 merchants were dead — they couldn't self-sustain because their only income was a throttled wage (~24 crowns/day, minted). Unlike farmers/crafters who produce goods, merchants depend on inter-settlement trade but got no cut from it.
 
 76. **Tier 2 merchants starve** — FIXED: `tier2Commission()` in `market.go` gives Tier 2 merchants at the destination settlement a commission on each inter-settlement trade. Commission = `revenue * Agnosis * 0.1 * (1 + coherence)` (~1-2 crowns per trade, 5-20/day in active settlements). Closed transfer: selling merchant pays a guild fee, no crowns minted. Total commission capped at Agnosis (~23.6%) of revenue. Self-commission excluded.
+
+### SSE Event Stream & Structured Metadata
+
+Two features enabling the live view pipeline (relay enrichment + frontend animation):
+
+77. **SSE event streaming endpoint** — NEW: `GET /api/v1/stream` provides real-time Server-Sent Events. Auth via `WORLDSIM_RELAY_KEY` bearer token. Max 2 concurrent connections. Events are JSON `{tick, description, category, meta}`. Subscribers register via `EventSub()`/`EventUnsub()` on Simulation; events fan out via buffered channels (capacity 100, slow consumers dropped).
+78. **Structured event metadata** — NEW: `Meta map[string]any` field on Event struct (`json:"meta,omitempty"`). Populated at all 35 EmitEvent call sites across 10 files (population, crime, governance, settlement_lifecycle, cognition, factions, relationships, seasons, intervention, simulation). Carries machine-readable fields (agent_id, agent_name, settlement_id, settlement_name, occupation, cause, count, etc.) so the relay and frontend can filter/enrich without parsing English prose. Not persisted to SQLite — Meta only flows through SSE.
 
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
