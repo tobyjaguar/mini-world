@@ -165,16 +165,14 @@ func (s *Simulation) buildTier2Context(a *agents.Agent, occNames []string, govNa
 func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, tick uint64) {
 	switch d.Action {
 	case "work":
-		// Resource producers work their settlement hex — same pipeline as Tier 0.
-		// Without this, Tier 2 farmers/fishers/miners/hunters can never produce.
+		// Resource producers work the healthiest hex in their settlement neighborhood.
+		hex := s.bestProductionHex(a)
+		boostMul := 1.0
 		if a.HomeSettID != nil {
-			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
-				hex := s.WorldMap.Get(sett.Position)
-				boostMul := s.GetSettlementBoost(*a.HomeSettID)
-				workAction := agents.Action{Kind: agents.ActionWork}
-				ResolveWork(a, workAction, hex, tick, boostMul)
-			}
+			boostMul = s.GetSettlementBoost(*a.HomeSettID)
 		}
+		workAction := agents.Action{Kind: agents.ActionWork}
+		ResolveWork(a, workAction, hex, tick, boostMul)
 
 	case "trade":
 		// Sell surplus to settlement treasury — closed transfer, no crowns minted.

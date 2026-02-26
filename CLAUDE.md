@@ -434,6 +434,12 @@ All 6 Tier 2 merchants were dead. Two bugs conspired: (1) the replenishment dive
 82. **Replenishment vacancy bug** — FIXED: `processWeeklyTier2Replenishment()` in `population.go` now runs the occupation diversity pass BEFORE the vacancy early-return. Diversity promotions have their own budget (`maxDiversity = 2`) independent of vacancies. Dead merchants get replaced even when total alive Tier 2 count meets target.
 83. **Merchant trade needs drought** — FIXED: `sellMerchantCargo()` in `market.go` now gives needs boosts on successful cargo sale: Safety +0.008, Esteem +0.012, Belonging +0.004, Purpose +0.004. Matches producer successful-work boosts from `ResolveWork`. Merchants completing trade routes no longer have needs decay to zero.
 
+### Tuning Round 17: Farmer Production Hex Spread
+
+All 20 Tier 2 farmers had satisfaction between -0.08 and -0.13, stuck for ~145K ticks. Root cause: all resource producers extracted from the same settlement hex (`a.Position`), while carrying capacity already modeled 7 hexes (home + 6 neighbors). The settlement hex desertified almost immediately — 100+ farmers each degrading health by -0.00236/tick — and never recovered because it was continuously worked. Meanwhile 6 neighboring hexes sat untouched.
+
+84. **Production uses single hex** — FIXED: New `bestProductionHex()` method on `*Simulation` selects the healthiest hex with available resources from the settlement's 7-hex neighborhood (home + 6 neighbors). Self-balancing: depleted hexes get natural fallow while producers work healthier hexes. Matches the carrying capacity model which already assumed 7 hexes. Two call sites updated: `TickMinute()` (Tier 0) and `applyTier2Decision()` (Tier 2 work action).
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

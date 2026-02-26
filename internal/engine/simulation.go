@@ -198,7 +198,7 @@ func (s *Simulation) TickMinute(tick uint64) {
 			s.resolveBuyFood(a)
 		} else {
 			// Resource-producing occupations draw from hex resources.
-			hex := s.WorldMap.Get(a.Position)
+			hex := s.bestProductionHex(a)
 			boostMul := 1.0
 			if a.HomeSettID != nil {
 				boostMul = s.GetSettlementBoost(*a.HomeSettID)
@@ -762,6 +762,51 @@ func (s *Simulation) SettlementCarryingCapacity(settID uint64) (capacity float64
 		pressure = float64(sett.Population) / capacity
 	}
 	return capacity, pressure
+}
+
+// bestProductionHex selects the best hex for a resource-producing agent to work.
+// Picks the healthiest hex with available resources from the settlement's
+// neighborhood (home + 6 neighbors), distributing extraction pressure across
+// 7 hexes to match the carrying capacity model.
+func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
+	resType, needsResource := occupationResource[a.Occupation]
+	if !needsResource {
+		return s.WorldMap.Get(a.Position)
+	}
+	if a.HomeSettID == nil {
+		return s.WorldMap.Get(a.Position)
+	}
+	sett, ok := s.SettlementIndex[*a.HomeSettID]
+	if !ok {
+		return s.WorldMap.Get(a.Position)
+	}
+
+	var bestHex *world.Hex
+	bestHealth := -1.0
+
+	checkHex := func(coord world.HexCoord) {
+		h := s.WorldMap.Get(coord)
+		if h == nil || h.Terrain == world.TerrainOcean {
+			return
+		}
+		if h.Resources[resType] < 1.0 {
+			return
+		}
+		if h.Health > bestHealth {
+			bestHealth = h.Health
+			bestHex = h
+		}
+	}
+
+	checkHex(sett.Position)
+	for _, nc := range sett.Position.Neighbors() {
+		checkHex(nc)
+	}
+
+	if bestHex == nil {
+		return s.WorldMap.Get(sett.Position)
+	}
+	return bestHex
 }
 
 // rebuildSettlementAgents reconstructs the settlement→agents map from agent HomeSettIDs.
