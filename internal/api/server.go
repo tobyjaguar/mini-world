@@ -1224,6 +1224,17 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 	var totalMood, totalSat, totalAlign float64
 	aliveCount := 0
 	var aliveAgents []*agents.Agent
+
+	// Per-occupation satisfaction accumulators.
+	type occStats struct {
+		totalSat float64
+		count    int
+	}
+	occSatMap := make(map[string]*occStats)
+
+	// Needs summary counters.
+	var survivalLow, belongingLow, purposeLow int
+
 	for _, a := range settAgents {
 		if !a.Alive {
 			continue
@@ -1238,6 +1249,26 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		totalMood += float64(a.Wellbeing.EffectiveMood)
 		totalSat += float64(a.Wellbeing.Satisfaction)
 		totalAlign += float64(a.Wellbeing.Alignment)
+
+		// Per-occupation satisfaction.
+		os := occSatMap[occName]
+		if os == nil {
+			os = &occStats{}
+			occSatMap[occName] = os
+		}
+		os.totalSat += float64(a.Wellbeing.Satisfaction)
+		os.count++
+
+		// Needs below threshold.
+		if a.Needs.Survival < 0.3 {
+			survivalLow++
+		}
+		if a.Needs.Belonging < 0.3 {
+			belongingLow++
+		}
+		if a.Needs.Purpose < 0.3 {
+			purposeLow++
+		}
 	}
 	avgMood := 0.0
 	avgSat := 0.0
@@ -1246,6 +1277,50 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		avgMood = totalMood / float64(aliveCount)
 		avgSat = totalSat / float64(aliveCount)
 		avgAlign = totalAlign / float64(aliveCount)
+	}
+
+	// Per-occupation mood averages.
+	type occMood struct {
+		Satisfaction float64 `json:"satisfaction"`
+		Count        int     `json:"count"`
+	}
+	moodByOcc := make(map[string]occMood)
+	for name, os := range occSatMap {
+		avg := 0.0
+		if os.count > 0 {
+			avg = os.totalSat / float64(os.count)
+		}
+		moodByOcc[name] = occMood{Satisfaction: avg, Count: os.count}
+	}
+
+	// Needs summary.
+	needsSummary := map[string]int{
+		"survival_low":  survivalLow,
+		"belonging_low": belongingLow,
+		"purpose_low":   purposeLow,
+	}
+
+	// Terrain lookup.
+	terrainNames := []string{
+		"Plains", "Forest", "Mountain", "Coast", "River",
+		"Desert", "Swamp", "Tundra", "Ocean",
+	}
+	terrain := "Unknown"
+	if hex := s.Sim.WorldMap.Get(sett.Position); hex != nil {
+		if int(hex.Terrain) < len(terrainNames) {
+			terrain = terrainNames[hex.Terrain]
+		}
+	}
+
+	// Wealth median.
+	var wealthMedian uint64
+	if len(aliveAgents) > 0 {
+		wealthVals := make([]uint64, len(aliveAgents))
+		for i, a := range aliveAgents {
+			wealthVals[i] = a.Wealth
+		}
+		sort.Slice(wealthVals, func(i, j int) bool { return wealthVals[i] < wealthVals[j] })
+		wealthMedian = wealthVals[len(wealthVals)/2]
 	}
 
 	// Trade stats from market.
@@ -1261,9 +1336,15 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 
 	// Top 5 agents by wealth.
 	type agentBrief struct {
-		ID     agents.AgentID `json:"id"`
-		Name   string         `json:"name"`
-		Wealth uint64         `json:"wealth"`
+		ID           agents.AgentID `json:"id"`
+		Name         string         `json:"name"`
+		Occupation   string         `json:"occupation"`
+		Tier         int            `json:"tier"`
+		Wealth       uint64         `json:"wealth"`
+		Mood         float32        `json:"mood"`
+		Satisfaction float32        `json:"satisfaction"`
+		Alignment    float32        `json:"alignment"`
+		Coherence    float32        `json:"coherence"`
 	}
 	sort.Slice(aliveAgents, func(i, j int) bool { return aliveAgents[i].Wealth > aliveAgents[j].Wealth })
 	var topAgents []agentBrief
@@ -1271,7 +1352,21 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		if i >= 5 {
 			break
 		}
-		topAgents = append(topAgents, agentBrief{ID: a.ID, Name: a.Name, Wealth: a.Wealth})
+		occName := "Unknown"
+		if int(a.Occupation) < len(occNames) {
+			occName = occNames[a.Occupation]
+		}
+		topAgents = append(topAgents, agentBrief{
+			ID:           a.ID,
+			Name:         a.Name,
+			Occupation:   occName,
+			Tier:         int(a.Tier),
+			Wealth:       a.Wealth,
+			Mood:         a.Wellbeing.EffectiveMood,
+			Satisfaction: a.Wellbeing.Satisfaction,
+			Alignment:    a.Wellbeing.Alignment,
+			Coherence:    a.Soul.CittaCoherence,
+		})
 	}
 
 	// Faction presence.
@@ -1335,6 +1430,10 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		"carrying_capacity":    carryingCapacity,
 		"population_pressure":  populationPressure,
 		"recent_events":        recentEvents,
+		"terrain":              terrain,
+		"mood_by_occupation":   moodByOcc,
+		"needs_summary":        needsSummary,
+		"wealth_median":        wealthMedian,
 	}
 	writeJSON(w, result)
 }
