@@ -716,8 +716,35 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			}
 			a.TradeCargo[bestGood] += buyQty
 
-			// Travel time based on terrain-aware route cost.
+			// Provision food for the journey.
 			travelCost := routeCost(sett.Position, bestDest.Position, s.WorldMap)
+			currentFood := a.Inventory[agents.GoodGrain] + a.Inventory[agents.GoodFish]
+			mealsNeeded := travelCost/TicksPerSimHour + 2
+			for i := currentFood; i < mealsNeeded; i++ {
+				bought := false
+				for _, foodGood := range []agents.GoodType{agents.GoodGrain, agents.GoodFish} {
+					entry, ok := sett.Market.Entries[foodGood]
+					if !ok {
+						continue
+					}
+					cost := uint64(entry.Price + 0.5)
+					if cost < 1 {
+						cost = 1
+					}
+					if a.Wealth >= cost {
+						a.Wealth -= cost
+						sett.Treasury += cost
+						a.Inventory[foodGood]++
+						bought = true
+						break
+					}
+				}
+				if !bought {
+					break
+				}
+			}
+
+			// Travel time based on terrain-aware route cost (reuses travelCost from provisioning).
 			if travelCost < 6 {
 				travelCost = 6 // Minimum 1 hex worth of travel
 			}

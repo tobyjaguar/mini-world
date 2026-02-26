@@ -135,7 +135,7 @@ func ApplyAction(a *Agent, action Action, tick uint64) []string {
 	case ActionTrade:
 		// Trade requires market context — handled at world level.
 	case ActionTravel:
-		// Movement requires map context — handled at world level.
+		events = applyTravel(a)
 	}
 
 	return events
@@ -301,6 +301,32 @@ func applyWork(a *Agent, tick uint64) []string {
 	clampNeeds(&a.Needs)
 
 	return events
+}
+
+func applyTravel(a *Agent) []string {
+	// Traveling agents eat from provisions when hungry.
+	if a.Needs.Survival < 0.5 {
+		if a.Inventory[GoodFish] > 0 {
+			a.Inventory[GoodFish]--
+			a.Needs.Survival += 0.2
+			a.Needs.Belonging += 0.001
+			a.Needs.Safety += 0.003
+		} else if a.Inventory[GoodGrain] > 0 {
+			a.Inventory[GoodGrain]--
+			a.Needs.Survival += 0.2
+			a.Needs.Belonging += 0.001
+			a.Needs.Safety += 0.003
+		}
+	}
+
+	// Travel is work — connecting settlements through trade is economic service.
+	a.Needs.Esteem += 0.005
+	a.Needs.Safety += 0.003
+	a.Needs.Belonging += 0.002
+	a.Needs.Purpose += 0.003
+
+	clampNeeds(&a.Needs)
+	return nil
 }
 
 func applyForage(a *Agent) []string {

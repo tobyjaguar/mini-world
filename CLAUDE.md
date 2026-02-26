@@ -440,6 +440,13 @@ All 20 Tier 2 farmers had satisfaction between -0.08 and -0.13, stuck for ~145K 
 
 84. **Production uses single hex** — FIXED: New `bestProductionHex()` method on `*Simulation` selects the healthiest hex with available resources from the settlement's 7-hex neighborhood (home + 6 neighbors). Self-balancing: depleted hexes get natural fallow while producers work healthier hexes. Matches the carrying capacity model which already assumed 7 hexes. Two call sites updated: `TickMinute()` (Tier 0) and `applyTier2Decision()` (Tier 2 work action).
 
+### Tuning Round 18: Merchant Death Spiral — Travel as Work + Provisioning
+
+**18,973 dead merchants vs 388 alive** — a 98% kill rate, by far the worst of any occupation. Root cause: `ActionTravel` was a complete no-op in `ApplyAction` — merchants got zero needs boosts while traveling, couldn't eat, and `DecayNeeds` ran every tick. A 1-hour trip (60 ticks) cost -0.283 survival with zero recovery. The `TravelTicksLeft > 0` check in `Tier0Decide` returned ActionTravel before the needs priority switch, so merchants literally couldn't eat on the road.
+
+85. **Travel is a no-op** — FIXED: New `applyTravel()` in `behavior.go` gives per-tick needs boosts during travel (Esteem +0.005, Safety +0.003, Belonging +0.002, Purpose +0.003 — slightly below work to reflect less social context). All needs net positive during travel. Traveling agents eat from inventory when survival drops below 0.5 (+0.2 survival per meal). General fix — benefits any future traveling agent type.
+86. **Merchants depart without food** — FIXED: `resolveMerchantTrade()` in `market.go` now provisions food before departure. Merchants buy `travelCost/60 + 2` meals (grain or fish) at market price, paid to settlement treasury. Closed economy preserved. Graceful degradation: merchants who can't afford food depart hungry but still get travel needs boosts.
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
