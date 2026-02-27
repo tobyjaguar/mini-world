@@ -4,6 +4,7 @@ package engine
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"sync"
 
@@ -187,6 +188,10 @@ func (s *Simulation) TickMinute(tick uint64) {
 
 		// Decay needs (passage of time).
 		agents.DecayNeeds(a)
+		if !a.Alive {
+			s.Stats.Deaths++
+			continue
+		}
 
 		// Agent decides and acts.
 		action := agents.Decide(a)
@@ -738,7 +743,6 @@ func (s *Simulation) updateStats() {
 	totalSatisfaction := float32(0)
 	totalAlignment := float32(0)
 	totalSurvival := float32(0)
-	deaths := 0
 
 	for _, a := range s.Agents {
 		if a.Alive {
@@ -748,14 +752,13 @@ func (s *Simulation) updateStats() {
 			totalSatisfaction += a.Wellbeing.Satisfaction
 			totalAlignment += a.Wellbeing.Alignment
 			totalSurvival += a.Needs.Survival
-		} else {
-			deaths++
 		}
 	}
 
 	s.Stats.TotalPopulation = alive
 	s.Stats.TotalWealth = totalWealth
-	s.Stats.Deaths = deaths
+	// Deaths is now cumulative — incremented in processNaturalDeaths and
+	// DecayNeeds (starvation). Not recomputed here.
 	if alive > 0 {
 		s.Stats.AvgMood = totalMood / float32(alive)
 		s.Stats.AvgSatisfaction = totalSatisfaction / float32(alive)
@@ -797,6 +800,22 @@ func (s *Simulation) SettlementCarryingCapacity(settID uint64) (capacity float64
 		pressure = float64(sett.Population) / capacity
 	}
 	return capacity, pressure
+}
+
+// settlementProducerTarget computes how many resource producers a settlement
+// should have based on carrying capacity. Uses phi.Matter (0.618) as the
+// maximum producer fraction — the golden ratio's natural balance point.
+func (s *Simulation) settlementProducerTarget(settID uint64) int {
+	capacity, _ := s.SettlementCarryingCapacity(settID)
+	settAgents := s.SettlementAgents[settID]
+	pop := len(settAgents)
+	if pop == 0 {
+		return 0
+	}
+	// Ideal producer fraction: min(Matter, capacity/pop).
+	// At capacity parity: 61.8% producers. Overshoot: fraction drops.
+	ratio := math.Min(phi.Matter, capacity/float64(pop))
+	return int(math.Round(ratio * float64(pop)))
 }
 
 // bestProductionHex selects the best hex for a resource-producing agent to work.

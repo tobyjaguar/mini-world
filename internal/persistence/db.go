@@ -470,6 +470,9 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	if err := db.SaveMeta("trade_volume", fmt.Sprintf("%d", sim.Stats.TradeVolume)); err != nil {
 		return fmt.Errorf("save trade_volume: %w", err)
 	}
+	if err := db.SaveMeta("deaths", fmt.Sprintf("%d", sim.Stats.Deaths)); err != nil {
+		return fmt.Errorf("save deaths: %w", err)
+	}
 
 	slog.Info("world state saved")
 	return nil

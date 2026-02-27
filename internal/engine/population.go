@@ -65,6 +65,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 				if a.Age > 65 || (a.Age > 55 && a.Health < 0.5) {
 					a.Alive = false
 					a.Health = 0
+					s.Stats.Deaths++
 					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("%s has died of old age at %d", a.Name, a.Age),
@@ -87,6 +88,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 			a.Health -= 0.01
 			if a.Health <= 0 {
 				a.Alive = false
+				s.Stats.Deaths++
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has died of illness", a.Name),
@@ -164,6 +166,23 @@ func (s *Simulation) processBirths(tick uint64) {
 			}
 
 			child := s.Spawner.SpawnChild(sett.Position, sett.ID, terrain, tick, parent)
+
+			// Prevent new producers from being born into oversaturated settlements.
+			if _, isProducer := occupationResource[child.Occupation]; isProducer {
+				target := s.settlementProducerTarget(sett.ID)
+				currentProducers := 0
+				for _, sa := range settAgents {
+					if sa.Alive {
+						if _, ok := occupationResource[sa.Occupation]; ok {
+							currentProducers++
+						}
+					}
+				}
+				if currentProducers >= target {
+					child.Occupation = bestNonProducerOccupation(settAgents)
+				}
+			}
+
 			s.addAgent(child)
 
 			s.EmitEvent(Event{
@@ -325,10 +344,15 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 		agents.OccupationHunter, agents.OccupationAlchemist, agents.OccupationScholar,
 		agents.OccupationSoldier,
 	}
-	for _, occ := range allOccupations {
+	// Rotate starting index each week so all occupations eventually get
+	// diversity slots, not just Farmer and Miner every time.
+	weekNum := s.LastTick / (TicksPerSimDay * 7)
+	offset := int(weekNum % uint64(len(allOccupations)))
+	for i := 0; i < len(allOccupations); i++ {
 		if diversityPromoted >= maxDiversity {
 			break
 		}
+		occ := allOccupations[(i+offset)%len(allOccupations)]
 		if tier2ByOcc[occ] > 0 {
 			continue // This occupation already has Tier 2 representation
 		}
@@ -345,6 +369,11 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 				best = a
 				bestScore = score
 			}
+		}
+		if best == nil {
+			slog.Debug("tier 2 diversity: no candidates",
+				"occupation", occ)
+			continue
 		}
 		if best != nil {
 			best.Tier = agents.Tier2

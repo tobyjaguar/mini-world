@@ -4,6 +4,8 @@ package engine
 
 import (
 	"log/slog"
+	"math"
+	"sort"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/phi"
@@ -15,6 +17,7 @@ import (
 func (s *Simulation) processAntiStagnation(tick uint64) {
 	s.economicCircuitBreaker(tick)
 	s.culturalDrift(tick)
+	s.rebalanceSettlementProducers(tick)
 	s.reassignMismatchedProducers(tick)
 	s.updateSettlementPopulations()
 }
@@ -267,6 +270,96 @@ func (s *Simulation) reassignIfMismatched(a *agents.Agent, settID uint64) {
 	)
 }
 
+// rebalanceSettlementProducers gradually reassigns excess resource producers
+// to non-producer occupations when the settlement has more producers than
+// its carrying capacity can support. Runs weekly via processAntiStagnation.
+func (s *Simulation) rebalanceSettlementProducers(tick uint64) {
+	for settID, settAgents := range s.SettlementAgents {
+		target := s.settlementProducerTarget(settID)
+
+		// Count current resource producers.
+		var producerAgents []*agents.Agent
+		for _, a := range settAgents {
+			if !a.Alive {
+				continue
+			}
+			if _, ok := occupationResource[a.Occupation]; ok {
+				producerAgents = append(producerAgents, a)
+			}
+		}
+
+		excess := len(producerAgents) - target
+		if excess <= 0 {
+			continue
+		}
+
+		// Reassign phi.Agnosis (~23.6%) of excess per week — gradual, not disruptive.
+		toReassign := int(math.Ceil(float64(excess) * phi.Agnosis))
+
+		// Pick lowest-satisfaction producers (they're suffering most on depleted hexes).
+		sort.Slice(producerAgents, func(i, j int) bool {
+			return producerAgents[i].Wellbeing.Satisfaction < producerAgents[j].Wellbeing.Satisfaction
+		})
+
+		reassigned := 0
+		for _, a := range producerAgents {
+			if reassigned >= toReassign {
+				break
+			}
+			a.Occupation = bestNonProducerOccupation(settAgents)
+			reassigned++
+		}
+
+		if reassigned > 0 {
+			slog.Info("rebalanced producers", "settlement", settID,
+				"target", target, "were", len(producerAgents), "reassigned", reassigned)
+		}
+	}
+}
+
+// bestNonProducerOccupation returns the most underrepresented non-producer
+// occupation relative to ideal distribution weights.
+func bestNonProducerOccupation(settAgents []*agents.Agent) agents.Occupation {
+	counts := make(map[agents.Occupation]int)
+	for _, a := range settAgents {
+		if a.Alive {
+			counts[a.Occupation]++
+		}
+	}
+
+	// Non-producer occupations and their ideal weights.
+	nonProducers := []struct {
+		occ    agents.Occupation
+		weight float64
+	}{
+		{agents.OccupationCrafter, 0.40},
+		{agents.OccupationSoldier, 0.20},
+		{agents.OccupationScholar, 0.20},
+		{agents.OccupationMerchant, 0.15},
+		{agents.OccupationAlchemist, 0.05},
+	}
+
+	// Pick the most underrepresented relative to ideal weight.
+	best := agents.OccupationCrafter
+	bestDeficit := -math.MaxFloat64
+	total := 0.0
+	for _, a := range settAgents {
+		if a.Alive {
+			total++
+		}
+	}
+	for _, np := range nonProducers {
+		ideal := np.weight * total * (1 - phi.Matter) // scale by non-producer share
+		actual := float64(counts[np.occ])
+		deficit := ideal - actual
+		if deficit > bestDeficit {
+			bestDeficit = deficit
+			best = np.occ
+		}
+	}
+	return best
+}
+
 // reassignMismatchedProducers is a weekly safety net that catches any agents
 // whose occupation doesn't match their hex resources. With reassignIfMismatched()
 // called at all movement sites, this should fire with count=0. If it doesn't,
@@ -344,10 +437,11 @@ func bestOccupationForHex(hex *world.Hex) agents.Occupation {
 		}
 	}
 
-	// If the best resource is still 0, fall back to Farmer — grain is
-	// the most universally available resource.
+	// If the best resource is still 0, fall back to Crafter — crafters
+	// don't need hex resources and won't deplete further. The old Farmer
+	// fallback fed a doom loop: depleted hex → Farmer → more depletion.
 	if best.amt < 1.0 {
-		return agents.OccupationFarmer
+		return agents.OccupationCrafter
 	}
 	return best.occ
 }

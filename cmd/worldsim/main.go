@@ -299,6 +299,12 @@ func main() {
 				slog.Info("trade volume counter restored", "volume", v)
 			}
 		}
+		if deathsStr, err := db.GetMeta("deaths"); err == nil {
+			if v, err := strconv.Atoi(deathsStr); err == nil {
+				sim.Stats.Deaths = v
+				slog.Info("deaths counter restored", "deaths", v)
+			}
+		}
 	}
 
 	// Load agent memories and relationships from database (if any exist).
