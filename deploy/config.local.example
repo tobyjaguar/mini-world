@@ -7,6 +7,10 @@ KEY=$HOME/.ssh/your-key.pem
 ADMIN_KEY=your-secret-admin-key-here
 RELAY_KEY=your-secret-relay-key-here
 
+# Service ports (behind nginx reverse proxy on port 80).
+WORLDSIM_PORT=8080
+RELAY_PORT=8081
+
 # Phase 4: LLM & External Entropy
 ANTHROPIC_API_KEY=your-anthropic-api-key
 WEATHER_API_KEY=your-openweathermap-api-key
@@ -18,3 +22,6 @@ CORS_ORIGINS=https://crossworlds.xyz,https://www.crossworlds.xyz
 
 # Gardener — autonomous world steward
 GARDENER_INTERVAL=360
+
+# Go GC target percentage (lower = more frequent GC, less peak RSS)
+GOGC=50

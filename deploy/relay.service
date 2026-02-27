@@ -1,27 +1,28 @@
 [Unit]
-Description=SYNTHESIS / Crossworlds — Autonomous World Simulation
-After=network.target
+Description=Crossworlds SSE Relay
+After=network-online.target worldsim.service
+Wants=network-online.target worldsim.service
 
 [Service]
 Type=simple
 User=worldsim
 Group=worldsim
-WorkingDirectory=/opt/worldsim
-ExecStart=/opt/worldsim/worldsim
+ExecStart=/opt/worldsim/relay
 Restart=always
 RestartSec=5
-TimeoutStopSec=180
+
+EnvironmentFile=/opt/worldsim/relay.env
 
 # Logging goes to journald.
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=worldsim
+SyslogIdentifier=relay
 
 # Security hardening.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/worldsim/data
+ReadWritePaths=/opt/worldsim
 
 [Install]
 WantedBy=multi-user.target

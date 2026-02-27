@@ -41,6 +41,11 @@ func main() {
 	seed := int64(42)
 	dbPath := "data/crossworlds.db"
 	apiPort := 80
+	if p := os.Getenv("PORT"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			apiPort = v
+		}
+	}
 
 	// ── Database ──────────────────────────────────────────────────────
 	os.MkdirAll("data", 0755)

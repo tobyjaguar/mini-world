@@ -481,8 +481,26 @@ Agents moving between settlements (migration, diaspora, consolidation) preserved
 
 100. **Inventory/TradeCargo map→array** — FIXED: New `GoodInventory [15]int` type in `types.go` with `IsEmpty()` and `Clear()` helpers. Agent struct fields changed, range loops updated (7 sites), nil/len checks updated (5 sites), spawn-site `make()` calls removed (2 sites). DB persistence uses native `[15]int` JSON. Measured **~100M RSS savings** (742→626 MB with same agent count).
 
+### Tuning Round 22: Satisfaction Doom Loop v2 — Occupation Rebalancing
+
+Satisfaction frozen at 0.136 for ~19 sim-days after round 20 occupation rebalancing. Tier 2 data revealed the same producer/crafter gap as round 12: crafters at +0.70, resource producers at -0.10 to -0.12. Root cause: round 20 occupations (soldiers, scholars, laborers, alchemists) received fewer needs boosts than traditional producers, and two occupations (soldiers, scholars) received almost no meaningful satisfaction feedback from their work.
+
+101. **No Survival boost for non-food producers** — FIXED: `ResolveWork` Survival +0.003 now applies to ALL hex-resource producers who successfully extract (was food-only: Farmer/Fisher/Hunter). Laborers extracting stone and alchemists harvesting herbs now get material security feedback. Since Survival has the highest satisfaction weight (5/15 = 33%), this was a major structural penalty.
+102. **Soldiers get weak needs boosts** — FIXED: Soldier work boosts in `behavior.go` increased: Purpose +0.003→+0.005, Belonging +0.002→+0.004, Safety +0.003 (new), Survival +0.001 (new). Total work boost from +0.025 to +0.033/tick.
+103. **Scholars get zero feedback from governance** — FIXED: `applyScholarBonus()` in `simulation.go` now gives per-scholar daily needs boosts: Purpose +0.05, Belonging +0.03, Esteem +0.03, Safety +0.02. Previously scholars improved GovernanceScore but got nothing personally.
+104. **Laborer production too low** — FIXED: Laborer production multiplier changed from `Mining * 2` to `Mining * 3` in both `productionAmount()` and `applyWork()`. Matches farmer multiplier. Stone extraction is hard physical labor.
+
+**Result:** Satisfaction jumped 0.136 → 0.604 within ~2,600 ticks (~2 sim-days) — the largest single improvement in world history.
+
+### Bug Fixes: Ghost Settlements, Faction Assignment, Weather Logging
+
+105. **234 ghost settlements (pop=0) persist** — FIXED: `processSettlementAbandonment()` abandonment threshold reduced from 2 weeks to 1 week for pop=0 settlements. Ghost settlements from consolidation will clear at next weekly tick.
+106. **Newborn agents never assigned factions** — FIXED: `addAgent()` in `population.go` now calls `factionForAgent()` for all new agents (births, refugees, anti-collapse spawns). Previously only `InitFactions()` assigned factions at world creation — all agents born after that had `FactionID == nil`, causing faction membership to decay to zero over time.
+107. **Weather fetch errors silent** — FIXED: `updateWeather()` error log upgraded from `slog.Debug` to `slog.Warn`. Weather API key valid but OpenWeatherMap returning 401 (likely free tier rate limit from multiple deploys).
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
+- Weather API returns 401 — may need to wait for daily quota reset or verify OpenWeatherMap account status.
 
 ## Ethics Note
 

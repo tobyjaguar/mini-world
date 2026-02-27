@@ -183,22 +183,53 @@ Three external data sources are wired up but only lightly used. All three could 
 
 **The integration thesis:** External data sources are the world's connection to reality. Weather makes the world breathe with real atmospheric rhythms. True randomness prevents deterministic loops. Oracle visions are the only place where LLM intelligence touches the physical world. Currently all three are cosmetic — connecting them to land health would make outside information *matter*.
 
+### Server Migration Complete (2026-02-27)
+
+Combined worldsim + relay + gardener + nginx on single gp1.sonic (2 GB) instance. Two old 1 GB instances decommissioned. nginx reverse proxy routes by hostname: `api.crossworlds.xyz` → :8080 (worldsim), `stream.crossworlds.xyz` → :8081 (relay). RAM usage: 905 MB / 1.98 GB (46%), zero swap. See `docs/SERVER-MIGRATION.md` and health report `docs/health-reports/2026-02-27-tick-524845.md`.
+
+### Current Issues (observed 2026-02-27, tick 524,845)
+
+**P1 — Satisfaction frozen at 0.136 (producer doom loop v2):**
+Satisfaction flat at 0.131-0.137 across 20 snapshots (~19 sim-days). Structurally identical to round 12 doom loop: resource producers (~60% of pop) have negative satisfaction while crafters sit at +0.70. Tier 2 data confirms: all farmers (-0.11), fishers (-0.12), alchemists (-0.10) are suffering. Investigation needed into whether round 20 occupations (laborer→stone, alchemist→herbs, soldier→deterrence, scholar→governance) are actually producing and generating needs boosts. The alchemist dual-mode (harvest herbs → craft medicine/luxuries) may not be functioning.
+
+**P2 — 234 ghost settlements (pop=0):**
+One-third of all 714 settlements have zero population. The viability system tracks pop<25 for 2 weeks before consolidation, but pop=0 settlements should be cleaned up immediately or filtered from API responses. These bloat settlement responses and confuse the gardener (which flags "471 empty settlements" as structural overcapacity).
+
+**P2 — Tier 2 occupation diversity failure:**
+35 of 50 alive Tier 2 agents are crafters (70%). Only 1 farmer, 1 merchant, 1 soldier, 0 hunters/miners/laborers. The diversity pass (`maxDiversity=2` per week) isn't overcoming crafter dominance in promotion scoring. Need to increase budget or add occupation caps.
+
+**P3 — Governance homogeneity:**
+652 of 714 settlements (91%) are Councils. Only 4 Monarchies, 9 Merchant Republics, 49 Communes. Governance transitions may be too rare.
+
+**P3 — Weather API disconnected on new server:**
+`temp_modifier: 0` and empty description — WEATHER_API_KEY may be missing from systemd override on the new combined server.
+
 ## Roadmap
 
-### Step 1 (Current): Monitor Phase 7A & Stabilize
-Hex health model deployed. Monitor: farmer satisfaction trends, hex health distribution across the map, desertification frequency, fallow recovery rates. Use `/observe` and hex detail API. If health degrades too fast, tune `Agnosis * 0.01` extraction rate. If too slow, the system has no effect.
+### Step 1 (Current): Fix Satisfaction Doom Loop v2
+1. Investigate round 20 occupation production — are laborers producing stone? Are alchemists harvesting herbs? Are soldiers getting deterrence Purpose? Are scholars getting governance bonus?
+2. Check hex neighborhoods for resource availability — are alchemists placed near herb-bearing hexes (Forest, Swamp)?
+3. Fix whatever is broken — likely a needs boost gap similar to round 12
+4. If all occupations produce correctly, the structural issue may be that production-on-depleted-hex penalties still outweigh boosts
 
-### Step 2: External Data → Land Health
-Wire weather and randomness into the hex health system. Hot/dry weather accelerates degradation; rain boosts recovery. Random events can damage or restore regional hex health. This makes the world responsive to real outside conditions.
+### Step 2: Clean Up Ghost Settlements
+- Add immediate abandonment for pop=0 settlements (skip 2-week grace period)
+- Or filter pop=0 settlements from the `/api/v1/settlements` response
+- Reduce the 714→480 active settlement count to match reality
 
-### Step 3: Phase 7B — Land Governance
+### Step 3: Fix Tier 2 Diversity
+- Increase `maxDiversity` from 2→4 per week
+- Add hard cap: no single occupation can exceed 40% of Tier 2 roster
+- Consider occupation-weighted scoring bonus for underrepresented occupations
+
+### Step 4: External Data → Land Health
+Wire weather and randomness into the hex health system. Hot/dry weather accelerates degradation; rain boosts recovery. Random events can damage or restore regional hex health.
+
+### Step 5: Phase 7B — Land Governance
 Settlement hex claims, infrastructure investment, coherence-based extraction policy. Depends on Phase A data showing hex health dynamics are meaningful.
 
-### Step 4: Factions + Social UI
-Add the missing frontend pages for factions (list + detail with influence per settlement) and social graph (relationship network visualization). API endpoints already exist.
+### Step 6: Infrastructure Effects
+Make walls/roads/markets mechanically meaningful. Roads reduce travel time for merchants, walls reduce crime/theft, market level improves trade efficiency.
 
-### Step 5: Infrastructure Effects
-Make walls/roads/markets mechanically meaningful. Roads reduce travel time for merchants, walls reduce crime/theft, market level improves trade efficiency. Currently these exist as numbers but have no gameplay effect.
-
-### Step 6: Deeper Emergence
+### Step 7: Deeper Emergence
 Inter-settlement diplomacy, warfare, religion/philosophy, agent life events. See "Deeper Emergence" section above.
