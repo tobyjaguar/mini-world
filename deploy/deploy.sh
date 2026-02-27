@@ -40,6 +40,7 @@ OVERRIDE="${OVERRIDE}\nEnvironment=\"WORLDSIM_ADMIN_KEY=${ADMIN_KEY}\""
 [ -n "${WEATHER_LOCATION:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"WEATHER_LOCATION=${WEATHER_LOCATION}\""
 [ -n "${RANDOM_ORG_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"RANDOM_ORG_API_KEY=${RANDOM_ORG_API_KEY}\""
 [ -n "${CORS_ORIGINS:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"CORS_ORIGINS=${CORS_ORIGINS}\""
+[ -n "${GOGC:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"GOGC=${GOGC}\""
 
 # Gardener override shares the same keys + gardener-specific config.
 GOVERRIDE="[Service]"

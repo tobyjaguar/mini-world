@@ -10,6 +10,7 @@ WorkingDirectory=/opt/worldsim
 ExecStart=/opt/worldsim/worldsim
 Restart=always
 RestartSec=5
+TimeoutStopSec=180
 
 # Allow binding to port 80 without root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE

@@ -333,10 +333,19 @@ func (s *Simulation) TickDay(tick uint64) {
 			slog.Info("event", "category", e.Category, "description", e.Description)
 		}
 	}
+
+	// Trim old events daily to prevent unbounded growth.
+	// Use make+copy so the old backing array is GC-eligible.
+	if len(s.Events) > 1000 {
+		trimmed := make([]Event, 1000)
+		copy(trimmed, s.Events[len(s.Events)-1000:])
+		s.Events = trimmed
+	}
 }
 
 // TickWeek runs every sim-week: faction updates, diplomatic cycles, LLM updates.
 func (s *Simulation) TickWeek(tick uint64) {
+	s.compactDeadAgents()
 	s.processWeeklyFactions(tick)
 	s.processAntiStagnation(tick)
 	s.weeklyResourceRegen()
@@ -356,9 +365,11 @@ func (s *Simulation) TickWeek(tick uint64) {
 		"time", SimTime(tick),
 		"events_this_week", len(s.Events),
 	)
-	// Trim old events to prevent unbounded growth (keep last 1000).
+	// Safety net trim (daily trim should catch this, but just in case).
 	if len(s.Events) > 1000 {
-		s.Events = s.Events[len(s.Events)-1000:]
+		trimmed := make([]Event, 1000)
+		copy(trimmed, s.Events[len(s.Events)-1000:])
+		s.Events = trimmed
 	}
 }
 
@@ -838,10 +849,67 @@ func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
 func (s *Simulation) rebuildSettlementAgents() {
 	newMap := make(map[uint64][]*agents.Agent, len(s.Settlements))
 	for _, a := range s.Agents {
+		if !a.Alive {
+			continue
+		}
 		if a.HomeSettID != nil {
 			newMap[*a.HomeSettID] = append(newMap[*a.HomeSettID], a)
 		}
 	}
 	s.SettlementAgents = newMap
 	s.updateSettlementPopulations()
+}
+
+// compactDeadAgents removes dead agents from the Agents slice, rebuilds
+// AgentIndex, prunes stale relationships, and rebuilds settlement maps.
+// Called weekly from TickWeek. Dead agents are already persisted to DB
+// in the daily SaveWorldState (TickDay runs before TickWeek).
+func (s *Simulation) compactDeadAgents() {
+	alive := make([]*agents.Agent, 0, len(s.Agents))
+	removed := 0
+	for _, a := range s.Agents {
+		if a.Alive {
+			alive = append(alive, a)
+		} else {
+			removed++
+		}
+	}
+	if removed == 0 {
+		return
+	}
+
+	s.Agents = alive
+
+	// Rebuild AgentIndex from compacted slice.
+	newIndex := make(map[agents.AgentID]*agents.Agent, len(alive))
+	for _, a := range alive {
+		newIndex[a.ID] = a
+	}
+	s.AgentIndex = newIndex
+
+	// Prune stale relationships: remove entries targeting dead agents.
+	pruned := 0
+	for _, a := range alive {
+		if len(a.Relationships) == 0 {
+			continue
+		}
+		n := 0
+		for _, r := range a.Relationships {
+			if _, ok := newIndex[r.TargetID]; ok {
+				a.Relationships[n] = r
+				n++
+			} else {
+				pruned++
+			}
+		}
+		a.Relationships = a.Relationships[:n]
+	}
+
+	s.rebuildSettlementAgents()
+
+	slog.Info("dead agents compacted",
+		"removed", removed,
+		"alive", len(alive),
+		"relationships_pruned", pruned,
+	)
 }

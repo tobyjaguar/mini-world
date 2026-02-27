@@ -15,6 +15,10 @@ import (
 // SimDaysPerYear is the number of sim-days in one sim-year (4 seasons × 90 days).
 const SimDaysPerYear = 360
 
+// MaxWorldPopulation caps the world at 500K living agents to prevent OOM.
+// At ~480 bytes per agent struct + relationships + indexes, 500K ≈ 360 MB.
+const MaxWorldPopulation = 500_000
+
 // processPopulation handles daily aging, natural death, and births.
 func (s *Simulation) processPopulation(tick uint64) {
 	simDay := tick / TicksPerSimDay
@@ -105,6 +109,9 @@ func (s *Simulation) processBirths(tick uint64) {
 	if s.Spawner == nil {
 		return
 	}
+	if s.Stats.TotalPopulation >= MaxWorldPopulation {
+		return
+	}
 
 	simDay := tick / TicksPerSimDay
 
@@ -178,6 +185,9 @@ func (s *Simulation) processBirths(tick uint64) {
 // See design doc Section 9.4.
 func (s *Simulation) processAntiCollapse(tick uint64) {
 	if s.Spawner == nil {
+		return
+	}
+	if s.Stats.TotalPopulation >= MaxWorldPopulation {
 		return
 	}
 
