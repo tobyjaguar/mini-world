@@ -227,7 +227,7 @@ func (s *Simulation) buildMerchantTradeContext(a *agents.Agent) string {
 	// Current status.
 	if a.TravelTicksLeft > 0 {
 		b.WriteString("Status: Currently traveling\n")
-	} else if len(a.TradeCargo) > 0 {
+	} else if !a.TradeCargo.IsEmpty() {
 		b.WriteString("Status: Carrying cargo\n")
 	} else {
 		b.WriteString("Status: At home, ready to trade\n")

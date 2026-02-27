@@ -72,7 +72,7 @@ type Agent struct {
 
 	// Economic
 	Occupation Occupation         `json:"occupation"`
-	Inventory  map[GoodType]int   `json:"inventory"`
+	Inventory  GoodInventory      `json:"inventory"`
 	Wealth     uint64             `json:"wealth"`  // Crowns
 	Skills     SkillSet           `json:"skills"`
 
@@ -94,7 +94,7 @@ type Agent struct {
 
 	// Trade (merchants only)
 	TradeDestSett   *uint64          `json:"trade_dest_sett,omitempty"`   // Destination settlement ID
-	TradeCargo      map[GoodType]int `json:"trade_cargo,omitempty"`      // Goods being transported
+	TradeCargo      GoodInventory    `json:"trade_cargo"`                // Goods being transported
 	TravelTicksLeft uint16           `json:"travel_ticks_left,omitempty"` // Ticks remaining to reach destination
 	ConsignmentDebt    uint64           `json:"consignment_debt,omitempty"`    // Crowns owed to home treasury from fronted cargo
 	TradePreferredDest *uint64          `json:"trade_preferred_dest,omitempty"` // LLM-scouted destination preference (Tier 2 merchants)
@@ -127,6 +127,28 @@ const (
 	GoodMedicine                 // Herbs + Knowledge
 	GoodLuxuries                 // Gems + Crafting
 )
+
+// NumGoods is the total number of good types.
+const NumGoods = 15
+
+// GoodInventory is a fixed-size array holding quantities of each good type.
+// Replaces map[GoodType]int — inline in Agent struct, zero heap allocation.
+type GoodInventory [NumGoods]int
+
+// IsEmpty returns true if all quantities are zero.
+func (g GoodInventory) IsEmpty() bool {
+	for _, qty := range g {
+		if qty != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// Clear zeroes all quantities.
+func (g *GoodInventory) Clear() {
+	*g = GoodInventory{}
+}
 
 // SkillSet tracks an agent's capabilities.
 type SkillSet struct {

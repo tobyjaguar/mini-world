@@ -371,7 +371,7 @@ func (s *Simulation) TickSeason(tick uint64) {
 // 50% of wealth goes to the settlement treasury, 50% to a living settlement member.
 // Inventory goods are added to the settlement market supply.
 func (s *Simulation) inheritWealth(a *agents.Agent, tick uint64) {
-	if a.Wealth == 0 && len(a.Inventory) == 0 {
+	if a.Wealth == 0 && a.Inventory.IsEmpty() {
 		return
 	}
 
@@ -402,8 +402,9 @@ func (s *Simulation) inheritWealth(a *agents.Agent, tick uint64) {
 
 		// Inventory goods go to settlement market supply.
 		if sett.Market != nil {
-			for good, qty := range a.Inventory {
+			for i, qty := range a.Inventory {
 				if qty > 0 {
+					good := agents.GoodType(i)
 					if entry, ok := sett.Market.Entries[good]; ok {
 						entry.Supply += float64(qty)
 					}
@@ -414,9 +415,7 @@ func (s *Simulation) inheritWealth(a *agents.Agent, tick uint64) {
 
 	// Zero out the dead agent's wealth and inventory.
 	a.Wealth = 0
-	for good := range a.Inventory {
-		a.Inventory[good] = 0
-	}
+	a.Inventory.Clear()
 }
 
 // processRandomEvents uses true randomness to trigger rare world events.

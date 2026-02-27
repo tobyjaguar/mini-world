@@ -552,12 +552,18 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 		json.Unmarshal([]byte(r.NeedsJSON), &a.Needs)
 		json.Unmarshal([]byte(r.SoulJSON), &a.Soul)
 
-		var inv map[agents.GoodType]int
-		json.Unmarshal([]byte(r.InventoryJSON), &inv)
-		if inv == nil {
-			inv = make(map[agents.GoodType]int)
+		// Transitional inventory unmarshal: detect old map format vs new array format.
+		raw := []byte(r.InventoryJSON)
+		if len(raw) > 0 && raw[0] == '{' {
+			// Old map format: {"0":5,"4":2,...}
+			var m map[agents.GoodType]int
+			json.Unmarshal(raw, &m)
+			for k, v := range m {
+				a.Inventory[k] = v
+			}
+		} else {
+			json.Unmarshal(raw, &a.Inventory)
 		}
-		a.Inventory = inv
 
 		result = append(result, a)
 	}

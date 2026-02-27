@@ -54,7 +54,8 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		}
 
 		// Supply: goods above the agent's personal threshold.
-		for good, qty := range a.Inventory {
+		for i, qty := range a.Inventory {
+			good := agents.GoodType(i)
 			surplus := qty - surplusThreshold(a, good)
 			if surplus > 0 {
 				if entry, ok := market.Entries[good]; ok {
@@ -99,7 +100,8 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		if !a.Alive {
 			continue
 		}
-		for good, qty := range a.Inventory {
+		for i, qty := range a.Inventory {
+			good := agents.GoodType(i)
 			surplus := qty - surplusThreshold(a, good)
 			if surplus <= 0 {
 				continue
@@ -640,7 +642,7 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			}
 
 			// If merchant has cargo and arrived at destination, sell it.
-			if a.TradeDestSett != nil && len(a.TradeCargo) > 0 {
+			if a.TradeDestSett != nil && !a.TradeCargo.IsEmpty() {
 				destSett, ok := s.SettlementIndex[*a.TradeDestSett]
 				if ok && destSett.Market != nil {
 					sellMerchantCargo(a, destSett.Market, destSett, s)
@@ -657,7 +659,7 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 					a.ConsignmentDebt -= repay
 				}
 				a.TradeDestSett = nil
-				a.TradeCargo = nil
+				a.TradeCargo.Clear()
 				continue
 			}
 
@@ -751,9 +753,6 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			// Load cargo and set destination with travel time.
 			destID := bestDest.ID
 			a.TradeDestSett = &destID
-			if a.TradeCargo == nil {
-				a.TradeCargo = make(map[agents.GoodType]int)
-			}
 			a.TradeCargo[bestGood] += buyQty
 
 			// Provision food for the journey.
@@ -860,7 +859,8 @@ func routeCost(from, to world.HexCoord, worldMap *world.Map) int {
 // After sale, Tier 2 merchants at the destination earn a commission (guild fee).
 func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Settlement, sim *Simulation) {
 	var totalRevenue uint64
-	for good, qty := range a.TradeCargo {
+	for i, qty := range a.TradeCargo {
+		good := agents.GoodType(i)
 		entry, ok := market.Entries[good]
 		if !ok || qty <= 0 {
 			continue
@@ -896,9 +896,9 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 			importance = 0.7 // Merchants learn more from losses
 		}
 		var cargoDesc string
-		for good, qty := range a.TradeCargo {
+		for i, qty := range a.TradeCargo {
 			if qty > 0 {
-				cargoDesc += fmt.Sprintf("%d %s ", qty, goodName(good))
+				cargoDesc += fmt.Sprintf("%d %s ", qty, goodName(agents.GoodType(i)))
 			}
 		}
 		agents.AddMemory(a, 0,
@@ -977,7 +977,8 @@ func tier2MarketSell(a *agents.Agent, sett *social.Settlement) {
 	bestValue := 0.0
 	bestGood := agents.GoodType(0)
 	bestQty := 0
-	for good, qty := range a.Inventory {
+	for i, qty := range a.Inventory {
+		good := agents.GoodType(i)
 		surplus := qty - surplusThreshold(a, good)
 		if surplus <= 0 {
 			continue
