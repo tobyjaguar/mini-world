@@ -268,7 +268,7 @@ func applyWork(a *Agent, tick uint64) []string {
 	case OccupationLaborer:
 		// Laborers produce stone via ResolveWork (hex resource extraction).
 		// applyWork path runs when ResolveWork can't find resources.
-		produced := int(a.Skills.Mining * 2)
+		produced := int(a.Skills.Mining * 3)
 		if produced < 1 {
 			produced = 1
 		}
@@ -280,8 +280,10 @@ func applyWork(a *Agent, tick uint64) []string {
 		a.Skills.Trade += 0.001
 	case OccupationSoldier:
 		a.Skills.Combat += 0.002
-		a.Needs.Purpose += 0.003
-		a.Needs.Belonging += 0.002
+		a.Needs.Purpose += 0.005   // "I defend my people"
+		a.Needs.Belonging += 0.004 // "I am part of the guard"
+		a.Needs.Safety += 0.003    // "I am the one who provides safety"
+		a.Needs.Survival += 0.001  // Military discipline includes provisioning
 	case OccupationScholar:
 		// Scholars slowly gain wisdom. Rate is per-tick (runs every sim-minute),
 		// so use a tiny multiplier: ~0.00034/day → ~0.124/year coherence growth.

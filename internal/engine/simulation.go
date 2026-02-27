@@ -691,6 +691,18 @@ func (s *Simulation) applyScholarBonus() {
 		if sett.GovernanceScore > 1.0 {
 			sett.GovernanceScore = 1.0
 		}
+
+		// Scholars get satisfaction from contributing to governance.
+		// Daily boost (equivalent to ~1440 ticks of micro-boosts).
+		for _, a := range settAgents {
+			if a.Alive && a.Occupation == agents.OccupationScholar {
+				a.Needs.Purpose += 0.05    // "My work shapes how we govern"
+				a.Needs.Belonging += 0.03  // "I am integral to this community"
+				a.Needs.Esteem += 0.03     // "My knowledge is valued"
+				a.Needs.Safety += 0.02     // "My role is secure"
+				clampAgentNeeds(&a.Needs)
+			}
+		}
 	}
 }
 

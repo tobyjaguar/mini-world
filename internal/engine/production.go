@@ -136,11 +136,9 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	a.Needs.Belonging += 0.004
 	a.Needs.Purpose += 0.004
 
-	// Food producers who successfully produced get a direct Survival boost.
-	// They made the food — they know they can eat tomorrow.
-	if a.Occupation == agents.OccupationFarmer || a.Occupation == agents.OccupationFisher || a.Occupation == agents.OccupationHunter {
-		a.Needs.Survival += 0.003
-	}
+	// All hex-resource producers who successfully produced get a Survival boost.
+	// Physical labor extracting real goods = material security.
+	a.Needs.Survival += 0.003
 	clampAgentNeeds(&a.Needs)
 
 	return nil
@@ -182,7 +180,7 @@ func productionAmount(a *agents.Agent) int {
 		}
 		return p
 	case agents.OccupationLaborer:
-		p := int(a.Skills.Mining * 2)
+		p := int(a.Skills.Mining * 3)
 		if p < 1 {
 			p = 1
 		}
