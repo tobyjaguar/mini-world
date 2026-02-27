@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/phi"
+	"github.com/talgya/mini-world/internal/world"
 )
 
 // processTier2Decisions runs LLM-powered decisions for a batch of Tier 2 agents.
@@ -159,7 +161,80 @@ func (s *Simulation) buildTier2Context(a *agents.Agent, occNames []string, govNa
 		}
 	}
 
+	// Merchant-specific trade context.
+	if a.Occupation == agents.OccupationMerchant {
+		ctx.TradeContext = s.buildMerchantTradeContext(a)
+	}
+
 	return ctx
+}
+
+// buildMerchantTradeContext provides real market data for merchant LLM decisions.
+func (s *Simulation) buildMerchantTradeContext(a *agents.Agent) string {
+	if a.HomeSettID == nil {
+		return ""
+	}
+	sett, ok := s.SettlementIndex[*a.HomeSettID]
+	if !ok || sett.Market == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("Trade Intelligence:\n")
+
+	// Home market prices.
+	b.WriteString("Home market prices: ")
+	first := true
+	for good, entry := range sett.Market.Entries {
+		if !first {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%s %.1f", goodName(good), entry.Price)
+		first = false
+	}
+	b.WriteString("\n")
+
+	// Best margins to nearby settlements.
+	b.WriteString("Nearby trade routes:\n")
+	for _, other := range s.Settlements {
+		if other.ID == sett.ID || other.Market == nil {
+			continue
+		}
+		dist := world.Distance(sett.Position, other.Position)
+		if dist > 5 {
+			continue
+		}
+		bestMargin := 0.0
+		bestGood := agents.GoodType(0)
+		for good, homeEntry := range sett.Market.Entries {
+			destEntry, ok := other.Market.Entries[good]
+			if !ok || homeEntry.Price < 1 {
+				continue
+			}
+			margin := (destEntry.Price - homeEntry.Price) / homeEntry.Price
+			if margin > bestMargin {
+				bestMargin = margin
+				bestGood = good
+			}
+		}
+		if bestMargin > 0 {
+			tc := routeCost(sett.Position, other.Position, s.WorldMap)
+			fmt.Fprintf(&b, "- %s (dist %d, travel %d ticks): best margin %.0f%% on %s\n",
+				other.Name, dist, tc, bestMargin*100, goodName(bestGood))
+		}
+	}
+
+	// Current status.
+	if a.TravelTicksLeft > 0 {
+		b.WriteString("Status: Currently traveling\n")
+	} else if len(a.TradeCargo) > 0 {
+		b.WriteString("Status: Carrying cargo\n")
+	} else {
+		b.WriteString("Status: At home, ready to trade\n")
+	}
+	fmt.Fprintf(&b, "Trade skill: %.2f, Wealth: %d crowns\n", a.Skills.Trade, a.Wealth)
+
+	return b.String()
 }
 
 func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, tick uint64) {
@@ -246,6 +321,20 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 					break
 				}
 			}
+		}
+
+	case "scout_route":
+		if a.Occupation == agents.OccupationMerchant {
+			// Find the named settlement and store as preferred destination.
+			for _, sett := range s.Settlements {
+				if sett.Name == d.Target {
+					id := sett.ID
+					a.TradePreferredDest = &id
+					break
+				}
+			}
+			a.Needs.Purpose += 0.05
+			a.Skills.Trade += 0.005
 		}
 
 	case "speak":

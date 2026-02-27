@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 	"sort"
 
@@ -653,6 +654,11 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 				continue
 			}
 
+			// Merchants below safety threshold stay home — recover wealth first.
+			if a.Wealth < 20 {
+				continue
+			}
+
 			// Look for profitable trade opportunity.
 			bestProfit := 0.0
 			var bestGood agents.GoodType
@@ -670,6 +676,10 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 					margin := (destEntry.Price - homeEntry.Price) / homeEntry.Price
 					// Apply Being (Φ) as cooperation bonus.
 					effectiveMargin := margin * phi.Being
+					// Tier 2 merchant LLM preference: scout_route biases this destination.
+					if a.TradePreferredDest != nil && neighbor.ID == *a.TradePreferredDest {
+						effectiveMargin *= phi.Being // ~1.618x bonus for scouted route
+					}
 					if effectiveMargin > phi.Psyche && effectiveMargin > bestProfit {
 						bestProfit = effectiveMargin
 						bestGood = good
@@ -677,8 +687,31 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 					}
 				}
 			}
+			// Clear preference after evaluation — force fresh scouting.
+			a.TradePreferredDest = nil
+
+			// Verify net profitability after travel costs.
+			if bestDest != nil {
+				homePrice := sett.Market.Entries[bestGood].Price
+				destPrice := bestDest.Market.Entries[bestGood].Price
+				tc := routeCost(sett.Position, bestDest.Position, s.WorldMap)
+				foodCost := float64(tc/TicksPerSimHour+2) * 2.0 // ~2 crowns per meal
+				grossProfit := (destPrice - homePrice) * 5       // 5-unit cargo
+				if grossProfit <= foodCost {
+					bestDest = nil // Not profitable after costs
+				}
+			}
 
 			if bestDest == nil {
+				// Tier 2 merchants remember dry spells (once per sim-day).
+				if a.Tier == agents.Tier2 && tick%TicksPerSimDay < TicksPerSimHour {
+					settName := "unknown"
+					if sett != nil {
+						settName = sett.Name
+					}
+					agents.AddMemory(a, tick,
+						fmt.Sprintf("No profitable trade routes from %s today.", settName), 0.3)
+				}
 				continue
 			}
 
@@ -848,6 +881,24 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 		a.Needs.Purpose += 0.004
 	}
 
+	// Tier 2 merchants remember trade outcomes.
+	if a.Tier == agents.Tier2 && totalRevenue > 0 {
+		// Estimate cost from consignment debt as proxy for purchase cost.
+		importance := float32(0.6)
+		if totalRevenue < a.ConsignmentDebt {
+			importance = 0.7 // Merchants learn more from losses
+		}
+		var cargoDesc string
+		for good, qty := range a.TradeCargo {
+			if qty > 0 {
+				cargoDesc += fmt.Sprintf("%d %s ", qty, goodName(good))
+			}
+		}
+		agents.AddMemory(a, 0,
+			fmt.Sprintf("Completed trade to %s: sold %sfor %d crowns", sett.Name, cargoDesc, totalRevenue),
+			importance)
+	}
+
 	// Tier 2 merchants at the destination earn a commission on trades
 	// flowing through their settlement — guild masters who facilitate trade.
 	if totalRevenue > 0 {
@@ -962,4 +1013,42 @@ func tier2MarketSell(a *agents.Agent, sett *social.Settlement) {
 	}
 
 	a.Skills.Trade += 0.005
+}
+
+// goodName returns a human-readable name for a GoodType.
+func goodName(g agents.GoodType) string {
+	switch g {
+	case agents.GoodGrain:
+		return "grain"
+	case agents.GoodTimber:
+		return "timber"
+	case agents.GoodIronOre:
+		return "iron ore"
+	case agents.GoodStone:
+		return "stone"
+	case agents.GoodFish:
+		return "fish"
+	case agents.GoodHerbs:
+		return "herbs"
+	case agents.GoodGems:
+		return "gems"
+	case agents.GoodFurs:
+		return "furs"
+	case agents.GoodCoal:
+		return "coal"
+	case agents.GoodExotics:
+		return "exotics"
+	case agents.GoodTools:
+		return "tools"
+	case agents.GoodWeapons:
+		return "weapons"
+	case agents.GoodClothing:
+		return "clothing"
+	case agents.GoodMedicine:
+		return "medicine"
+	case agents.GoodLuxuries:
+		return "luxuries"
+	default:
+		return "unknown"
+	}
 }

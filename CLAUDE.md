@@ -447,6 +447,16 @@ All 20 Tier 2 farmers had satisfaction between -0.08 and -0.13, stuck for ~145K 
 85. **Travel is a no-op** — FIXED: New `applyTravel()` in `behavior.go` gives per-tick needs boosts during travel (Esteem +0.005, Safety +0.003, Belonging +0.002, Purpose +0.003 — slightly below work to reflect less social context). All needs net positive during travel. Traveling agents eat from inventory when survival drops below 0.5 (+0.2 survival per meal). General fix — benefits any future traveling agent type.
 86. **Merchants depart without food** — FIXED: `resolveMerchantTrade()` in `market.go` now provisions food before departure. Merchants buy `travelCost/60 + 2` meals (grain or fish) at market price, paid to settlement treasury. Closed economy preserved. Graceful degradation: merchants who can't afford food depart hungry but still get travel needs boosts.
 
+### Tuning Round 19: Tier 2 Merchant Intelligence
+
+All 6 Tier 2 merchants dead (100% mortality) despite rounds 16 (commission) and 18 (travel-as-work, food provisioning). Root cause: merchants accumulate wealth drain from marginally profitable or unprofitable trade routes. A 5-unit grain trade with 50% margin earns 5 crowns gross but costs ~6 crowns in food provisioning — net loss. Merchant burns through throttled wage and hits zero wealth → no cargo → permanent idle → slow death.
+
+87. **Broke merchants dig deeper into debt** — FIXED: Wealth gate in `resolveMerchantTrade()` — merchants below 20 crowns (Safety threshold) skip trade and stay home to recover via throttled wage + needs-driven behavior.
+88. **Unprofitable routes after travel costs** — FIXED: Net-profit check after route selection verifies `grossProfit > foodCost` before committing to a trade. Routes that look good on margin but lose money on food are rejected.
+89. **Tier 2 merchants lack trade intelligence** — FIXED: `buildMerchantTradeContext()` provides real market data in LLM prompt: home prices, nearby settlement margins with distances, current cargo/travel status, trade skill. Merchant-specific system prompt frames them as network builders.
+90. **No LLM agency over trade routes** — FIXED: New `scout_route` action lets Tier 2 merchants express destination preference. `TradePreferredDest` field biases automated route selection by `phi.Being` (~1.618x) — LLM preference tilts but doesn't override profitability checks. Cleared after each evaluation to force fresh scouting.
+91. **No trade outcome memory** — FIXED: Tier 2 merchants remember completed trades (importance 0.6, or 0.7 for losses) and dry spells (importance 0.3, once per sim-day). Trade memories feed into future LLM decisions.
+
 ### Remaining Minor Issues
 - Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

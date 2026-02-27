@@ -35,6 +35,7 @@ type Tier2Context struct {
 	Relationships []string // "Name (sentiment: 0.5, trust: 0.7)"
 	Faction       string   // Faction name or "unaffiliated"
 	Weather       string   // Weather description if available
+	TradeContext  string   // Merchant-specific: nearby prices, margins, cargo status
 }
 
 // GenerateTier2Decision calls Haiku to produce 1-3 weekly actions for a Tier 2 agent.
@@ -55,7 +56,7 @@ func GenerateTier2Decision(client *Client, ctx *Tier2Context) ([]Tier2Decision, 
 }
 
 func buildTier2SystemPrompt(ctx *Tier2Context) string {
-	return fmt.Sprintf(
+	base := fmt.Sprintf(
 		`You are %s, a %d-year-old %s living in %s. You are %s.
 Your coherence is %.2f (%s). You have %d crowns.
 You belong to %s.
@@ -81,6 +82,21 @@ Valid actions:
 		ctx.Coherence, ctx.State, ctx.Wealth,
 		ctx.Faction,
 	)
+
+	if ctx.Occupation == "Merchant" {
+		base += `
+
+Your life is the road between settlements — you are a network builder who connects communities through trade.
+You read the markets, judge distances, and decide which routes are worth the risk.
+
+Additional merchant actions:
+- scout_route: survey a nearby settlement for trade opportunities (target = settlement name)`
+		if ctx.TradeContext != "" {
+			base += "\n\n" + ctx.TradeContext
+		}
+	}
+
+	return base
 }
 
 func buildTier2UserPrompt(ctx *Tier2Context) string {
@@ -135,7 +151,7 @@ func parseTier2Response(response string) ([]Tier2Decision, error) {
 	// Validate action types.
 	validActions := map[string]bool{
 		"work": true, "trade": true, "socialize": true, "advocate": true,
-		"invest": true, "recruit": true, "speak": true,
+		"invest": true, "recruit": true, "speak": true, "scout_route": true,
 	}
 	var valid []Tier2Decision
 	for _, d := range decisions {
