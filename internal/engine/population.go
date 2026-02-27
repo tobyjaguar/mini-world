@@ -9,6 +9,7 @@ import (
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/phi"
+	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
 )
 
@@ -476,11 +477,25 @@ func occupationLabel(occ agents.Occupation) string {
 	}
 }
 
-// addAgent registers a new agent in all indexes.
+// addAgent registers a new agent in all indexes and assigns a faction.
 func (s *Simulation) addAgent(a *agents.Agent) {
 	s.Agents = append(s.Agents, a)
 	s.AgentIndex[a.ID] = a
 	if a.HomeSettID != nil {
 		s.SettlementAgents[*a.HomeSettID] = append(s.SettlementAgents[*a.HomeSettID], a)
+	}
+
+	// Assign faction based on occupation and governance type.
+	if a.FactionID == nil {
+		govType := social.GovCommune
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				govType = sett.Governance
+			}
+		}
+		if fid := factionForAgent(a, govType); fid > 0 {
+			factionID := uint64(fid)
+			a.FactionID = &factionID
+		}
 	}
 }

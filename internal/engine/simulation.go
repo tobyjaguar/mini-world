@@ -276,7 +276,7 @@ func (s *Simulation) updateWeather() {
 
 	conditions, err := s.WeatherClient.Fetch()
 	if err != nil {
-		slog.Debug("weather fetch failed", "error", err)
+		slog.Warn("weather fetch failed", "error", err)
 		return
 	}
 

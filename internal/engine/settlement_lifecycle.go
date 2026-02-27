@@ -152,7 +152,7 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 }
 
 // processSettlementAbandonment checks weekly for settlements with 0 living population.
-// After 2 consecutive weeks of 0 pop, the settlement is abandoned.
+// Settlements with 0 pop are abandoned immediately (no grace period).
 func (s *Simulation) processSettlementAbandonment(tick uint64) {
 	for _, sett := range s.Settlements {
 		settAgents := s.SettlementAgents[sett.ID]
@@ -165,7 +165,7 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 
 		if aliveCount == 0 {
 			s.AbandonedWeeks[sett.ID]++
-			if s.AbandonedWeeks[sett.ID] >= 2 {
+			if s.AbandonedWeeks[sett.ID] >= 1 {
 				// Redistribute treasury to nearest active settlements.
 				if sett.Treasury > 0 {
 					nearest := s.nearestActiveSettlements(sett.Position, 3)
