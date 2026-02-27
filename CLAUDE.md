@@ -475,6 +475,12 @@ Agents moving between settlements (migration, diaspora, consolidation) preserved
 98. **Occupation not checked on move** — FIXED: New `reassignIfMismatched(a, settID)` in `perpetuation.go` checks the 7-hex neighborhood of the destination settlement for the agent's required resource. If absent, reassigns via `bestOccupationForHex()`. Special-cases Alchemist (needs herbs but not in `occupationResource` map). Called at all 4 movement sites: `foundSettlement()` (diaspora), `processSeasonalMigration()` (desperate agents), `processViabilityCheck()` (force-migration), `ConsolidateSettlement()` (gardener).
 99. **Weekly sweep demoted to safety net** — CHANGED: `reassignMismatchedProducers()` comment updated, log level changed from `slog.Info` → `slog.Warn`. If it fires with count > 0, a movement path was missed. Can be removed after weeks of count=0 in production.
 
+### Memory Optimization: Inventory Arrays
+
+`Inventory` and `TradeCargo` were `map[GoodType]int` — Go hashmaps with ~320-400 bytes of bucket/overhead per map. With 236K agents × 2 maps each, that's ~472K heap-allocated objects and ~90M of GC-tracked metadata. `GoodType` is `uint8` with exactly 15 values, so the maps were replaced with `GoodInventory [NumGoods]int` — a fixed-size array, 120 bytes, inline in the struct, zero heap allocation.
+
+100. **Inventory/TradeCargo map→array** — FIXED: New `GoodInventory [15]int` type in `types.go` with `IsEmpty()` and `Clear()` helpers. Agent struct fields changed, range loops updated (7 sites), nil/len checks updated (5 sites), spawn-site `make()` calls removed (2 sites). DB persistence uses native `[15]int` JSON. Measured **~100M RSS savings** (742→626 MB with same agent count).
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
