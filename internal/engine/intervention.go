@@ -122,6 +122,7 @@ func (s *Simulation) ConsolidateSettlement(name string, count int) (string, erro
 		}
 		a.HomeSettID = &targetSett.ID
 		a.Position = targetSett.Position
+		s.reassignIfMismatched(a, targetSett.ID)
 		moved++
 	}
 

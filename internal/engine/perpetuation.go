@@ -173,6 +173,7 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 			newID := target.ID
 			a.HomeSettID = &newID
 			a.Position = target.Position
+			s.reassignIfMismatched(a, newID)
 			migrated = true
 		}
 	}
@@ -203,9 +204,73 @@ func (s *Simulation) findNearestViableSettlement(from *social.Settlement, maxDis
 	return best
 }
 
-// reassignMismatchedProducers checks resource-producing agents and reassigns
-// those whose hex lacks their required resource. A fisher on a plains hex can
-// never produce fish — they should become a farmer instead.
+// reassignIfMismatched checks a single agent after movement and reassigns their
+// occupation if the 7-hex neighborhood of the destination settlement lacks
+// their required resource. Called at all movement sites (migration, diaspora,
+// consolidation, viability force-migration) so agents are productive immediately.
+func (s *Simulation) reassignIfMismatched(a *agents.Agent, settID uint64) {
+	if !a.Alive {
+		return
+	}
+
+	// Determine required resource. Alchemist needs herbs but isn't in occupationResource.
+	resType, needsResource := occupationResource[a.Occupation]
+	if !needsResource {
+		if a.Occupation == agents.OccupationAlchemist {
+			resType = world.ResourceHerbs
+		} else {
+			return // Crafter, Merchant, Soldier, Scholar — no hex resource needed.
+		}
+	}
+
+	// Check 7-hex neighborhood for the required resource.
+	sett, ok := s.SettlementIndex[settID]
+	if !ok {
+		return
+	}
+	found := false
+	checkHex := func(coord world.HexCoord) {
+		if found {
+			return
+		}
+		h := s.WorldMap.Get(coord)
+		if h != nil && h.Resources[resType] >= 1.0 {
+			found = true
+		}
+	}
+	checkHex(sett.Position)
+	for _, nc := range sett.Position.Neighbors() {
+		checkHex(nc)
+	}
+	if found {
+		return
+	}
+
+	// No resource nearby — reassign to match settlement position hex.
+	hex := s.WorldMap.Get(sett.Position)
+	if hex == nil {
+		return
+	}
+	newOcc := bestOccupationForHex(hex)
+	if newOcc == a.Occupation {
+		return
+	}
+
+	old := a.Occupation
+	a.Occupation = newOcc
+	slog.Debug("reassigned occupation on move",
+		"agent", a.Name,
+		"from", old,
+		"to", newOcc,
+		"settlement", sett.Name,
+		"terrain", hex.Terrain,
+	)
+}
+
+// reassignMismatchedProducers is a weekly safety net that catches any agents
+// whose occupation doesn't match their hex resources. With reassignIfMismatched()
+// called at all movement sites, this should fire with count=0. If it doesn't,
+// we missed a movement path.
 func (s *Simulation) reassignMismatchedProducers(tick uint64) {
 	reassigned := 0
 	for _, a := range s.Agents {
@@ -215,20 +280,23 @@ func (s *Simulation) reassignMismatchedProducers(tick uint64) {
 
 		resType, needsResource := occupationResource[a.Occupation]
 		if !needsResource {
-			continue // Crafters, laborers, etc. don't need hex resources.
+			continue // Crafters, merchants, etc. don't need hex resources.
 		}
 
+		// Check the 7-hex neighborhood (home + 6 neighbors) for the required
+		// resource. bestProductionHex picks the healthiest hex with the resource,
+		// but falls back to sett.Position even when no resource exists — so we
+		// must verify the returned hex actually has the resource.
+		prodHex := s.bestProductionHex(a)
+		if prodHex != nil && prodHex.Resources[resType] >= 1.0 {
+			continue // Can produce in the neighborhood — no reassignment needed.
+		}
+
+		// No resource anywhere nearby. Reassign to match position hex terrain.
 		hex := s.WorldMap.Get(a.Position)
 		if hex == nil {
 			continue
 		}
-
-		// Check if the hex has any of the required resource.
-		if hex.Resources[resType] >= 1.0 {
-			continue // Resource available — no reassignment needed.
-		}
-
-		// Hex lacks the required resource. Reassign to match hex terrain.
 		newOcc := bestOccupationForHex(hex)
 		if newOcc == a.Occupation {
 			continue
@@ -247,7 +315,7 @@ func (s *Simulation) reassignMismatchedProducers(tick uint64) {
 	}
 
 	if reassigned > 0 {
-		slog.Info("reassigned mismatched producers", "count", reassigned, "tick", tick)
+		slog.Warn("safety-net reassigned mismatched producers", "count", reassigned, "tick", tick)
 	}
 }
 
@@ -265,6 +333,8 @@ func bestOccupationForHex(hex *world.Hex) agents.Occupation {
 		{agents.OccupationMiner, hex.Resources[world.ResourceIronOre]},
 		{agents.OccupationFisher, hex.Resources[world.ResourceFish]},
 		{agents.OccupationHunter, hex.Resources[world.ResourceFurs]},
+		{agents.OccupationLaborer, hex.Resources[world.ResourceStone]},
+		{agents.OccupationAlchemist, hex.Resources[world.ResourceHerbs]},
 	}
 
 	best := candidates[0] // Default to Farmer.

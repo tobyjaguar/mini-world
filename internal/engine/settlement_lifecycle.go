@@ -286,6 +286,7 @@ func (s *Simulation) foundSettlement(coord world.HexCoord, founders []*agents.Ag
 	for _, a := range founders {
 		a.HomeSettID = &newID
 		a.Position = coord
+		s.reassignIfMismatched(a, newID)
 		s.SettlementAgents[newID] = append(s.SettlementAgents[newID], a)
 	}
 
@@ -417,6 +418,7 @@ func (s *Simulation) processViabilityCheck(tick uint64) {
 					newID := target.ID
 					a.HomeSettID = &newID
 					a.Position = target.Position
+					s.reassignIfMismatched(a, newID)
 					migrated = true
 				}
 				slog.Info("non-viable settlement force-migration",

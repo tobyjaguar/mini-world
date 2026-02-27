@@ -164,12 +164,14 @@ func (s *Spawner) occupationForTerrain(terrain world.Terrain) Occupation {
 	case world.TerrainForest:
 		if r < 0.28 {
 			return OccupationHunter
-		} else if r < 0.50 {
+		} else if r < 0.45 {
 			return OccupationFarmer
-		} else if r < 0.68 {
+		} else if r < 0.60 {
 			return OccupationLaborer
-		} else if r < 0.82 {
+		} else if r < 0.74 {
 			return OccupationCrafter
+		} else if r < 0.82 {
+			return OccupationAlchemist
 		} else if r < 0.92 {
 			return OccupationSoldier
 		} else {

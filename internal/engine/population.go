@@ -312,7 +312,8 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 	allOccupations := []agents.Occupation{
 		agents.OccupationFarmer, agents.OccupationMiner, agents.OccupationCrafter,
 		agents.OccupationMerchant, agents.OccupationLaborer, agents.OccupationFisher,
-		agents.OccupationHunter,
+		agents.OccupationHunter, agents.OccupationAlchemist, agents.OccupationScholar,
+		agents.OccupationSoldier,
 	}
 	for _, occ := range allOccupations {
 		if diversityPromoted >= maxDiversity {

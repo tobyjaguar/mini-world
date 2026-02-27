@@ -468,6 +468,13 @@ The occupation audit revealed ~40% of the population either produced nothing or 
 96. **Crafter journeyman mint closed** — FIXED: Idle crafters (no materials) get Purpose penalty (-0.001) instead of minting crowns. Welfare provides safety net.
 97. **Merchant idle mint closed** — FIXED: Idle merchants get trade skill growth only, no mint. Welfare + trade income provides safety net.
 
+### Tuning Round 21: Occupation Reassignment at Movement Source
+
+Agents moving between settlements (migration, diaspora, consolidation) preserved their occupation even when the destination terrain didn't support it. A weekly `reassignMismatchedProducers()` sweep caught these, but agents were unproductive for up to 7 sim-days per move. Additionally, `bestProductionHex()` never returns nil (falls back to `sett.Position`), so the neighborhood check silently passed all agents.
+
+98. **Occupation not checked on move** — FIXED: New `reassignIfMismatched(a, settID)` in `perpetuation.go` checks the 7-hex neighborhood of the destination settlement for the agent's required resource. If absent, reassigns via `bestOccupationForHex()`. Special-cases Alchemist (needs herbs but not in `occupationResource` map). Called at all 4 movement sites: `foundSettlement()` (diaspora), `processSeasonalMigration()` (desperate agents), `processViabilityCheck()` (force-migration), `ConsolidateSettlement()` (gardener).
+99. **Weekly sweep demoted to safety net** — CHANGED: `reassignMismatchedProducers()` comment updated, log level changed from `slog.Info` → `slog.Warn`. If it fires with count > 0, a movement path was missed. Can be removed after weeks of count=0 in production.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
