@@ -12,10 +12,11 @@ import (
 
 // occupationResource maps occupation to the hex resource they consume when working.
 var occupationResource = map[agents.Occupation]world.ResourceType{
-	agents.OccupationFarmer: world.ResourceGrain,
-	agents.OccupationMiner:  world.ResourceIronOre,
-	agents.OccupationFisher: world.ResourceFish,
-	agents.OccupationHunter: world.ResourceFurs,
+	agents.OccupationFarmer:  world.ResourceGrain,
+	agents.OccupationMiner:   world.ResourceIronOre,
+	agents.OccupationFisher:  world.ResourceFish,
+	agents.OccupationHunter:  world.ResourceFurs,
+	agents.OccupationLaborer: world.ResourceStone,
 }
 
 // ResolveWork wraps agent work production with hex resource depletion.
@@ -29,8 +30,18 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	}
 
 	resType, needsResource := occupationResource[a.Occupation]
+
+	// Alchemist dual-mode: craft when herbs stocked, harvest when low.
+	if a.Occupation == agents.OccupationAlchemist {
+		if a.Inventory[agents.GoodHerbs] >= 2 {
+			return agents.ApplyAction(a, action, tick) // Craft from inventory
+		}
+		resType = world.ResourceHerbs
+		needsResource = true // Harvest herbs from hex
+	}
+
 	if !needsResource {
-		// Crafters, merchants, laborers, etc. don't draw from hex resources.
+		// Crafters, merchants, etc. don't draw from hex resources.
 		return agents.ApplyAction(a, action, tick)
 	}
 
@@ -100,6 +111,20 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 		a.Inventory[agents.GoodCoal]++
 	}
 
+	// Laborers restore hex health while working — land stewardship.
+	if a.Occupation == agents.OccupationLaborer && hex.Health < 1.0 {
+		hex.Health += phi.Agnosis * 0.005 // ~0.00118/tick
+		if hex.Health > 1.0 {
+			hex.Health = 1.0
+		}
+	}
+
+	// Alchemists gather exotics as secondary output when available.
+	if a.Occupation == agents.OccupationAlchemist && hex.Resources[world.ResourceExotics] >= 1.0 {
+		a.Inventory[agents.GoodExotics]++
+		hex.Resources[world.ResourceExotics] -= 1.0
+	}
+
 	// Skill growth.
 	applySkillGrowth(a)
 
@@ -156,6 +181,18 @@ func productionAmount(a *agents.Agent) int {
 			p = 1
 		}
 		return p
+	case agents.OccupationLaborer:
+		p := int(a.Skills.Mining * 2)
+		if p < 1 {
+			p = 1
+		}
+		return p
+	case agents.OccupationAlchemist:
+		p := int(a.Skills.Crafting * 2)
+		if p < 1 {
+			p = 1
+		}
+		return p
 	}
 	return 1
 }
@@ -171,6 +208,10 @@ func occupationGood(occ agents.Occupation) agents.GoodType {
 		return agents.GoodFish
 	case agents.OccupationHunter:
 		return agents.GoodFurs
+	case agents.OccupationLaborer:
+		return agents.GoodStone
+	case agents.OccupationAlchemist:
+		return agents.GoodHerbs
 	}
 	return agents.GoodGrain
 }
@@ -180,10 +221,12 @@ func applySkillGrowth(a *agents.Agent) {
 	switch a.Occupation {
 	case agents.OccupationFarmer, agents.OccupationFisher:
 		a.Skills.Farming += 0.001
-	case agents.OccupationMiner:
+	case agents.OccupationMiner, agents.OccupationLaborer:
 		a.Skills.Mining += 0.001
 	case agents.OccupationHunter:
 		a.Skills.Combat += 0.001
+	case agents.OccupationAlchemist:
+		a.Skills.Crafting += 0.001
 	}
 }
 

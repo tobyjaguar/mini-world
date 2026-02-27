@@ -244,13 +244,11 @@ func applyWork(a *Agent, tick uint64) []string {
 			crafted = true
 		}
 		if !crafted {
-			// Journeyman labor when lacking materials — throttled mint.
-			// Fires once per sim-hour (~24 crowns/day) instead of every tick (~1,440/day).
-			if tick%60 == uint64(a.ID)%60 {
-				a.Wealth += 1
-			}
+			a.Needs.Purpose -= 0.001 // Idle crafter feels purposeless
 		}
 	case OccupationAlchemist:
+		// Dual-mode: craft when herbs stocked (ResolveWork delegates here),
+		// harvest when low (ResolveWork handles directly). No mint needed.
 		crafted := false
 		if a.Inventory[GoodHerbs] >= 2 {
 			a.Inventory[GoodHerbs] -= 2
@@ -265,30 +263,36 @@ func applyWork(a *Agent, tick uint64) []string {
 			crafted = true
 		}
 		if !crafted {
-			// Journeyman labor when lacking materials — throttled mint.
-			if tick%60 == uint64(a.ID)%60 {
-				a.Wealth += 1
-			}
+			a.Needs.Purpose -= 0.001 // Idle alchemist feels purposeless
 		}
 	case OccupationLaborer:
-		// Laborers earn wages — throttled mint (~24 crowns/day).
-		if tick%60 == uint64(a.ID)%60 {
-			a.Wealth += 1
+		// Laborers produce stone via ResolveWork (hex resource extraction).
+		// applyWork path runs when ResolveWork can't find resources.
+		produced := int(a.Skills.Mining * 2)
+		if produced < 1 {
+			produced = 1
 		}
+		a.Inventory[GoodStone] += produced
+		a.Skills.Mining += 0.001
 	case OccupationMerchant:
 		// Merchants earn from inter-settlement trade (world-level).
-		// Throttled wage keeps them alive between trips.
-		if tick%60 == uint64(a.ID)%60 {
-			a.Wealth += 1
-		}
+		// No idle mint — welfare provides safety net between trips.
 		a.Skills.Trade += 0.001
 	case OccupationSoldier:
 		a.Skills.Combat += 0.002
+		a.Needs.Purpose += 0.003
+		a.Needs.Belonging += 0.002
 	case OccupationScholar:
 		// Scholars slowly gain wisdom. Rate is per-tick (runs every sim-minute),
 		// so use a tiny multiplier: ~0.00034/day → ~0.124/year coherence growth.
 		// A scholar starting at Agnosis (0.236) reaches Liberated (0.7) in ~3.7 years.
 		a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.000001))
+		// Scholars produce medicine when herbs are available.
+		if a.Inventory[GoodHerbs] >= 1 {
+			a.Inventory[GoodHerbs]--
+			a.Inventory[GoodMedicine]++
+			a.Skills.Crafting += 0.001
+		}
 	}
 
 	// Working improves esteem, safety, belonging, and purpose.

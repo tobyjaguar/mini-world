@@ -303,6 +303,13 @@ func demandedGoods(a *agents.Agent) []agents.GoodType {
 		}
 	}
 
+	// Scholars need herbs for medicine production.
+	if a.Occupation == agents.OccupationScholar {
+		if a.Inventory[agents.GoodHerbs] < 1 {
+			needs = append(needs, agents.GoodHerbs)
+		}
+	}
+
 	// Everyone wants tools (improves work).
 	if a.Inventory[agents.GoodTools] < 1 {
 		needs = append(needs, agents.GoodTools)

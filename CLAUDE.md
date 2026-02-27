@@ -457,8 +457,18 @@ All 6 Tier 2 merchants dead (100% mortality) despite rounds 16 (commission) and 
 90. **No LLM agency over trade routes** — FIXED: New `scout_route` action lets Tier 2 merchants express destination preference. `TradePreferredDest` field biases automated route selection by `phi.Being` (~1.618x) — LLM preference tilts but doesn't override profitability checks. Cleared after each evaluation to force fresh scouting.
 91. **No trade outcome memory** — FIXED: Tier 2 merchants remember completed trades (importance 0.6, or 0.7 for losses) and dry spells (importance 0.3, once per sim-day). Trade memories feed into future LLM decisions.
 
+### Tuning Round 20: Occupation Purpose — Close Open Mints
+
+The occupation audit revealed ~40% of the population either produced nothing or couldn't produce because inputs didn't exist. Laborers (20%) minted 24 crowns/day from nothing. Alchemists (7%) were permanently on welfare because no occupation harvested herbs. Soldiers (7%) had no economic output. Scholars (6%) had no settlement-level effect. Open mints injected ~1.9M crowns/day into the "closed" economy. Farmers (28%) were stuck at -0.10 satisfaction while laborers who did nothing sat at +0.71.
+
+92. **Laborer → Stone Producer** — FIXED: Laborers now extract Stone from hex resources (Mountains 80, Desert 30; base price 3 crowns) via `occupationResource` map in `production.go`. Production = `Mining * 2`. Secondary effect: laborers restore hex health while working (`+Agnosis * 0.005` per tick), representing land stewardship.
+93. **Alchemist → Herb Harvester + Crafter (Dual Mode)** — FIXED: Alchemists harvest Herbs from hex resources (Forest 30, Swamp 60) when inventory < 2 via dual-mode logic in `ResolveWork()`. When herbs stocked (≥ 2), `ResolveWork` delegates to `ApplyAction` for crafting (Medicine/Luxuries). Exotics gathered as rare secondary output when hex has ≥ 1.0. Journeyman mint removed.
+94. **Soldier → Crime Deterrence** — FIXED: `processCrime()` in `crime.go` now counts soldiers and applies `militaryBonus = 1 + soldierRatio * Being * 10` to guardStrength (~2.13x at typical 7% soldiers, roughly doubling deterrence). Soldiers gain Purpose (+0.003) and Belonging (+0.002) per work tick — they earn their welfare by providing real deterrence.
+95. **Scholar → Governance Bonus + Medicine** — FIXED: New `applyScholarBonus()` in `simulation.go` nudges `GovernanceScore` upward daily by `scholarRatio * Agnosis` (~0.014/day at 6% scholars). Better governance → better crime deterrence, better infrastructure thresholds. Scholars also produce Medicine from Herbs (1:1 conversion) in `behavior.go`. Scholar herb demand added to `demandedGoods()` in `market.go`.
+96. **Crafter journeyman mint closed** — FIXED: Idle crafters (no materials) get Purpose penalty (-0.001) instead of minting crowns. Welfare provides safety net.
+97. **Merchant idle mint closed** — FIXED: Idle merchants get trade skill growth only, no mint. Welfare + trade income provides safety net.
+
 ### Remaining Minor Issues
-- Journeyman/laborer wages still mint crowns (throttled). May need to route through treasury if `total_wealth` rises. See `docs/08-closed-economy-changelog.md`.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
 ## Ethics Note

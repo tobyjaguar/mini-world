@@ -296,6 +296,7 @@ func (s *Simulation) TickDay(tick uint64) {
 	s.processTier1Growth()
 	s.processBaselineCoherence()
 	s.processGovernance(tick)
+	s.applyScholarBonus()
 	s.processTier2Decisions(tick)
 	s.updateStats()
 
@@ -650,6 +651,30 @@ func (s *Simulation) processBaselineCoherence() {
 		satisfaction := a.Needs.OverallSatisfaction()
 		if satisfaction > 0.7 && a.Age > 30 {
 			a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.001))
+		}
+	}
+}
+
+// applyScholarBonus nudges settlement governance upward based on scholar ratio.
+// Settlements with scholars are better governed — better crime deterrence,
+// better infrastructure thresholds. At 6% scholars: nudge ≈ 0.014/day.
+func (s *Simulation) applyScholarBonus() {
+	for _, sett := range s.Settlements {
+		settAgents := s.SettlementAgents[sett.ID]
+		scholarCount := 0
+		for _, a := range settAgents {
+			if a.Alive && a.Occupation == agents.OccupationScholar {
+				scholarCount++
+			}
+		}
+		if scholarCount == 0 {
+			continue
+		}
+		scholarRatio := float64(scholarCount) / (float64(sett.Population) + 1)
+		nudge := scholarRatio * phi.Agnosis
+		sett.GovernanceScore += nudge
+		if sett.GovernanceScore > 1.0 {
+			sett.GovernanceScore = 1.0
 		}
 	}
 }

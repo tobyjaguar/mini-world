@@ -20,8 +20,18 @@ func (s *Simulation) processCrime(tick uint64) {
 			continue
 		}
 
-		// Law enforcement effectiveness based on treasury and governance.
-		guardStrength := float64(sett.Treasury) / (float64(sett.Population) + 1) * sett.GovernanceScore
+		// Count soldiers for military deterrence bonus.
+		soldierCount := 0
+		for _, sa := range settAgents {
+			if sa.Alive && sa.Occupation == agents.OccupationSoldier {
+				soldierCount++
+			}
+		}
+		soldierRatio := float64(soldierCount) / (float64(sett.Population) + 1)
+		militaryBonus := 1.0 + soldierRatio*phi.Being*10 // At 7% soldiers: ~2.13x
+
+		// Law enforcement effectiveness based on treasury, governance, and military presence.
+		guardStrength := float64(sett.Treasury) / (float64(sett.Population) + 1) * sett.GovernanceScore * militaryBonus
 		// Deterrence: 0.0 (no law) to 1.0 (perfect enforcement)
 		deterrence := guardStrength / (guardStrength + phi.Totality)
 
