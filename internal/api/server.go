@@ -293,7 +293,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		Occupation   string         `json:"occupation"`
 		Tier         int            `json:"tier"`
 		Coherence    float32        `json:"coherence"`
-		Mood         float32        `json:"mood"`          // Effective mood (blended)
+		EffMood      float32        `json:"effective_mood"` // Effective mood (blended)
 		Satisfaction float32        `json:"satisfaction"`   // Material needs satisfaction
 		Alignment    float32        `json:"alignment"`      // Coherence-derived harmony
 		Wealth       uint64         `json:"wealth"`
@@ -328,7 +328,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 			Occupation:   occName,
 			Tier:         int(a.Tier),
 			Coherence:    a.Soul.CittaCoherence,
-			Mood:         a.Wellbeing.EffectiveMood,
+			EffMood:      a.Wellbeing.EffectiveMood,
 			Satisfaction: a.Wellbeing.Satisfaction,
 			Alignment:    a.Wellbeing.Alignment,
 			Wealth:       a.Wealth,
@@ -802,8 +802,17 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 		ID        uint64             `json:"id"`
 		Name      string             `json:"name"`
 		Kind      string             `json:"kind"`
+		Members   int                `json:"members"`
 		Treasury  uint64             `json:"treasury"`
 		Influence map[string]float64 `json:"top_influence"` // settlement name → influence
+	}
+
+	// Count members per faction.
+	memberCount := make(map[uint64]int)
+	for _, a := range s.Sim.Agents {
+		if a.Alive && a.FactionID != nil {
+			memberCount[*a.FactionID]++
+		}
 	}
 
 	kindNames := []string{"Political", "Economic", "Military", "Religious", "Criminal"}
@@ -829,6 +838,7 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 			ID:        uint64(f.ID),
 			Name:      f.Name,
 			Kind:      kindName,
+			Members:   memberCount[uint64(f.ID)],
 			Treasury:  f.Treasury,
 			Influence: topInf,
 		})
@@ -1341,7 +1351,7 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		Occupation   string         `json:"occupation"`
 		Tier         int            `json:"tier"`
 		Wealth       uint64         `json:"wealth"`
-		Mood         float32        `json:"mood"`
+		EffMood      float32        `json:"effective_mood"`
 		Satisfaction float32        `json:"satisfaction"`
 		Alignment    float32        `json:"alignment"`
 		Coherence    float32        `json:"coherence"`
@@ -1362,7 +1372,7 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 			Occupation:   occName,
 			Tier:         int(a.Tier),
 			Wealth:       a.Wealth,
-			Mood:         a.Wellbeing.EffectiveMood,
+			EffMood:      a.Wellbeing.EffectiveMood,
 			Satisfaction: a.Wellbeing.Satisfaction,
 			Alignment:    a.Wellbeing.Alignment,
 			Coherence:    a.Soul.CittaCoherence,
