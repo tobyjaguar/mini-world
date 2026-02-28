@@ -517,6 +517,12 @@ Triple structural failure diagnosed: (1) `bestProductionHex()` didn't search nei
 114. **`effective_mood` field name mismatch** — FIXED: `agentSummary` struct in `server.go` used `json:"mood"` but `WellbeingState` uses `json:"effective_mood"`. Renamed to `json:"effective_mood"` across all agent summary structs (agents list, settlement detail top agents). Agent detail endpoint already serialized the full Agent struct with correct tag.
 115. **Factions API missing member count** — FIXED: `/api/v1/factions` endpoint had no `members` field. Added member counting by iterating alive agents with matching `FactionID`. Post-fix: 234K agents (93%) affiliated — Verdant Circle 101K, Crown 66K, Ashen Path 35K, Iron Brotherhood 17K, Merchant's Compact 15K.
 
+### Round 23: Tier 2 Diversity, Governance, Grain Price Ceilings
+
+116. **Tier 2 crafter monopoly** — FIXED: `maxDiversity` increased from 2→4 per week (more diversity slots). Added 40% occupation cap in vacancy fill — no single occupation can exceed 40% of Tier 2 roster when filling general vacancies. Crafters at 67% will stop getting promoted until other occupations catch up.
+117. **Governance homogeneity (91% Councils)** — FIXED: `foundSettlement()` now inherits governance from parent settlement instead of defaulting to `GovCouncil`. Revolution barriers lowered: GovernanceScore threshold 0.2→0.3, faction influence requirement 60→40, revolutionary coherence 0.5→0.4. Revolutions should fire more often, creating governance diversity over time.
+118. **Grain price ceilings (5 settlements at Totality)** — FIXED: `demandedGoods()` now takes the settlement market and applies price-sensitive food demand. When grain exceeds 3x base price, agents switch to demanding fish (and vice versa). Breaks the structural ceiling equilibrium by reducing demand for the expensive food type.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

@@ -212,27 +212,25 @@ API `agentSummary` struct used `json:"mood"` but observation expected `json:"eff
 **FIXED — Faction members = 0 across all 5 factions:**
 The `/api/v1/factions` endpoint had no `members` field at all. Added member counting by iterating alive agents. Post-fix: 234K agents (93%) affiliated — Verdant Circle 101K, Crown 66K, Ashen Path 35K, Iron Brotherhood 17K, Merchant's Compact 15K.
 
-**P3 — Tier 2 occupation diversity:**
-35/52 (67%) are crafters. Only 1 farmer, 0 fishers/hunters/miners/laborers. `maxDiversity=2` per week insufficient.
+**FIXED — Tier 2 occupation diversity:**
+maxDiversity 2→4, 40% occupation cap in vacancy fill. Crafters at 67% will stop getting promoted.
 
-**P3 — Grain price ceilings:**
-5 settlements at Totality ceiling (~5.0 crowns): Blackport, Goldford, Ashwood, Ashhelm, Redhollow. Possible food deserts.
+**FIXED — Grain price ceilings:**
+Price-sensitive food demand: agents switch to cheaper food type when one exceeds 3x base price.
+
+**FIXED — Governance homogeneity (91% Councils):**
+New settlements inherit governance from parent. Revolution barriers lowered (GovernanceScore 0.2→0.3, faction influence 60→40, revolutionary coherence 0.5→0.4).
 
 ## Roadmap
 
-### Step 1 (Current): Fix Tier 2 Diversity
-- Increase `maxDiversity` from 2→4 per week
-- Add hard cap: no single occupation can exceed 40% of Tier 2 roster
-- Consider occupation-weighted scoring bonus for underrepresented occupations
-
-### Step 3: External Data → Land Health
+### Step 1 (Current): External Data → Land Health
 Wire weather and randomness into the hex health system. Hot/dry weather accelerates degradation; rain boosts recovery. Random events can damage or restore regional hex health.
 
-### Step 5: Phase 7B — Land Governance
+### Step 2: Phase 7B — Land Governance
 Settlement hex claims, infrastructure investment, coherence-based extraction policy. Depends on Phase A data showing hex health dynamics are meaningful.
 
-### Step 6: Infrastructure Effects
+### Step 3: Infrastructure Effects
 Make walls/roads/markets mechanically meaningful. Roads reduce travel time for merchants, walls reduce crime/theft, market level improves trade efficiency.
 
-### Step 7: Deeper Emergence
+### Step 4: Deeper Emergence
 Inter-settlement diplomacy, warfare, religion/philosophy, agent life events. See "Deeper Emergence" section above.
