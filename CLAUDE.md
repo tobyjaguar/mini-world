@@ -498,9 +498,22 @@ Satisfaction frozen at 0.136 for ~19 sim-days after round 20 occupation rebalanc
 106. **Newborn agents never assigned factions** — FIXED: `addAgent()` in `population.go` now calls `factionForAgent()` for all new agents (births, refugees, anti-collapse spawns). Previously only `InitFactions()` assigned factions at world creation — all agents born after that had `FactionID == nil`, causing faction membership to decay to zero over time.
 107. **Weather fetch errors silent** — FIXED: `updateWeather()` error log upgraded from `slog.Debug` to `slog.Warn`. Weather API key valid but OpenWeatherMap returning 401 (likely free tier rate limit from multiple deploys).
 
+### Bug Fixes: Weather URL Encoding, Faction Sweep, Abandon Loop
+
+108. **Weather URL encoding** — FIXED: `weather.go` now URL-encodes the location query param (`San Diego,US` → `San%20Diego%2CUS`). OpenWeatherMap's openresty proxy returned 400 Bad Request for the unencoded space. Added exponential backoff on failures (1min→10min) to reduce log spam.
+109. **Bulk faction assignment** — FIXED: `processWeeklyFactions()` in `factions.go` now sweeps all alive agents with `FactionID == nil` and assigns via `factionForAgent()`. Catches the ~250K existing agents born before the `addAgent()` fix. Runs weekly, logs count.
+110. **Abandoned settlements re-fire** — FIXED: `processSettlementAbandonment()` now skips settlements already marked as abandoned (pop=0, hex cleared). Eliminates ~234 redundant log entries per weekly tick.
+
+### Alchemist Herb Scarcity Fix
+
+Triple structural failure diagnosed: (1) `bestProductionHex()` didn't search neighborhood for herbs because Alchemist wasn't in `occupationResource` map — alchemists always worked the settlement hex (often Plains with 0 herbs), (2) dual-mode crafting threshold required 2 herbs but depleted hexes produced 0 so alchemists never reached crafting mode, (3) total world herb supply (~6,300) couldn't support ~3,600 alchemists across 195 herb hexes.
+
+111. **Alchemist not in occupationResource** — FIXED: Added `OccupationAlchemist: ResourceHerbs` to the map. `bestProductionHex()` now searches the 7-hex settlement neighborhood for the healthiest hex with herbs ≥ 1.0 (Forest/Swamp), instead of defaulting to `a.Position`.
+112. **Dual-mode crafting threshold too high** — FIXED: Lowered from `Inventory[GoodHerbs] >= 2` to `>= 1`. Alchemists can craft Medicine/Luxuries immediately after harvesting 1 herb instead of needing to accumulate 2 (impossible on depleted hexes).
+113. **Herb resource caps too low** — FIXED: Forest herbs cap 50→80, Swamp herbs cap 60→100. Total world herb supply ~6,300 → ~15,900. More buffer before depletion, faster regen (regen is deficit-proportional).
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
-- Weather API returns 401 — may need to wait for daily quota reset or verify OpenWeatherMap account status.
 
 ## Ethics Note
 
