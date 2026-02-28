@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -20,10 +21,12 @@ type Client struct {
 	location string
 	client   *http.Client
 
-	mu         sync.Mutex
-	cached     *Conditions
-	cachedAt   time.Time
-	cacheTTL   time.Duration
+	mu          sync.Mutex
+	cached      *Conditions
+	cachedAt    time.Time
+	cacheTTL    time.Duration
+	lastFailAt  time.Time
+	failBackoff time.Duration
 }
 
 // NewClient creates a weather API client. Returns nil if apiKey is empty.
@@ -61,10 +64,23 @@ func (c *Client) Fetch() (*Conditions, error) {
 		return c.cached, nil
 	}
 
+	// Backoff on repeated failures (up to 10 minutes).
+	if c.failBackoff > 0 && time.Since(c.lastFailAt) < c.failBackoff {
+		if c.cached != nil {
+			return c.cached, nil
+		}
+		return nil, fmt.Errorf("weather API backoff (%s remaining)", c.failBackoff-time.Since(c.lastFailAt))
+	}
+
 	conditions, err := c.fetchFromAPI()
 	if err != nil {
+		c.lastFailAt = time.Now()
+		if c.failBackoff == 0 {
+			c.failBackoff = 1 * time.Minute
+		} else if c.failBackoff < 10*time.Minute {
+			c.failBackoff *= 2
+		}
 		if c.cached != nil {
-			// Return stale cache on error.
 			return c.cached, nil
 		}
 		return nil, err
@@ -72,14 +88,15 @@ func (c *Client) Fetch() (*Conditions, error) {
 
 	c.cached = conditions
 	c.cachedAt = time.Now()
+	c.failBackoff = 0 // Reset backoff on success.
 	return conditions, nil
 }
 
 func (c *Client) fetchFromAPI() (*Conditions, error) {
-	url := fmt.Sprintf("https://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s&units=metric",
-		c.location, c.apiKey)
+	apiURL := fmt.Sprintf("https://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s&units=metric",
+		url.QueryEscape(c.location), c.apiKey)
 
-	resp, err := c.client.Get(url)
+	resp, err := c.client.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("weather API call: %w", err)
 	}

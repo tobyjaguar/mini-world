@@ -190,6 +190,28 @@ func (s *Simulation) updateFactionInfluence() {
 // processWeeklyFactions runs weekly faction updates: influence shifts, relations drift,
 // policy advocacy, faction dues, and inter-faction tension.
 func (s *Simulation) processWeeklyFactions(tick uint64) {
+	// Assign factions to unaffiliated agents (catches agents born before the addAgent fix).
+	assigned := 0
+	for _, a := range s.Agents {
+		if !a.Alive || a.FactionID != nil {
+			continue
+		}
+		govType := social.GovCommune
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				govType = sett.Governance
+			}
+		}
+		if fid := factionForAgent(a, govType); fid > 0 {
+			factionID := uint64(fid)
+			a.FactionID = &factionID
+			assigned++
+		}
+	}
+	if assigned > 0 {
+		slog.Info("faction assignment sweep", "assigned", assigned)
+	}
+
 	s.updateFactionInfluence()
 	s.collectFactionDues(tick)
 	s.applyFactionPolicies(tick)
