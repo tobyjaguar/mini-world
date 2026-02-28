@@ -109,8 +109,8 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 			pooledWealth += contribution
 		}
 
-		// Found new settlement.
-		newSett := s.foundSettlement(foundingHex, emigrants, pooledWealth, tick)
+		// Found new settlement. Inherit governance from parent.
+		newSett := s.foundSettlement(foundingHex, emigrants, pooledWealth, tick, sett.Governance)
 
 		// Remove emigrants from old settlement.
 		sett.Population -= uint32(len(emigrants))
@@ -250,7 +250,7 @@ func (s *Simulation) nearestActiveSettlements(from world.HexCoord, n int) []*soc
 }
 
 // foundSettlement creates a new settlement at the given hex with founding agents.
-func (s *Simulation) foundSettlement(coord world.HexCoord, founders []*agents.Agent, treasury uint64, tick uint64) *social.Settlement {
+func (s *Simulation) foundSettlement(coord world.HexCoord, founders []*agents.Agent, treasury uint64, tick uint64, parentGov social.GovernanceType) *social.Settlement {
 	// Generate a unique settlement ID.
 	maxID := uint64(0)
 	for _, st := range s.Settlements {
@@ -268,7 +268,7 @@ func (s *Simulation) foundSettlement(coord world.HexCoord, founders []*agents.Ag
 		Name:            name,
 		Position:        coord,
 		Population:      uint32(len(founders)),
-		Governance:      social.GovCouncil, // New settlements start as councils
+		Governance:      parentGov, // Inherit governance from parent settlement
 		TaxRate:         0.10,
 		Treasury:        treasury,
 		GovernanceScore: 0.5,

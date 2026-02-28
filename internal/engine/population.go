@@ -338,7 +338,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 	// This runs BEFORE the vacancy check so dead merchants get replaced even
 	// when total alive Tier 2 count meets target.
 	diversityPromoted := 0
-	const maxDiversity = 2
+	const maxDiversity = 4
 	allOccupations := []agents.Occupation{
 		agents.OccupationFarmer, agents.OccupationMiner, agents.OccupationCrafter,
 		agents.OccupationMerchant, agents.OccupationLaborer, agents.OccupationFisher,
@@ -406,44 +406,57 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 		vacancies = maxPerCycle
 	}
 
-	promoted := 0
+	// Occupation cap: no single occupation can exceed 40% of Tier 2 roster.
+	// This prevents crafters from monopolizing Tier 2 through higher average scores.
+	maxPerOcc := (aliveTier2 + diversityPromoted + vacancies) * 40 / 100
+	if maxPerOcc < 3 {
+		maxPerOcc = 3
+	}
 
-	// Remaining slots: promote top scorers from any occupation.
-	if promoted < vacancies {
-		remaining := vacancies - promoted
-		agents.PromoteToTier2(eligible, remaining)
-		for _, a := range eligible {
-			if a.Tier == agents.Tier2 && promoted < vacancies {
-				// Check if this was just promoted (not from the priority pass).
-				// PromoteToTier2 sets Tier but we already set some above.
-				// Count new promotions by checking if they weren't already logged.
-				alreadyLogged := false
-				for _, evt := range s.Events {
-					if evt.Tick == s.LastTick && evt.Category == "social" &&
-						len(evt.Description) > len(a.Name) &&
-						evt.Description[:len(a.Name)] == a.Name {
-						alreadyLogged = true
-						break
-					}
+	// Filter eligible candidates: exclude occupations already at cap.
+	var capped []*agents.Agent
+	for _, a := range eligible {
+		if tier2ByOcc[a.Occupation] >= maxPerOcc {
+			continue // This occupation is at cap
+		}
+		capped = append(capped, a)
+	}
+	if len(capped) == 0 {
+		capped = eligible // Fallback: don't block all promotions
+	}
+
+	agents.PromoteToTier2(capped, vacancies)
+	promoted := 0
+	for _, a := range capped {
+		if a.Tier == agents.Tier2 && promoted < vacancies {
+			// Check if this was just promoted (not from the priority pass).
+			alreadyLogged := false
+			for _, evt := range s.Events {
+				if evt.Tick == s.LastTick && evt.Category == "social" &&
+					len(evt.Description) > len(a.Name) &&
+					evt.Description[:len(a.Name)] == a.Name {
+					alreadyLogged = true
+					break
 				}
-				if !alreadyLogged {
-					promoted++
-					slog.Info("tier 2 promotion",
-						"agent", a.Name,
-						"occupation", a.Occupation,
-						"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
-					)
-					s.EmitEvent(Event{
-						Tick:        s.LastTick,
-						Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
-						Category:    "social",
-						Meta: map[string]any{
-							"agent_id":   a.ID,
-							"agent_name": a.Name,
-							"occupation": a.Occupation,
-						},
-					})
-				}
+			}
+			if !alreadyLogged {
+				promoted++
+				tier2ByOcc[a.Occupation]++
+				slog.Info("tier 2 promotion",
+					"agent", a.Name,
+					"occupation", a.Occupation,
+					"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
+				)
+				s.EmitEvent(Event{
+					Tick:        s.LastTick,
+					Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
+					Category:    "social",
+					Meta: map[string]any{
+						"agent_id":   a.ID,
+						"agent_name": a.Name,
+						"occupation": a.Occupation,
+					},
+				})
 			}
 		}
 	}

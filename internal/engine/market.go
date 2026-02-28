@@ -65,7 +65,7 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		}
 
 		// Demand: goods the agent needs but doesn't have enough of.
-		for _, good := range demandedGoods(a) {
+		for _, good := range demandedGoods(a, market) {
 			if entry, ok := market.Entries[good]; ok {
 				entry.Demand += 1
 			}
@@ -128,7 +128,7 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		if !a.Alive {
 			continue
 		}
-		for _, good := range demandedGoods(a) {
+		for _, good := range demandedGoods(a, market) {
 			ref, ok := refPrices[good]
 			if !ok {
 				continue
@@ -279,14 +279,36 @@ func surplusThreshold(a *agents.Agent, good agents.GoodType) int {
 }
 
 // demandedGoods returns which goods an agent wants to buy.
-func demandedGoods(a *agents.Agent) []agents.GoodType {
+// The settlement market is passed for price-sensitive food demand.
+func demandedGoods(a *agents.Agent, market *economy.Market) []agents.GoodType {
 	var needs []agents.GoodType
 
-	// Everyone needs food — demand whichever is cheaper (grain or fish).
+	// Everyone needs food — demand is price-sensitive to encourage substitution.
+	// If grain is very expensive (>3x base), agents prefer fish and vice versa.
+	// This breaks structural price ceilings in food-desert settlements.
 	food := a.Inventory[agents.GoodGrain] + a.Inventory[agents.GoodFish]
 	if food < 3 {
-		needs = append(needs, agents.GoodGrain)
-		needs = append(needs, agents.GoodFish)
+		grainExpensive := false
+		fishExpensive := false
+		if market != nil {
+			if ge, ok := market.Entries[agents.GoodGrain]; ok {
+				grainExpensive = ge.Price > ge.BasePrice*3
+			}
+			if fe, ok := market.Entries[agents.GoodFish]; ok {
+				fishExpensive = fe.Price > fe.BasePrice*3
+			}
+		}
+		// Always demand at least one food type. Prefer the cheaper option.
+		switch {
+		case grainExpensive && !fishExpensive:
+			needs = append(needs, agents.GoodFish)
+		case fishExpensive && !grainExpensive:
+			needs = append(needs, agents.GoodGrain)
+		default:
+			// Both cheap or both expensive — demand both.
+			needs = append(needs, agents.GoodGrain)
+			needs = append(needs, agents.GoodFish)
+		}
 	}
 
 	// Crafters demand materials for their best recipe only (max 2 goods).

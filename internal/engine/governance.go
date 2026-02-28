@@ -159,16 +159,16 @@ func (s *Simulation) decayGovernance(sett *social.Settlement) {
 }
 
 // checkRevolution fires a revolution if conditions are met:
-// GovernanceScore < 0.2 AND a faction has >60 influence AND a Tier 1+ agent with coherence > 0.5 exists.
+// GovernanceScore < 0.3 AND a faction has >40 influence AND a Tier 1+ agent with coherence > 0.4 exists.
 func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Agent, tick uint64) {
-	if sett.GovernanceScore >= 0.2 {
+	if sett.GovernanceScore >= 0.3 {
 		return
 	}
 
-	// Find a faction with >60 influence.
+	// Find a faction with >40 influence.
 	var dominantFaction *social.Faction
 	for _, f := range s.Factions {
-		if inf, ok := f.Influence[sett.ID]; ok && inf > 60 {
+		if inf, ok := f.Influence[sett.ID]; ok && inf > 40 {
 			if dominantFaction == nil || inf > f.Influence[sett.ID] {
 				dominantFaction = f
 			}
@@ -178,10 +178,10 @@ func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Ag
 		return
 	}
 
-	// Find a revolutionary: Tier 1+ agent with coherence > 0.5.
+	// Find a revolutionary: Tier 1+ agent with coherence > 0.4.
 	var revolutionary *agents.Agent
 	for _, a := range alive {
-		if a.Tier >= agents.Tier1 && a.Soul.CittaCoherence > 0.5 {
+		if a.Tier >= agents.Tier1 && a.Soul.CittaCoherence > 0.4 {
 			if revolutionary == nil || a.Soul.CittaCoherence > revolutionary.Soul.CittaCoherence {
 				revolutionary = a
 			}
