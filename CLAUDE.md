@@ -512,6 +512,11 @@ Triple structural failure diagnosed: (1) `bestProductionHex()` didn't search nei
 112. **Dual-mode crafting threshold too high** — FIXED: Lowered from `Inventory[GoodHerbs] >= 2` to `>= 1`. Alchemists can craft Medicine/Luxuries immediately after harvesting 1 herb instead of needing to accumulate 2 (impossible on depleted hexes).
 113. **Herb resource caps too low** — FIXED: Forest herbs cap 50→80, Swamp herbs cap 60→100. Total world herb supply ~6,300 → ~15,900. More buffer before depletion, faster regen (regen is deficit-proportional).
 
+### API Fixes: Effective Mood + Faction Members
+
+114. **`effective_mood` field name mismatch** — FIXED: `agentSummary` struct in `server.go` used `json:"mood"` but `WellbeingState` uses `json:"effective_mood"`. Renamed to `json:"effective_mood"` across all agent summary structs (agents list, settlement detail top agents). Agent detail endpoint already serialized the full Agent struct with correct tag.
+115. **Factions API missing member count** — FIXED: `/api/v1/factions` endpoint had no `members` field. Added member counting by iterating alive agents with matching `FactionID`. Post-fix: 234K agents (93%) affiliated — Verdant Circle 101K, Crown 66K, Ashen Path 35K, Iron Brotherhood 17K, Merchant's Compact 15K.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

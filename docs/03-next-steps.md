@@ -187,42 +187,45 @@ Three external data sources are wired up but only lightly used. All three could 
 
 Combined worldsim + relay + gardener + nginx on single gp1.sonic (2 GB) instance. Two old 1 GB instances decommissioned. nginx reverse proxy routes by hostname: `api.crossworlds.xyz` → :8080 (worldsim), `stream.crossworlds.xyz` → :8081 (relay). RAM usage: 905 MB / 1.98 GB (46%), zero swap. See `docs/SERVER-MIGRATION.md` and health report `docs/health-reports/2026-02-27-tick-524845.md`.
 
-### Current Issues (observed 2026-02-27, tick 524,845)
+### ~~Previous Issues (observed 2026-02-27, tick 524,845)~~ — ALL FIXED
 
-**P1 — Satisfaction frozen at 0.136 (producer doom loop v2):**
-Satisfaction flat at 0.131-0.137 across 20 snapshots (~19 sim-days). Structurally identical to round 12 doom loop: resource producers (~60% of pop) have negative satisfaction while crafters sit at +0.70. Tier 2 data confirms: all farmers (-0.11), fishers (-0.12), alchemists (-0.10) are suffering. Investigation needed into whether round 20 occupations (laborer→stone, alchemist→herbs, soldier→deterrence, scholar→governance) are actually producing and generating needs boosts. The alchemist dual-mode (harvest herbs → craft medicine/luxuries) may not be functioning.
+**FIXED — Satisfaction frozen at 0.136 (producer doom loop v2):**
+Round 22 + alchemist herb fix recovered satisfaction 0.136 → 0.636. See tuning rounds 22 and alchemist fix in CLAUDE.md.
 
-**P2 — 234 ghost settlements (pop=0):**
-One-third of all 714 settlements have zero population. The viability system tracks pop<25 for 2 weeks before consolidation, but pop=0 settlements should be cleaned up immediately or filtered from API responses. These bloat settlement responses and confuse the gardener (which flags "471 empty settlements" as structural overcapacity).
+**FIXED — 234 ghost settlements (pop=0):**
+Abandonment threshold reduced to 1 week, already-abandoned settlements skipped in loop. Clearing in progress.
+
+**FIXED — Weather API disconnected:**
+URL encoding bug (`San Diego,US` space not encoded). Fixed with `url.QueryEscape()`. Added exponential backoff.
 
 **P2 — Tier 2 occupation diversity failure:**
-35 of 50 alive Tier 2 agents are crafters (70%). Only 1 farmer, 1 merchant, 1 soldier, 0 hunters/miners/laborers. The diversity pass (`maxDiversity=2` per week) isn't overcoming crafter dominance in promotion scoring. Need to increase budget or add occupation caps.
+35 of 52 alive Tier 2 agents are crafters (67%). `maxDiversity=2` per week isn't overcoming crafter dominance. Need to increase budget or add occupation caps.
 
 **P3 — Governance homogeneity:**
-652 of 714 settlements (91%) are Councils. Only 4 Monarchies, 9 Merchant Republics, 49 Communes. Governance transitions may be too rare.
+652 of 714 settlements (91%) are Councils. Only 4 Monarchies. Transitions may be too rare.
 
-**P3 — Weather API disconnected on new server:**
-`temp_modifier: 0` and empty description — WEATHER_API_KEY may be missing from systemd override on the new combined server.
+### Current Issues (observed 2026-02-28, tick 564,480)
+
+**FIXED — `effective_mood = 0.000` for all Tier 2 agents:**
+API `agentSummary` struct used `json:"mood"` but observation expected `json:"effective_mood"`. Renamed field across all agent summary structs. Post-fix: effective_mood returns real values (e.g. 0.877).
+
+**FIXED — Faction members = 0 across all 5 factions:**
+The `/api/v1/factions` endpoint had no `members` field at all. Added member counting by iterating alive agents. Post-fix: 234K agents (93%) affiliated — Verdant Circle 101K, Crown 66K, Ashen Path 35K, Iron Brotherhood 17K, Merchant's Compact 15K.
+
+**P3 — Tier 2 occupation diversity:**
+35/52 (67%) are crafters. Only 1 farmer, 0 fishers/hunters/miners/laborers. `maxDiversity=2` per week insufficient.
+
+**P3 — Grain price ceilings:**
+5 settlements at Totality ceiling (~5.0 crowns): Blackport, Goldford, Ashwood, Ashhelm, Redhollow. Possible food deserts.
 
 ## Roadmap
 
-### Step 1 (Current): Fix Satisfaction Doom Loop v2
-1. Investigate round 20 occupation production — are laborers producing stone? Are alchemists harvesting herbs? Are soldiers getting deterrence Purpose? Are scholars getting governance bonus?
-2. Check hex neighborhoods for resource availability — are alchemists placed near herb-bearing hexes (Forest, Swamp)?
-3. Fix whatever is broken — likely a needs boost gap similar to round 12
-4. If all occupations produce correctly, the structural issue may be that production-on-depleted-hex penalties still outweigh boosts
-
-### Step 2: Clean Up Ghost Settlements
-- Add immediate abandonment for pop=0 settlements (skip 2-week grace period)
-- Or filter pop=0 settlements from the `/api/v1/settlements` response
-- Reduce the 714→480 active settlement count to match reality
-
-### Step 3: Fix Tier 2 Diversity
+### Step 1 (Current): Fix Tier 2 Diversity
 - Increase `maxDiversity` from 2→4 per week
 - Add hard cap: no single occupation can exceed 40% of Tier 2 roster
 - Consider occupation-weighted scoring bonus for underrepresented occupations
 
-### Step 4: External Data → Land Health
+### Step 3: External Data → Land Health
 Wire weather and randomness into the hex health system. Hot/dry weather accelerates degradation; rain boosts recovery. Random events can damage or restore regional hex health.
 
 ### Step 5: Phase 7B — Land Governance
