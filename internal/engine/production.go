@@ -12,11 +12,12 @@ import (
 
 // occupationResource maps occupation to the hex resource they consume when working.
 var occupationResource = map[agents.Occupation]world.ResourceType{
-	agents.OccupationFarmer:  world.ResourceGrain,
-	agents.OccupationMiner:   world.ResourceIronOre,
-	agents.OccupationFisher:  world.ResourceFish,
-	agents.OccupationHunter:  world.ResourceFurs,
-	agents.OccupationLaborer: world.ResourceStone,
+	agents.OccupationFarmer:    world.ResourceGrain,
+	agents.OccupationMiner:     world.ResourceIronOre,
+	agents.OccupationFisher:    world.ResourceFish,
+	agents.OccupationHunter:    world.ResourceFurs,
+	agents.OccupationLaborer:   world.ResourceStone,
+	agents.OccupationAlchemist: world.ResourceHerbs,
 }
 
 // ResolveWork wraps agent work production with hex resource depletion.
@@ -33,11 +34,10 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 
 	// Alchemist dual-mode: craft when herbs stocked, harvest when low.
 	if a.Occupation == agents.OccupationAlchemist {
-		if a.Inventory[agents.GoodHerbs] >= 2 {
+		if a.Inventory[agents.GoodHerbs] >= 1 {
 			return agents.ApplyAction(a, action, tick) // Craft from inventory
 		}
-		resType = world.ResourceHerbs
-		needsResource = true // Harvest herbs from hex
+		// resType and needsResource already set from occupationResource map.
 	}
 
 	if !needsResource {

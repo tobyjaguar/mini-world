@@ -154,7 +154,7 @@ func ResourceCap(terrain world.Terrain, res world.ResourceType) float64 {
 		case world.ResourceTimber:
 			return 80
 		case world.ResourceHerbs:
-			return 50
+			return 80
 		case world.ResourceFurs:
 			return 40
 		}
@@ -183,7 +183,7 @@ func ResourceCap(terrain world.Terrain, res world.ResourceType) float64 {
 	case world.TerrainSwamp:
 		switch res {
 		case world.ResourceHerbs:
-			return 60
+			return 100
 		case world.ResourceExotics:
 			return 20
 		}
