@@ -103,8 +103,9 @@ type Agent struct {
 	Memories []Memory `json:"memories,omitempty"`
 
 	// Metadata
-	BornTick uint64 `json:"born_tick"`
-	Alive    bool   `json:"alive"`
+	BornTick     uint64 `json:"born_tick"`
+	LastWorkTick uint64 `json:"last_work_tick"` // Last tick agent successfully produced from hex resources
+	Alive        bool   `json:"alive"`
 }
 
 // GoodType enumerates manufactured/tradeable goods.

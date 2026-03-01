@@ -523,6 +523,24 @@ Triple structural failure diagnosed: (1) `bestProductionHex()` didn't search nei
 117. **Governance homogeneity (91% Councils)** — FIXED: `foundSettlement()` now inherits governance from parent settlement instead of defaulting to `GovCouncil`. Revolution barriers lowered: GovernanceScore threshold 0.2→0.3, faction influence requirement 60→40, revolutionary coherence 0.5→0.4. Revolutions should fire more often, creating governance diversity over time.
 118. **Grain price ceilings (5 settlements at Totality)** — FIXED: `demandedGoods()` now takes the settlement market and applies price-sensitive food demand. When grain exceeds 3x base price, agents switch to demanding fish (and vice versa). Breaks the structural ceiling equilibrium by reducing demand for the expensive food type.
 
+### Round 24: Occupation Persistence & Resource-Seeking Migration
+
+**The structural occupation fix.** 82% of agents were Crafters, only 0.26% resource producers (726 agents). Root cause: a multi-layer forced occupation reassignment cascade where every code path that handles resource depletion or agent movement converted producers into Crafters via `bestOccupationForHex()` (returns Crafter when hex resources < 1.0). Three weekly sweeps + 4 movement-point checks all funneled through this same Crafter fallback.
+
+**Design principle:** Occupation is identity — a farmer whose field is fallow should MOVE to better land, not become a crafter. Career changes should be rare, slow, and skill-adjacent.
+
+119. **Forced reassignment disabled** — FIXED: Removed `rebalanceSettlementProducers()` and `reassignMismatchedProducers()` calls from `processAntiStagnation()`. Made `reassignIfMismatched()` a no-op (all 4 call sites still handle movement correctly, only the occupation change was removed). Removed birth-time producer gate from `processBirths()`.
+120. **LastWorkTick tracking** — NEW: `LastWorkTick uint64` field on Agent, set on successful hex extraction in `ResolveWork()`. Persisted to SQLite. Enables idle detection for migration/recovery decisions.
+121. **Resource-seeking migration** — NEW: `processResourceMigration()` runs weekly. Producers idle 2+ weeks whose settlement lacks their resource in the 7-hex neighborhood search for nearest compatible settlement (5 hex, then 10). Moves agent, keeps occupation. Cap: 10% of settlement producers per week (min 1). Fallow tolerance: if no compatible settlement found, agent stays put.
+122. **Crafter recovery** — NEW: `processCrafterRecovery()` runs weekly. Idle crafters (14+ sim-days, no materials) transition to the producer occupation matching the richest resource in their settlement's 7-hex neighborhood. Cap: 5% of idle crafters per week (min 1). Minimum skill 0.2 in new primary skill. Emits "retraining" event.
+123. **Career transition** — NEW: `processCareerTransition()` runs weekly. Chronically idle producers (30+ sim-days, no compatible settlement in 10-hex radius) transition to skill-adjacent occupation: Farmer↔Fisher, Miner↔Laborer, Hunter↔Soldier, Alchemist↔Scholar. Any→Crafter only after 60+ sim-days as absolute last resort.
+124. **Tier 2 relocate/retrain** — NEW: Two new Tier 2 actions in LLM cognition. `relocate` moves to named settlement keeping occupation. `retrain` changes to skill-adjacent occupation. New context fields: `ResourceAvailability`, `SkillSummary`, `OccupationSatisfaction`. $0 cost — uses existing weekly decision slots.
+125. **Oracle guide_migration** — NEW: Liberated agents can direct up to 10 dissatisfied producers (satisfaction < 0) to a named settlement with better resources. New `WorkforceData` context shows settlement occupation breakdown and nearby resource-rich settlements. Gives oracles real world-shaping power.
+
+**Expected impact:** Immediate halt of producer→crafter conversion. Week 1: resource migration events. Week 2-3: crafter recovery begins (5%/week). Month 1: crafter share should decline from 82% toward 50-60%. Month 2+: terrain-based equilibrium (~30% producers, ~20% crafters, ~50% services).
+
+**Deploy sequence:** All phases deployed together (Phases 1-6). Monitor for 1 week before assessing. If crafter recovery is too aggressive or producers can't find resources, individual phases can be disabled.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

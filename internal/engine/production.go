@@ -101,6 +101,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 		hex.Health = 0
 	}
 	hex.LastExtractedTick = tick
+	a.LastWorkTick = tick
 
 	// Apply production to agent inventory.
 	good := occupationGood(a.Occupation)

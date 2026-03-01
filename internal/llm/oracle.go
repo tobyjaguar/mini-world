@@ -27,6 +27,9 @@ type OracleContext struct {
 	Memories      []string // Top 10 important memories
 	Relationships []string // Top 5
 	Faction       string
+
+	// Round 24: Workforce awareness for guide_migration action.
+	WorkforceData string // Settlement occupation breakdown + nearby resource-rich settlements
 }
 
 // OracleVision is the singular action a Liberated agent takes after receiving a vision.
@@ -66,7 +69,9 @@ Respond ONLY with a single JSON object:
 - "target": who or what the action targets (a name, topic, or good)
 - "reasoning": one sentence explaining why
 
-The "bless" action is unique to oracles: you focus your coherence on a named person in your settlement, granting them a small nudge toward clarity. Use it when you perceive someone on the threshold of awakening.`,
+The "bless" action is unique to oracles: you focus your coherence on a named person in your settlement, granting them a small nudge toward clarity. Use it when you perceive someone on the threshold of awakening.
+
+The "guide_migration" action directs a group of struggling producers to a named settlement with better resources (target = destination settlement name). You perceive which workers are suffering and where the land can sustain them.`,
 		ctx.Name, ctx.Coherence, ctx.Element, ctx.Occupation, ctx.Age, ctx.Settlement,
 	)
 }
@@ -102,6 +107,12 @@ func buildOracleUserPrompt(ctx *OracleContext) string {
 		fmt.Fprintf(&b, "You walk with %s.\n\n", ctx.Faction)
 	}
 
+	if ctx.WorkforceData != "" {
+		b.WriteString("Workforce perception:\n")
+		b.WriteString(ctx.WorkforceData)
+		b.WriteString("\n")
+	}
+
 	b.WriteString("What vision comes to you this week? Respond with a single JSON object.")
 	return b.String()
 }
@@ -123,7 +134,7 @@ func parseOracleResponse(response string) (*OracleVision, error) {
 	// Validate action.
 	validActions := map[string]bool{
 		"trade": true, "advocate": true, "invest": true,
-		"speak": true, "bless": true,
+		"speak": true, "bless": true, "guide_migration": true,
 	}
 	if !validActions[vision.Action] {
 		return nil, fmt.Errorf("invalid oracle action: %s", vision.Action)

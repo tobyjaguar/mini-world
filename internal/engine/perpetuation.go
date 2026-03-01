@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"fmt"
 	"log/slog"
 	"math"
 	"sort"
@@ -17,8 +18,10 @@ import (
 func (s *Simulation) processAntiStagnation(tick uint64) {
 	s.economicCircuitBreaker(tick)
 	s.culturalDrift(tick)
-	s.rebalanceSettlementProducers(tick)
-	s.reassignMismatchedProducers(tick)
+	// Round 24: disabled — forced reassignment destroyed occupation diversity.
+	// Producers should migrate to compatible resources, not become crafters.
+	// s.rebalanceSettlementProducers(tick)
+	// s.reassignMismatchedProducers(tick)
 	s.updateSettlementPopulations()
 }
 
@@ -207,67 +210,13 @@ func (s *Simulation) findNearestViableSettlement(from *social.Settlement, maxDis
 	return best
 }
 
-// reassignIfMismatched checks a single agent after movement and reassigns their
-// occupation if the 7-hex neighborhood of the destination settlement lacks
-// their required resource. Called at all movement sites (migration, diaspora,
-// consolidation, viability force-migration) so agents are productive immediately.
+// reassignIfMismatched is a no-op as of Round 24.
+// Occupation is identity — a farmer whose field is fallow should MOVE to better land,
+// not become a crafter. Forced reassignment destroyed occupation diversity (82% crafters).
+// All 4 call sites (migration, diaspora, viability, consolidation) handle movement correctly;
+// the only side effect was the unwanted occupation change.
 func (s *Simulation) reassignIfMismatched(a *agents.Agent, settID uint64) {
-	if !a.Alive {
-		return
-	}
-
-	// Determine required resource. Alchemist needs herbs but isn't in occupationResource.
-	resType, needsResource := occupationResource[a.Occupation]
-	if !needsResource {
-		if a.Occupation == agents.OccupationAlchemist {
-			resType = world.ResourceHerbs
-		} else {
-			return // Crafter, Merchant, Soldier, Scholar — no hex resource needed.
-		}
-	}
-
-	// Check 7-hex neighborhood for the required resource.
-	sett, ok := s.SettlementIndex[settID]
-	if !ok {
-		return
-	}
-	found := false
-	checkHex := func(coord world.HexCoord) {
-		if found {
-			return
-		}
-		h := s.WorldMap.Get(coord)
-		if h != nil && h.Resources[resType] >= 1.0 {
-			found = true
-		}
-	}
-	checkHex(sett.Position)
-	for _, nc := range sett.Position.Neighbors() {
-		checkHex(nc)
-	}
-	if found {
-		return
-	}
-
-	// No resource nearby — reassign to match settlement position hex.
-	hex := s.WorldMap.Get(sett.Position)
-	if hex == nil {
-		return
-	}
-	newOcc := bestOccupationForHex(hex)
-	if newOcc == a.Occupation {
-		return
-	}
-
-	old := a.Occupation
-	a.Occupation = newOcc
-	slog.Debug("reassigned occupation on move",
-		"agent", a.Name,
-		"from", old,
-		"to", newOcc,
-		"settlement", sett.Name,
-		"terrain", hex.Terrain,
-	)
+	// Round 24: disabled. Agents keep their occupation on move.
 }
 
 // rebalanceSettlementProducers gradually reassigns excess resource producers
@@ -444,4 +393,399 @@ func bestOccupationForHex(hex *world.Hex) agents.Occupation {
 		return agents.OccupationCrafter
 	}
 	return best.occ
+}
+
+// --- Round 24: Occupation Persistence & Resource-Seeking Migration ---
+
+// processResourceMigration moves idle resource producers to settlements with compatible resources.
+// A farmer whose field is fallow should MOVE to better land, not become a crafter.
+// Grace period: 2 sim-weeks unproductive. Cap: 10% of settlement producers per week (min 1).
+func (s *Simulation) processResourceMigration(tick uint64) {
+	twoWeeks := uint64(TicksPerSimDay * 14)
+	migrated := false
+
+	for settID, settAgents := range s.SettlementAgents {
+		sett, ok := s.SettlementIndex[settID]
+		if !ok {
+			continue
+		}
+
+		// Find idle resource producers in this settlement.
+		var idleProducers []*agents.Agent
+		for _, a := range settAgents {
+			if !a.Alive {
+				continue
+			}
+			resType, isProducer := occupationResource[a.Occupation]
+			if !isProducer {
+				continue
+			}
+			// Check grace period: idle for 2+ weeks.
+			if tick-a.LastWorkTick < twoWeeks {
+				continue
+			}
+			// Verify settlement lacks their resource in 7-hex neighborhood.
+			if s.settlementHasResource(sett, resType) {
+				continue
+			}
+			idleProducers = append(idleProducers, a)
+		}
+
+		if len(idleProducers) == 0 {
+			continue
+		}
+
+		// Cap: max 10% of settlement producers per week (min 1).
+		producerCount := 0
+		for _, a := range settAgents {
+			if a.Alive {
+				if _, ok := occupationResource[a.Occupation]; ok {
+					producerCount++
+				}
+			}
+		}
+		maxMigrate := producerCount / 10
+		if maxMigrate < 1 {
+			maxMigrate = 1
+		}
+
+		moved := 0
+		for _, a := range idleProducers {
+			if moved >= maxMigrate {
+				break
+			}
+			resType := occupationResource[a.Occupation]
+			target := s.findResourceSettlement(sett, resType, 5)
+			if target == nil {
+				target = s.findResourceSettlement(sett, resType, 10)
+			}
+			if target == nil {
+				continue // Fallow tolerance: no compatible settlement found, agent waits.
+			}
+
+			newID := target.ID
+			a.HomeSettID = &newID
+			a.Position = target.Position
+			migrated = true
+			moved++
+
+			s.EmitEvent(Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("%s migrated to %s seeking %s", a.Name, target.Name, resourceName(resType)),
+				Category:    "social",
+				Meta: map[string]any{
+					"agent_id":        a.ID,
+					"agent_name":      a.Name,
+					"settlement_id":   target.ID,
+					"settlement_name": target.Name,
+					"occupation":      a.Occupation,
+				},
+			})
+		}
+
+		if moved > 0 {
+			slog.Info("resource migration",
+				"from", sett.Name,
+				"moved", moved,
+				"idle_producers", len(idleProducers),
+			)
+		}
+	}
+
+	if migrated {
+		s.rebuildSettlementAgents()
+	}
+}
+
+// settlementHasResource checks if a settlement's 7-hex neighborhood has a given resource.
+func (s *Simulation) settlementHasResource(sett *social.Settlement, resType world.ResourceType) bool {
+	check := func(coord world.HexCoord) bool {
+		h := s.WorldMap.Get(coord)
+		return h != nil && h.Resources[resType] >= 1.0
+	}
+	if check(sett.Position) {
+		return true
+	}
+	for _, nc := range sett.Position.Neighbors() {
+		if check(nc) {
+			return true
+		}
+	}
+	return false
+}
+
+// findResourceSettlement finds the nearest settlement within maxDist hexes
+// that has a given resource in its 7-hex neighborhood.
+func (s *Simulation) findResourceSettlement(from *social.Settlement, resType world.ResourceType, maxDist int) *social.Settlement {
+	var best *social.Settlement
+	bestDist := maxDist + 1
+
+	for _, sett := range s.Settlements {
+		if sett.ID == from.ID || sett.Population < 25 {
+			continue
+		}
+		dist := world.Distance(from.Position, sett.Position)
+		if dist > maxDist || dist >= bestDist {
+			continue
+		}
+		if s.settlementHasResource(sett, resType) {
+			bestDist = dist
+			best = sett
+		}
+	}
+	return best
+}
+
+// resourceName returns a human-readable name for a resource type.
+func resourceName(r world.ResourceType) string {
+	switch r {
+	case world.ResourceGrain:
+		return "farmland"
+	case world.ResourceIronOre:
+		return "iron deposits"
+	case world.ResourceFish:
+		return "fishing waters"
+	case world.ResourceFurs:
+		return "hunting grounds"
+	case world.ResourceStone:
+		return "quarries"
+	case world.ResourceHerbs:
+		return "herb gardens"
+	default:
+		return "resources"
+	}
+}
+
+// processCrafterRecovery transitions idle crafters to producer occupations
+// matching the richest resource in their settlement's 7-hex neighborhood.
+// Cap: 5% of settlement idle crafters per week (min 1).
+func (s *Simulation) processCrafterRecovery(tick uint64) {
+	twoWeeks := uint64(TicksPerSimDay * 14)
+
+	for settID, settAgents := range s.SettlementAgents {
+		sett, ok := s.SettlementIndex[settID]
+		if !ok {
+			continue
+		}
+
+		// Find idle crafters (no materials, idle 14+ sim-days).
+		var idleCrafters []*agents.Agent
+		for _, a := range settAgents {
+			if !a.Alive || a.Occupation != agents.OccupationCrafter {
+				continue
+			}
+			if tick-a.LastWorkTick < twoWeeks {
+				continue
+			}
+			idleCrafters = append(idleCrafters, a)
+		}
+
+		if len(idleCrafters) == 0 {
+			continue
+		}
+
+		// Find best producer occupation for neighborhood.
+		newOcc := bestProducerOccupationForNeighborhood(s, sett)
+		if newOcc == agents.OccupationCrafter {
+			continue // No viable producer role nearby.
+		}
+
+		// Cap: 5% of idle crafters per week (min 1).
+		maxRetrain := len(idleCrafters) * 5 / 100
+		if maxRetrain < 1 {
+			maxRetrain = 1
+		}
+
+		retrained := 0
+		for _, a := range idleCrafters {
+			if retrained >= maxRetrain {
+				break
+			}
+			a.Occupation = newOcc
+			setMinimumSkill(a, newOcc)
+			retrained++
+
+			s.EmitEvent(Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("%s begins retraining as a %s in %s", a.Name, occupationLabel(newOcc), sett.Name),
+				Category:    "social",
+				Meta: map[string]any{
+					"agent_id":        a.ID,
+					"agent_name":      a.Name,
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"occupation":      newOcc,
+				},
+			})
+		}
+
+		if retrained > 0 {
+			slog.Info("crafter recovery",
+				"settlement", sett.Name,
+				"retrained", retrained,
+				"idle_crafters", len(idleCrafters),
+				"new_occupation", occupationLabel(newOcc),
+			)
+		}
+	}
+}
+
+// bestProducerOccupationForNeighborhood checks all 7 hexes for the richest resource
+// and returns the corresponding producer occupation.
+func bestProducerOccupationForNeighborhood(s *Simulation, sett *social.Settlement) agents.Occupation {
+	type candidate struct {
+		occ agents.Occupation
+		amt float64
+	}
+	var best candidate
+
+	checkHex := func(coord world.HexCoord) {
+		h := s.WorldMap.Get(coord)
+		if h == nil {
+			return
+		}
+		for resType, occ := range resourceOccupation() {
+			amt := h.Resources[resType]
+			if amt > best.amt {
+				best = candidate{occ: occ, amt: amt}
+			}
+		}
+	}
+
+	checkHex(sett.Position)
+	for _, nc := range sett.Position.Neighbors() {
+		checkHex(nc)
+	}
+
+	if best.amt < 1.0 {
+		return agents.OccupationCrafter // No viable resource.
+	}
+	return best.occ
+}
+
+// resourceOccupation returns the reverse of occupationResource: resource → occupation.
+func resourceOccupation() map[world.ResourceType]agents.Occupation {
+	return map[world.ResourceType]agents.Occupation{
+		world.ResourceGrain:   agents.OccupationFarmer,
+		world.ResourceIronOre: agents.OccupationMiner,
+		world.ResourceFish:    agents.OccupationFisher,
+		world.ResourceFurs:    agents.OccupationHunter,
+		world.ResourceStone:   agents.OccupationLaborer,
+		world.ResourceHerbs:   agents.OccupationAlchemist,
+	}
+}
+
+// setMinimumSkill ensures an agent has at least 0.2 in the primary skill for their new occupation.
+func setMinimumSkill(a *agents.Agent, occ agents.Occupation) {
+	switch occ {
+	case agents.OccupationFarmer, agents.OccupationFisher:
+		if a.Skills.Farming < 0.2 {
+			a.Skills.Farming = 0.2
+		}
+	case agents.OccupationMiner, agents.OccupationLaborer:
+		if a.Skills.Mining < 0.2 {
+			a.Skills.Mining = 0.2
+		}
+	case agents.OccupationHunter, agents.OccupationSoldier:
+		if a.Skills.Combat < 0.2 {
+			a.Skills.Combat = 0.2
+		}
+	case agents.OccupationAlchemist, agents.OccupationScholar, agents.OccupationCrafter:
+		if a.Skills.Crafting < 0.2 {
+			a.Skills.Crafting = 0.2
+		}
+	case agents.OccupationMerchant:
+		if a.Skills.Trade < 0.2 {
+			a.Skills.Trade = 0.2
+		}
+	}
+}
+
+// processCareerTransition handles chronically idle producers (30+ sim-days)
+// who have no compatible settlement within 10 hexes.
+// Transitions to skill-adjacent occupation if settlement has resources for it.
+func (s *Simulation) processCareerTransition(tick uint64) {
+	thirtyDays := uint64(TicksPerSimDay * 30)
+	sixtyDays := uint64(TicksPerSimDay * 60)
+
+	for settID, settAgents := range s.SettlementAgents {
+		sett, ok := s.SettlementIndex[settID]
+		if !ok {
+			continue
+		}
+
+		for _, a := range settAgents {
+			if !a.Alive {
+				continue
+			}
+			_, isProducer := occupationResource[a.Occupation]
+			if !isProducer {
+				continue
+			}
+			idleTicks := tick - a.LastWorkTick
+			if idleTicks < thirtyDays {
+				continue
+			}
+			// Only transition if no compatible settlement exists within 10 hexes.
+			resType := occupationResource[a.Occupation]
+			if s.findResourceSettlement(sett, resType, 10) != nil {
+				continue // Resource migration should handle this instead.
+			}
+
+			// Try skill-adjacent occupation.
+			newOcc := skillAdjacentOccupation(a.Occupation)
+			if newOcc == a.Occupation {
+				// No skill-adjacent option. After 60+ days, fall back to Crafter.
+				if idleTicks >= sixtyDays {
+					newOcc = agents.OccupationCrafter
+				} else {
+					continue
+				}
+			}
+
+			old := a.Occupation
+			a.Occupation = newOcc
+			setMinimumSkill(a, newOcc)
+
+			s.EmitEvent(Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("%s transitions from %s to %s in %s", a.Name, occupationLabel(old), occupationLabel(newOcc), sett.Name),
+				Category:    "social",
+				Meta: map[string]any{
+					"agent_id":        a.ID,
+					"agent_name":      a.Name,
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"occupation":      newOcc,
+				},
+			})
+
+			slog.Debug("career transition",
+				"agent", a.Name,
+				"from", occupationLabel(old),
+				"to", occupationLabel(newOcc),
+				"idle_days", idleTicks/uint64(TicksPerSimDay),
+			)
+		}
+	}
+}
+
+// skillAdjacentOccupation returns the closest occupation that shares skills.
+func skillAdjacentOccupation(occ agents.Occupation) agents.Occupation {
+	switch occ {
+	case agents.OccupationFarmer:
+		return agents.OccupationFisher // Both use Farming
+	case agents.OccupationFisher:
+		return agents.OccupationFarmer // Both use Farming
+	case agents.OccupationMiner:
+		return agents.OccupationLaborer // Both use Mining
+	case agents.OccupationLaborer:
+		return agents.OccupationMiner // Both use Mining
+	case agents.OccupationHunter:
+		return agents.OccupationSoldier // Both use Combat
+	case agents.OccupationAlchemist:
+		return agents.OccupationScholar // Both use Crafting
+	default:
+		return occ // No skill-adjacent option.
+	}
 }

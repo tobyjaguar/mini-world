@@ -11,6 +11,7 @@ import (
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/phi"
+	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
 )
 
@@ -165,6 +166,12 @@ func (s *Simulation) buildTier2Context(a *agents.Agent, occNames []string, govNa
 	if a.Occupation == agents.OccupationMerchant {
 		ctx.TradeContext = s.buildMerchantTradeContext(a)
 	}
+
+	// Round 24: Resource/career context for all agents.
+	ctx.ResourceAvailability = s.buildResourceAvailability(a)
+	ctx.OccupationSatisfaction = s.buildOccupationSatisfaction(a)
+	ctx.SkillSummary = fmt.Sprintf("Farming %.2f, Mining %.2f, Crafting %.2f, Combat %.2f, Trade %.2f",
+		a.Skills.Farming, a.Skills.Mining, a.Skills.Crafting, a.Skills.Combat, a.Skills.Trade)
 
 	return ctx
 }
@@ -349,6 +356,34 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 				"settlement_id": a.HomeSettID,
 			},
 		})
+
+	case "relocate":
+		// Move to named settlement, keep occupation.
+		for _, sett := range s.Settlements {
+			if sett.Name == d.Target {
+				newID := sett.ID
+				a.HomeSettID = &newID
+				a.Position = sett.Position
+				s.rebuildSettlementAgents()
+				agents.AddMemory(a, tick, fmt.Sprintf("I relocated to %s seeking better resources for my work", sett.Name), 0.7)
+				break
+			}
+		}
+
+	case "retrain":
+		// Skill-adjacent occupation change.
+		newOcc := parseOccupationName(d.Target)
+		if newOcc != a.Occupation {
+			adj := skillAdjacentOccupation(a.Occupation)
+			// Only allow skill-adjacent transitions or to Crafter as last resort.
+			if newOcc == adj || newOcc == agents.OccupationCrafter {
+				old := a.Occupation
+				a.Occupation = newOcc
+				setMinimumSkill(a, newOcc)
+				agents.AddMemory(a, tick,
+					fmt.Sprintf("I retrained from %s to %s — a new chapter begins", occupationLabel(old), occupationLabel(newOcc)), 0.8)
+			}
+		}
 	}
 
 	// Log the decision and create a memory.
@@ -506,6 +541,9 @@ func (s *Simulation) buildOracleContext(
 		}
 	}
 
+	// Round 24: Workforce data for guide_migration.
+	ctx.WorkforceData = s.buildOracleWorkforceData(a)
+
 	return ctx
 }
 
@@ -593,6 +631,55 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 				}
 			}
 		}
+
+	case "guide_migration":
+		// Oracle directs struggling producers to a named settlement with better resources.
+		if a.HomeSettID != nil {
+			var targetSett *social.Settlement
+			for _, sett := range s.Settlements {
+				if sett.Name == vision.Target {
+					targetSett = sett
+					break
+				}
+			}
+			if targetSett != nil {
+				guided := 0
+				for _, candidate := range s.SettlementAgents[*a.HomeSettID] {
+					if guided >= 10 {
+						break
+					}
+					if !candidate.Alive || candidate.ID == a.ID {
+						continue
+					}
+					if candidate.Wellbeing.Satisfaction >= 0 {
+						continue // Only guide dissatisfied producers.
+					}
+					_, isProducer := occupationResource[candidate.Occupation]
+					if !isProducer {
+						continue
+					}
+					newID := targetSett.ID
+					candidate.HomeSettID = &newID
+					candidate.Position = targetSett.Position
+					guided++
+				}
+				if guided > 0 {
+					s.rebuildSettlementAgents()
+					s.EmitEvent(Event{
+						Tick:        tick,
+						Description: fmt.Sprintf("Oracle %s guided %d struggling workers to %s", a.Name, guided, targetSett.Name),
+						Category:    "oracle",
+						Meta: map[string]any{
+							"agent_id":        a.ID,
+							"agent_name":      a.Name,
+							"settlement_id":   targetSett.ID,
+							"settlement_name": targetSett.Name,
+							"count":           guided,
+						},
+					})
+				}
+			}
+		}
 	}
 
 	// Log the oracle's action.
@@ -611,4 +698,147 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 	})
 
 	slog.Debug("oracle vision applied", "agent", a.Name, "action", vision.Action, "target", vision.Target)
+}
+
+// --- Round 24: Context builders for Tier 2 resource/career decisions ---
+
+// buildResourceAvailability describes the local resource situation for an agent.
+func (s *Simulation) buildResourceAvailability(a *agents.Agent) string {
+	resType, isProducer := occupationResource[a.Occupation]
+	if !isProducer {
+		return ""
+	}
+	if a.HomeSettID == nil {
+		return "No home settlement"
+	}
+	sett, ok := s.SettlementIndex[*a.HomeSettID]
+	if !ok {
+		return ""
+	}
+
+	hasLocal := s.settlementHasResource(sett, resType)
+	idleDays := uint64(0)
+	if s.LastTick > a.LastWorkTick {
+		idleDays = (s.LastTick - a.LastWorkTick) / uint64(TicksPerSimDay)
+	}
+
+	var b strings.Builder
+	if hasLocal {
+		fmt.Fprintf(&b, "Local %s available. ", resourceName(resType))
+	} else {
+		fmt.Fprintf(&b, "No %s in settlement neighborhood. ", resourceName(resType))
+	}
+	if idleDays > 7 {
+		fmt.Fprintf(&b, "Idle for %d days. ", idleDays)
+	}
+
+	// List nearby settlements with compatible resources.
+	nearby := s.findResourceSettlement(sett, resType, 5)
+	if nearby != nil {
+		fmt.Fprintf(&b, "Nearby: %s has %s (%d hexes away).",
+			nearby.Name, resourceName(resType), world.Distance(sett.Position, nearby.Position))
+	}
+	return b.String()
+}
+
+// buildOccupationSatisfaction describes how well the agent's occupation is working.
+func (s *Simulation) buildOccupationSatisfaction(a *agents.Agent) string {
+	if a.Wellbeing.Satisfaction > 0.3 {
+		return "thriving"
+	} else if a.Wellbeing.Satisfaction > 0 {
+		return "adequate"
+	} else if a.Wellbeing.Satisfaction > -0.3 {
+		return "struggling"
+	}
+	return "suffering"
+}
+
+// buildOracleWorkforceData provides workforce information for oracle guide_migration decisions.
+func (s *Simulation) buildOracleWorkforceData(a *agents.Agent) string {
+	if a.HomeSettID == nil {
+		return ""
+	}
+	sett, ok := s.SettlementIndex[*a.HomeSettID]
+	if !ok {
+		return ""
+	}
+
+	occNames := []string{
+		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
+		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
+	}
+
+	// Count occupations in home settlement.
+	occCounts := make(map[agents.Occupation]int)
+	dissatisfied := 0
+	settAgents := s.SettlementAgents[sett.ID]
+	for _, ag := range settAgents {
+		if ag.Alive {
+			occCounts[ag.Occupation]++
+			if ag.Wellbeing.Satisfaction < 0 {
+				dissatisfied++
+			}
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s workforce (%d agents, %d dissatisfied): ", sett.Name, len(settAgents), dissatisfied)
+	for occ := agents.Occupation(0); int(occ) < len(occNames); occ++ {
+		if occCounts[occ] > 0 {
+			fmt.Fprintf(&b, "%s %d, ", occNames[occ], occCounts[occ])
+		}
+	}
+	b.WriteString("\n")
+
+	// List nearby settlements with abundant resources.
+	for _, other := range s.Settlements {
+		if other.ID == sett.ID || other.Population < 25 {
+			continue
+		}
+		dist := world.Distance(sett.Position, other.Position)
+		if dist > 5 {
+			continue
+		}
+		fmt.Fprintf(&b, "- %s (%d hexes, pop %d)", other.Name, dist, other.Population)
+		hex := s.WorldMap.Get(other.Position)
+		if hex != nil {
+			for _, rt := range []world.ResourceType{world.ResourceGrain, world.ResourceIronOre, world.ResourceFish, world.ResourceFurs, world.ResourceStone, world.ResourceHerbs} {
+				if hex.Resources[rt] >= 10.0 {
+					fmt.Fprintf(&b, " %s", resourceName(rt))
+				}
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// parseOccupationName converts a string to an Occupation constant.
+func parseOccupationName(name string) agents.Occupation {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.Contains(lower, "farm"):
+		return agents.OccupationFarmer
+	case strings.Contains(lower, "mine") || lower == "miner":
+		return agents.OccupationMiner
+	case strings.Contains(lower, "craft"):
+		return agents.OccupationCrafter
+	case strings.Contains(lower, "merch") || strings.Contains(lower, "trade"):
+		return agents.OccupationMerchant
+	case strings.Contains(lower, "sold") || strings.Contains(lower, "milit"):
+		return agents.OccupationSoldier
+	case strings.Contains(lower, "schol"):
+		return agents.OccupationScholar
+	case strings.Contains(lower, "alch"):
+		return agents.OccupationAlchemist
+	case strings.Contains(lower, "labor"):
+		return agents.OccupationLaborer
+	case strings.Contains(lower, "fish"):
+		return agents.OccupationFisher
+	case strings.Contains(lower, "hunt"):
+		return agents.OccupationHunter
+	default:
+		return agents.OccupationCrafter // Safe default
+	}
 }

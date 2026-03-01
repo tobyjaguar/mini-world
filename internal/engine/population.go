@@ -168,21 +168,9 @@ func (s *Simulation) processBirths(tick uint64) {
 
 			child := s.Spawner.SpawnChild(sett.Position, sett.ID, terrain, tick, parent)
 
-			// Prevent new producers from being born into oversaturated settlements.
-			if _, isProducer := occupationResource[child.Occupation]; isProducer {
-				target := s.settlementProducerTarget(sett.ID)
-				currentProducers := 0
-				for _, sa := range settAgents {
-					if sa.Alive {
-						if _, ok := occupationResource[sa.Occupation]; ok {
-							currentProducers++
-						}
-					}
-				}
-				if currentProducers >= target {
-					child.Occupation = bestNonProducerOccupation(settAgents)
-				}
-			}
+			// Round 24: removed birth-time producer gate.
+			// With 0.26% producers, this never fires, but removing it prevents
+			// re-triggering once producers recover. Occupation is identity.
 
 			s.addAgent(child)
 

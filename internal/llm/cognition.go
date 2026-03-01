@@ -36,6 +36,11 @@ type Tier2Context struct {
 	Faction       string   // Faction name or "unaffiliated"
 	Weather       string   // Weather description if available
 	TradeContext  string   // Merchant-specific: nearby prices, margins, cargo status
+
+	// Round 24: Resource/career awareness for relocate/retrain decisions.
+	ResourceAvailability   string // Description of local resource situation
+	SkillSummary           string // Agent's skill levels
+	OccupationSatisfaction string // How well current occupation is working
 }
 
 // GenerateTier2Decision calls Haiku to produce 1-3 weekly actions for a Tier 2 agent.
@@ -77,7 +82,9 @@ Valid actions:
 - advocate: push for a policy change in your settlement (taxes, governance)
 - invest: spend wealth on settlement infrastructure
 - recruit: try to bring someone into your faction
-- speak: make a public statement (generates narrative color)`,
+- speak: make a public statement (generates narrative color)
+- relocate: move to a named settlement with better resources for your occupation (target = settlement name)
+- retrain: change to a skill-adjacent occupation better suited to local resources (target = new occupation name)`,
 		ctx.Name, ctx.Age, ctx.Occupation, ctx.Settlement, ctx.Mood,
 		ctx.Coherence, ctx.State, ctx.Wealth,
 		ctx.Faction,
@@ -125,6 +132,19 @@ func buildTier2UserPrompt(ctx *Tier2Context) string {
 		b.WriteString("\n")
 	}
 
+	if ctx.ResourceAvailability != "" {
+		fmt.Fprintf(&b, "Resource situation: %s\n", ctx.ResourceAvailability)
+	}
+	if ctx.SkillSummary != "" {
+		fmt.Fprintf(&b, "Skills: %s\n", ctx.SkillSummary)
+	}
+	if ctx.OccupationSatisfaction != "" {
+		fmt.Fprintf(&b, "Work satisfaction: %s\n", ctx.OccupationSatisfaction)
+	}
+	if ctx.ResourceAvailability != "" || ctx.SkillSummary != "" {
+		b.WriteString("\n")
+	}
+
 	b.WriteString("What do you do this week? Respond with a JSON array of 1-3 actions.")
 	return b.String()
 }
@@ -152,6 +172,7 @@ func parseTier2Response(response string) ([]Tier2Decision, error) {
 	validActions := map[string]bool{
 		"work": true, "trade": true, "socialize": true, "advocate": true,
 		"invest": true, "recruit": true, "speak": true, "scout_route": true,
+		"relocate": true, "retrain": true,
 	}
 	var valid []Tier2Decision
 	for _, d := range decisions {
