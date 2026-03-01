@@ -786,7 +786,7 @@ func (s *Simulation) updateStats() {
 				occSatTotals[a.Occupation] += a.Wellbeing.Satisfaction
 			}
 			if isHexProducer(a.Occupation) {
-				if a.LastWorkTick > 0 {
+				if s.LastTick > 0 && a.LastWorkTick > 0 && s.LastTick-a.LastWorkTick <= uint64(TicksPerSimDay*7) {
 					s.Stats.ProducersWorking++
 				} else {
 					s.Stats.ProducersIdle++

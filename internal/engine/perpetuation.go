@@ -584,6 +584,24 @@ func (s *Simulation) processCrafterRecovery(tick uint64) {
 			continue
 		}
 
+		// Don't convert crafters if existing producers can't find work.
+		recentWork := uint64(TicksPerSimDay * 7)
+		var workingProducers, idleProducers int
+		for _, a := range settAgents {
+			if !a.Alive || !isHexProducer(a.Occupation) {
+				continue
+			}
+			if tick-a.LastWorkTick <= recentWork {
+				workingProducers++
+			} else {
+				idleProducers++
+			}
+		}
+		totalProducers := workingProducers + idleProducers
+		if totalProducers > 0 && float64(workingProducers)/float64(totalProducers) < 0.5 {
+			continue // Most producers idle — settlement can't support more
+		}
+
 		// Find best producer occupation for neighborhood.
 		newOcc := bestProducerOccupationForNeighborhood(s, sett)
 		if newOcc == agents.OccupationCrafter {

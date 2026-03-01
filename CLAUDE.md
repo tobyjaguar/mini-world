@@ -561,6 +561,13 @@ API alignment audit (fixes 126-128) revealed the two-tier occupation economy: 78
 
 132. **Factions endpoint response too large** — FIXED: Added `?limit=N` query parameter to `/api/v1/factions` (default 5). Properly selects top N settlements by influence per faction using sorted selection. The old logic (`len(topInf) < 5 || inf > 5`) included every settlement with influence > 5, producing responses too large for WebFetch processing.
 
+### Round 26: Gate Crafter Recovery on Productive Capacity
+
+Crafter recovery (fix 122) was mechanically working — crafter share dropped from 78.5% to 72.9% in 24 sim-days. But it was making the world worse. Working producers stayed flat at ~7,290 while idle producers grew from 6,351 to 23,000. Every newly-converted producer went straight to idle, dropping from +0.70 satisfaction (idle crafter) to +0.17 (idle producer). Average satisfaction steadily declined from 0.676 to 0.652.
+
+133. **Crafter recovery ignores settlement capacity** — FIXED: `processCrafterRecovery()` now counts existing producers in the settlement who worked recently (within 7 sim-days) vs idle. If <50% of producers are working, settlement is skipped — it can't employ more producers. Prevents converting crafters into idle producers that drag down satisfaction.
+134. **ProducersWorking/ProducersIdle metric misleading** — FIXED: `updateStats()` changed from `LastWorkTick > 0` (ever worked) to `LastTick - LastWorkTick <= 7 sim-days` (worked recently). The old metric showed 7,290 "working" producers even though most hadn't worked in weeks. Producer health API (`/api/v1/economy`) now reflects true active work rate.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
