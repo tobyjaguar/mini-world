@@ -166,6 +166,7 @@ func (db *DB) migrate() error {
 		"ALTER TABLE stats_history ADD COLUMN avg_satisfaction REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE stats_history ADD COLUMN avg_alignment REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE agents ADD COLUMN last_work_tick INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE stats_history ADD COLUMN occupation_json TEXT NOT NULL DEFAULT ''",
 	}
 	for _, m := range migrations {
 		db.conn.Exec(m) // Ignore errors — column may already exist.
@@ -758,6 +759,7 @@ type StatsRow struct {
 	Gini            float64 `json:"gini" db:"gini"`
 	AvgSatisfaction float64 `json:"avg_satisfaction" db:"avg_satisfaction"`
 	AvgAlignment    float64 `json:"avg_alignment" db:"avg_alignment"`
+	OccupationJSON  string  `json:"occupation_json,omitempty" db:"occupation_json"`
 }
 
 // SaveStatsSnapshot records a daily statistics snapshot.
@@ -765,11 +767,13 @@ func (db *DB) SaveStatsSnapshot(row StatsRow) error {
 	_, err := db.conn.Exec(
 		`INSERT OR REPLACE INTO stats_history
 		(tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
-		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment,
+		 occupation_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Tick, row.Population, row.TotalWealth, row.AvgMood, row.AvgSurvival,
 		row.Births, row.Deaths, row.TradeVolume, row.AvgCoherence,
 		row.SettlementCount, row.Gini, row.AvgSatisfaction, row.AvgAlignment,
+		row.OccupationJSON,
 	)
 	return err
 }
@@ -782,7 +786,8 @@ func (db *DB) LoadStatsHistory(fromTick, toTick uint64, limit int) ([]StatsRow, 
 	}
 	err := db.conn.Select(&rows,
 		`SELECT tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
-		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment
+		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment,
+		 occupation_json
 		 FROM stats_history WHERE tick >= ? AND tick <= ?
 		 ORDER BY tick DESC LIMIT ?`,
 		fromTick, toTick, limit,

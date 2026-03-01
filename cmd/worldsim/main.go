@@ -384,6 +384,20 @@ func main() {
 	eng.OnHour = sim.TickHour
 	eng.OnDay = func(tick uint64) {
 		sim.TickDay(tick)
+		// Build occupation JSON for stats history.
+		occData := struct {
+			Counts           [10]int     `json:"counts"`
+			Sat              [10]float32 `json:"sat"`
+			ProducersWorking int         `json:"producers_working"`
+			ProducersIdle    int         `json:"producers_idle"`
+		}{
+			Counts:           sim.Stats.OccupationCounts,
+			Sat:              sim.Stats.OccupationSat,
+			ProducersWorking: sim.Stats.ProducersWorking,
+			ProducersIdle:    sim.Stats.ProducersIdle,
+		}
+		occJSON, _ := json.Marshal(occData)
+
 		// Save daily stats snapshot.
 		statsRow := persistence.StatsRow{
 			Tick:            tick,
@@ -399,6 +413,7 @@ func main() {
 			Gini:            sim.GiniCoefficient(),
 			AvgSatisfaction: float64(sim.Stats.AvgSatisfaction),
 			AvgAlignment:    float64(sim.Stats.AvgAlignment),
+			OccupationJSON:  string(occJSON),
 		}
 		if err := db.SaveStatsSnapshot(statsRow); err != nil {
 			slog.Error("stats snapshot failed", "error", err)

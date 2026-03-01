@@ -232,6 +232,18 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"temp_modifier": s.Sim.CurrentWeather.TempModifier,
 	}
 
+	occNames := [10]string{
+		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
+		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
+	}
+	occupations := make(map[string]map[string]any, 10)
+	for i := 0; i < 10; i++ {
+		occupations[occNames[i]] = map[string]any{
+			"count":            s.Sim.Stats.OccupationCounts[i],
+			"avg_satisfaction": s.Sim.Stats.OccupationSat[i],
+		}
+	}
+
 	status := map[string]any{
 		"name":             "Crossworlds",
 		"tick":             s.Sim.CurrentTick(),
@@ -249,6 +261,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"avg_alignment":    s.Sim.Stats.AvgAlignment,
 		"total_wealth":     s.Sim.Stats.TotalWealth,
 		"weather":          weatherInfo,
+		"occupations":      occupations,
 	}
 	writeJSON(w, status)
 }
@@ -966,6 +979,12 @@ func (s *Server) handleEconomy(w http.ResponseWriter, r *http.Request) {
 		deflated = deflated[:5]
 	}
 
+	producerTotal := s.Sim.Stats.ProducersWorking + s.Sim.Stats.ProducersIdle
+	workRate := 0.0
+	if producerTotal > 0 {
+		workRate = float64(s.Sim.Stats.ProducersWorking) / float64(producerTotal)
+	}
+
 	result := map[string]any{
 		"total_crowns":       totalAgentWealth + totalTreasury,
 		"agent_wealth":       totalAgentWealth,
@@ -977,6 +996,12 @@ func (s *Server) handleEconomy(w http.ResponseWriter, r *http.Request) {
 		"wealth_distribution": map[string]any{
 			"poorest_50_pct_share": poorest50Share,
 			"richest_10_pct_share": richest10Share,
+		},
+		"producer_health": map[string]any{
+			"total":     producerTotal,
+			"working":   s.Sim.Stats.ProducersWorking,
+			"idle":      s.Sim.Stats.ProducersIdle,
+			"work_rate": workRate,
 		},
 	}
 

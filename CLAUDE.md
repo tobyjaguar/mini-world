@@ -541,6 +541,14 @@ Triple structural failure diagnosed: (1) `bestProductionHex()` didn't search nei
 
 **Deploy sequence:** All phases deployed together (Phases 1-6). Monitor for 1 week before assessing. If crafter recovery is too aggressive or producers can't find resources, individual phases can be disabled.
 
+### API Alignment Audit: Full-Population Occupation & Producer Health
+
+The API settlement sampling reported 72% Crafters / 5% Producers; the DB showed 78.7% / 4.0%. Per-occupation satisfaction was invisible without SSH + sqlite3. 70% of producers had `LastWorkTick=0`. We couldn't tune what we couldn't see.
+
+126. **Occupation breakdown in `/api/v1/status`** — NEW: `"occupations"` map with per-occupation `count` and `avg_satisfaction`, computed from full population in `updateStats()` (not sampled). Four new fields on `SimStats`: `OccupationCounts [10]int`, `OccupationSat [10]float32`, `ProducersWorking`, `ProducersIdle`.
+127. **Producer health in `/api/v1/economy`** — NEW: `"producer_health"` map with `total`, `working` (LastWorkTick > 0), `idle` (LastWorkTick == 0), and `work_rate`. Reads pre-computed stats — no new iteration.
+128. **Occupation history in `stats_history`** — NEW: `occupation_json TEXT` column stores per-occupation counts, satisfaction, and producer working/idle counts. Flows through `/api/v1/stats/history` automatically via `StatsRow`.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

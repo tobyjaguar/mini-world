@@ -140,6 +140,12 @@ type SimStats struct {
 	AvgAlignment    float32 `json:"avg_alignment"`     // Coherence-derived alignment
 	AvgSurvival     float32 `json:"avg_survival"`
 	TradeVolume     uint64  `json:"trade_volume"` // Merchant trade completions
+
+	// Per-occupation breakdown (full population, not sampled).
+	OccupationCounts [10]int      `json:"occupation_counts"`
+	OccupationSat    [10]float32  `json:"occupation_sat"`
+	ProducersWorking int          `json:"producers_working"` // LastWorkTick > 0
+	ProducersIdle    int          `json:"producers_idle"`    // LastWorkTick == 0
 }
 
 // NewSimulation creates a Simulation from generated components.
@@ -759,6 +765,13 @@ func (s *Simulation) updateStats() {
 	totalAlignment := float32(0)
 	totalSurvival := float32(0)
 
+	// Zero per-occupation counters (arrays need explicit zeroing).
+	s.Stats.OccupationCounts = [10]int{}
+	s.Stats.OccupationSat = [10]float32{}
+	s.Stats.ProducersWorking = 0
+	s.Stats.ProducersIdle = 0
+	var occSatTotals [10]float32
+
 	for _, a := range s.Agents {
 		if a.Alive {
 			alive++
@@ -767,6 +780,18 @@ func (s *Simulation) updateStats() {
 			totalSatisfaction += a.Wellbeing.Satisfaction
 			totalAlignment += a.Wellbeing.Alignment
 			totalSurvival += a.Needs.Survival
+
+			if int(a.Occupation) < 10 {
+				s.Stats.OccupationCounts[a.Occupation]++
+				occSatTotals[a.Occupation] += a.Wellbeing.Satisfaction
+			}
+			if isHexProducer(a.Occupation) {
+				if a.LastWorkTick > 0 {
+					s.Stats.ProducersWorking++
+				} else {
+					s.Stats.ProducersIdle++
+				}
+			}
 		}
 	}
 
@@ -780,6 +805,20 @@ func (s *Simulation) updateStats() {
 		s.Stats.AvgAlignment = totalAlignment / float32(alive)
 		s.Stats.AvgSurvival = totalSurvival / float32(alive)
 	}
+
+	// Compute per-occupation average satisfaction.
+	for i := 0; i < 10; i++ {
+		if s.Stats.OccupationCounts[i] > 0 {
+			s.Stats.OccupationSat[i] = occSatTotals[i] / float32(s.Stats.OccupationCounts[i])
+		}
+	}
+}
+
+// isHexProducer returns true for occupations that extract resources from hexes.
+func isHexProducer(occ agents.Occupation) bool {
+	return occ == agents.OccupationFarmer || occ == agents.OccupationMiner ||
+		occ == agents.OccupationAlchemist || occ == agents.OccupationLaborer ||
+		occ == agents.OccupationFisher || occ == agents.OccupationHunter
 }
 
 // SettlementCarryingCapacity computes the carrying capacity for a settlement
