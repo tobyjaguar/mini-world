@@ -47,7 +47,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 
 	if hex == nil {
 		// No hex data — showed up to work but land unavailable. No punishment.
-		a.Needs.Safety += 0.002    // Went to work — still part of the workforce
+		a.Needs.Safety += 0.004    // Went to work — still part of the workforce
 		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
 		a.Needs.Esteem += 0.001    // Showing up matters — the land failed, not the worker
 		a.Needs.Purpose += 0.001   // Has a role even when land is barren
@@ -58,7 +58,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	available := hex.Resources[resType]
 	if available < 1.0 {
 		// Hex depleted — showed up but land is barren. No punishment.
-		a.Needs.Safety += 0.002    // Went to work — still part of the workforce
+		a.Needs.Safety += 0.004    // Went to work — still part of the workforce
 		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
 		a.Needs.Esteem += 0.001    // Showing up matters — the land failed, not the worker
 		a.Needs.Purpose += 0.001   // Has a role even when land is barren
@@ -83,7 +83,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 		produced = 1
 		if available < 1.0 {
 			// Clamped to zero — showed up but not enough resources. No punishment.
-			a.Needs.Safety += 0.001    // Went to work — still part of the workforce
+			a.Needs.Safety += 0.003    // Went to work — still part of the workforce
 			a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
 			a.Needs.Purpose += 0.001   // Has a role even when land is barren
 			clampAgentNeeds(&a.Needs)
@@ -141,7 +141,9 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 
 	// All hex-resource producers who successfully produced get a Survival boost.
 	// Physical labor extracting real goods = material security.
-	a.Needs.Survival += 0.003
+	// Must exceed decay rate (Agnosis*0.01*2 ≈ 0.00472/tick) so working producers
+	// build Survival instead of slowly starving. Agnosis*0.025 ≈ 0.0059.
+	a.Needs.Survival += 0.006
 	clampAgentNeeds(&a.Needs)
 
 	return nil

@@ -159,9 +159,9 @@ func (s *Simulation) decayGovernance(sett *social.Settlement) {
 }
 
 // checkRevolution fires a revolution if conditions are met:
-// GovernanceScore < 0.3 AND a faction has >40 influence AND a Tier 1+ agent with coherence > 0.4 exists.
+// GovernanceScore < 0.4 AND a faction has >40 influence AND a Tier 1+ agent with coherence > 0.4 exists.
 func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Agent, tick uint64) {
-	if sett.GovernanceScore >= 0.3 {
+	if sett.GovernanceScore >= 0.4 {
 		return
 	}
 

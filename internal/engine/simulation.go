@@ -196,6 +196,7 @@ func (s *Simulation) TickMinute(tick uint64) {
 		agents.DecayNeeds(a)
 		if !a.Alive {
 			s.Stats.Deaths++
+			s.handleAgentDeath(a, tick, "starvation")
 			continue
 		}
 
@@ -226,33 +227,40 @@ func (s *Simulation) TickMinute(tick uint64) {
 			})
 		}
 
-		// Check for death (starvation).
+		// Check for death (starvation during action resolution).
 		if !a.Alive {
-			deathDesc := fmt.Sprintf("%s has died", a.Name)
-			s.EmitEvent(Event{
-				Tick:        tick,
-				Description: deathDesc,
-				Category:    "death",
-				Meta: map[string]any{
-					"agent_id":      a.ID,
-					"agent_name":    a.Name,
-					"settlement_id": a.HomeSettID,
-					"cause":         "starvation",
-				},
-			})
-			s.inheritWealth(a, tick)
+			s.Stats.Deaths++
+			s.handleAgentDeath(a, tick, "starvation")
+		}
+	}
+}
 
-			if a.HomeSettID != nil {
-				// Create memories for nearby Tier 2 agents.
-				s.createSettlementMemories(*a.HomeSettID, tick, deathDesc, 0.6)
+// handleAgentDeath processes an agent's death: emits event, transfers wealth,
+// creates memories, and boosts witness coherence.
+func (s *Simulation) handleAgentDeath(a *agents.Agent, tick uint64, cause string) {
+	deathDesc := fmt.Sprintf("%s has died", a.Name)
+	s.EmitEvent(Event{
+		Tick:        tick,
+		Description: deathDesc,
+		Category:    "death",
+		Meta: map[string]any{
+			"agent_id":      a.ID,
+			"agent_name":    a.Name,
+			"settlement_id": a.HomeSettID,
+			"cause":         cause,
+		},
+	})
+	s.inheritWealth(a, tick)
 
-				// Via negativa: witnessing death strips attachment, increasing coherence.
-				// "Loss removes dilution" — Wheeler's subtraction principle.
-				for _, witness := range s.SettlementAgents[*a.HomeSettID] {
-					if witness.Alive && witness.ID != a.ID {
-						witness.Soul.AdjustCoherence(float32(phi.Agnosis * 0.05))
-					}
-				}
+	if a.HomeSettID != nil {
+		// Create memories for nearby Tier 2 agents.
+		s.createSettlementMemories(*a.HomeSettID, tick, deathDesc, 0.6)
+
+		// Via negativa: witnessing death strips attachment, increasing coherence.
+		// "Loss removes dilution" — Wheeler's subtraction principle.
+		for _, witness := range s.SettlementAgents[*a.HomeSettID] {
+			if witness.Alive && witness.ID != a.ID {
+				witness.Soul.AdjustCoherence(float32(phi.Agnosis * 0.05))
 			}
 		}
 	}
@@ -368,6 +376,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processInfrastructureGrowth(tick)
 	s.processSettlementOvermass(tick)
 	s.processSettlementAbandonment(tick)
+	s.compactAbandonedSettlements()
 	s.processWeeklyTier2Replenishment()
 	s.updateArchetypeTemplates(tick)
 	s.processOracleVisions(tick)

@@ -598,7 +598,7 @@ func (s *Simulation) processCrafterRecovery(tick uint64) {
 			}
 		}
 		totalProducers := workingProducers + idleProducers
-		if totalProducers > 0 && float64(workingProducers)/float64(totalProducers) < 0.5 {
+		if totalProducers > 0 && float64(workingProducers)/float64(totalProducers) < 0.3 {
 			continue // Most producers idle — settlement can't support more
 		}
 

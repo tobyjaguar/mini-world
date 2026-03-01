@@ -454,3 +454,41 @@ func (s *Simulation) processViabilityCheck(tick uint64) {
 		s.rebuildSettlementAgents()
 	}
 }
+
+// compactAbandonedSettlements removes ghost settlements (population 0, hex cleared)
+// from the Settlements slice and rebuilds SettlementIndex.
+// Called weekly from TickWeek after processSettlementAbandonment.
+func (s *Simulation) compactAbandonedSettlements() {
+	active := make([]*social.Settlement, 0, len(s.Settlements))
+	removed := 0
+
+	for _, sett := range s.Settlements {
+		if sett.Population == 0 {
+			hex := s.WorldMap.Get(sett.Position)
+			if hex == nil || hex.SettlementID == nil {
+				// Properly abandoned — remove from memory.
+				delete(s.SettlementAgents, sett.ID)
+				delete(s.AbandonedWeeks, sett.ID)
+				delete(s.NonViableWeeks, sett.ID)
+				removed++
+				continue
+			}
+		}
+		active = append(active, sett)
+	}
+
+	if removed == 0 {
+		return
+	}
+
+	s.Settlements = active
+
+	// Rebuild SettlementIndex from compacted slice.
+	newIndex := make(map[uint64]*social.Settlement, len(active))
+	for _, sett := range active {
+		newIndex[sett.ID] = sett
+	}
+	s.SettlementIndex = newIndex
+
+	slog.Info("abandoned settlements compacted", "removed", removed, "remaining", len(active))
+}

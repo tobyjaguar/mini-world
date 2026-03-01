@@ -578,6 +578,16 @@ Investigation of 0% producer work rate (corrected metric from R26) revealed **89
 
 **New equilibrium:** Net +0.047 health/week per hex at typical density. Break-even at ~1,750 producers/settlement (impossible). System self-balances. Laborers also restore hex health (+0.00118/tick, unchanged), further helping.
 
+### Round 28: Producer Survival, Death Events, Ghost Cleanup, Crafter Gate, Governance Diversity
+
+Post-R27 observation (tick 685K): hex health fix working (work rate 24%→38%), but five structural issues remain. Producer Wellbeing.Satisfaction at 0.133 (OverallSat ~0.567 via dual-register mapping). Deaths spiked 3x transiently. 73% crafters frozen. 235 ghost settlements. 94% Councils.
+
+138. **Working producers starve while working** — FIXED: Survival boost from successful production in `production.go` increased from `+0.003` to `+0.006` (≈ Agnosis×0.025). Decay rate is `Agnosis*0.01*2 ≈ 0.00472/tick`; old boost gave net -0.00172/tick (negative), new boost gives net +0.00128/tick (positive). Also increased failed-production Safety boost from `+0.002` to `+0.004` (was net -0.00036/tick, now net +0.00164/tick).
+139. **Starvation deaths emit no events** — FIXED: `DecayNeeds` deaths in `simulation.go:197` had `continue` that skipped event emission, wealth inheritance, death memories, and witness coherence boosts. Extracted `handleAgentDeath()` helper, called from both the DecayNeeds path and the action-resolution path.
+140. **Crafter recovery gate too restrictive** — FIXED: Per-settlement work rate threshold in `perpetuation.go` lowered from `0.5` to `0.3`. At 38% global work rate, most settlements were below 0.5 → zero crafter→producer conversions. Now settlements above 30% (many) will allow conversions.
+141. **Ghost settlements never removed** — FIXED: Added `compactAbandonedSettlements()` in `settlement_lifecycle.go`, called weekly after `processSettlementAbandonment`. Removes settlements with `Population == 0` and `hex.SettlementID == nil` from `s.Settlements` slice, `SettlementIndex`, and tracking maps. 235 ghosts will clear at next weekly tick.
+142. **Governance revolution threshold too low** — FIXED: Revolution condition in `governance.go` raised from `GovernanceScore < 0.3` to `GovernanceScore < 0.4`. Council leaders' coherence drives governance target to ~0.45; scholar bonus pushes above 0.3 easily. With threshold at 0.4, post-leader-death dips and natural fluctuation create revolution windows.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
