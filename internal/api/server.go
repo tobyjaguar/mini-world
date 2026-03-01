@@ -820,6 +820,14 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 		Influence map[string]float64 `json:"top_influence"` // settlement name → influence
 	}
 
+	// ?limit=N controls how many top-influence settlements per faction (default 5).
+	limit := 5
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l >= 0 {
+			limit = l
+		}
+	}
+
 	// Count members per faction.
 	memberCount := make(map[uint64]int)
 	for _, a := range s.Sim.Agents {
@@ -837,14 +845,24 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 			kindName = kindNames[f.Kind]
 		}
 
-		// Convert settlement ID influence to settlement names (top 5).
-		topInf := make(map[string]float64)
+		// Collect all settlement influences, then keep only top N.
+		type settInf struct {
+			name string
+			inf  float64
+		}
+		var all []settInf
 		for settID, inf := range f.Influence {
 			if sett, ok := s.Sim.SettlementIndex[settID]; ok {
-				if len(topInf) < 5 || inf > 5 {
-					topInf[sett.Name] = inf
-				}
+				all = append(all, settInf{sett.Name, inf})
 			}
+		}
+		sort.Slice(all, func(i, j int) bool { return all[i].inf > all[j].inf })
+		if len(all) > limit {
+			all = all[:limit]
+		}
+		topInf := make(map[string]float64, len(all))
+		for _, si := range all {
+			topInf[si.name] = si.inf
 		}
 
 		result = append(result, factionSummary{

@@ -5,14 +5,21 @@ You are an observer of the autonomous world simulation "Crossworlds". Pull live 
 ## Data Sources
 
 ### 1. API Endpoints (live running state)
-Read the server host from `deploy/config.local` (the HOST variable). Fetch these endpoints using WebFetch:
+Use `https://api.crossworlds.xyz` as the base URL (WebFetch auto-upgrades HTTP→HTTPS, which breaks raw IP access since nginx serves plain HTTP on :80). Fetch these endpoints using WebFetch:
 
-- `http://<HOST>/api/v1/status` — tick, population, mood, wealth, season
-- `http://<HOST>/api/v1/economy` — prices, inflation/deflation, wealth distribution, trade volume
-- `http://<HOST>/api/v1/factions` — faction treasuries, influence per settlement
-- `http://<HOST>/api/v1/stats` — aggregate stats
-- `http://<HOST>/api/v1/stats/history?limit=10` — recent trends
-- `http://<HOST>/api/v1/settlements` — all settlements with governance and health
+- `https://api.crossworlds.xyz/api/v1/status` — tick, population, mood, wealth, season, per-occupation counts + satisfaction
+- `https://api.crossworlds.xyz/api/v1/economy` — prices, inflation/deflation, wealth distribution, trade volume, producer health
+- `https://api.crossworlds.xyz/api/v1/stats/history?limit=10` — recent trends (includes occupation_json snapshots)
+- `https://api.crossworlds.xyz/api/v1/settlements` — all settlements with governance and health
+
+For factions, use `curl` instead of WebFetch (the raw response is too large due to per-settlement influence maps):
+```bash
+curl -s 'https://api.crossworlds.xyz/api/v1/factions' | python3 -c "
+import json, sys
+for f in json.load(sys.stdin):
+    print(f\"{f['name']:25s} treasury={f.get('treasury',0):>12.0f}  members={f.get('members',0):>6.0f}\")
+"
+```
 
 ### 2. SQLite Database Queries (deeper analysis)
 The production database is remote, but a local copy may exist at `data/crossworlds.db`. If it exists, run analytical queries using `sqlite3 data/crossworlds.db`. Key queries:

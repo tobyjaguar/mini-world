@@ -557,6 +557,10 @@ API alignment audit (fixes 126-128) revealed the two-tier occupation economy: 78
 130. **Crafter recovery too slow** — FIXED: Idle threshold lowered from 14 to 7 sim-days, recovery cap doubled from 5% to 10% of idle crafters per week. At 228K crafters, old rate would take months; new rate should halve rebalancing time.
 131. **Zero Mountain hexes in the world** — FIXED: `MountainLvl` lowered from 0.72 to 0.60 in `DefaultGenConfig()`. With seed 42 and edge falloff, this creates 17 Mountain hexes (1.1% of land). Mountains provide Iron Ore, Stone, Coal, and Gems. World map regenerates deterministically on restart — existing settlements on newly-mountainous hexes gain mineral resources. 256 miners (0% work rate) will now have accessible Iron Ore.
 
+### API Fix: Factions Endpoint Limit
+
+132. **Factions endpoint response too large** — FIXED: Added `?limit=N` query parameter to `/api/v1/factions` (default 5). Properly selects top N settlements by influence per faction using sorted selection. The old logic (`len(topInf) < 5 || inf > 5`) included every settlement with influence > 5, producing responses too large for WebFetch processing.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
