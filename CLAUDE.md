@@ -549,6 +549,14 @@ The API settlement sampling reported 72% Crafters / 5% Producers; the DB showed 
 127. **Producer health in `/api/v1/economy`** — NEW: `"producer_health"` map with `total`, `working` (LastWorkTick > 0), `idle` (LastWorkTick == 0), and `work_rate`. Reads pre-computed stats — no new iteration.
 128. **Occupation history in `stats_history`** — NEW: `occupation_json TEXT` column stores per-occupation counts, satisfaction, and producer working/idle counts. Flows through `/api/v1/stats/history` automatically via `StatsRow`.
 
+### Round 25: Producer Satisfaction Crisis — Esteem, Crafter Recovery, Mountains
+
+API alignment audit (fixes 126-128) revealed the two-tier occupation economy: 78.7% Crafters at +0.70 satisfaction, 4.0% producers at -0.10 to -0.12. Root causes: (1) failed production gave zero Esteem, (2) crafter recovery was too slow (5%/week, 14-day idle threshold), (3) zero Mountain hexes existed — the `MountainLvl` threshold (0.72) was unreachable after continental edge falloff compressed max elevation to 0.66.
+
+129. **Failed production gives zero Esteem** — FIXED: All three failed-production paths in `ResolveWork()` now give `+0.001 Esteem` (was 0) and `+0.002 Safety` (was +0.001). 7,330 agents had Safety/Esteem at 0.001 — the direct cause of -0.11 satisfaction.
+130. **Crafter recovery too slow** — FIXED: Idle threshold lowered from 14 to 7 sim-days, recovery cap doubled from 5% to 10% of idle crafters per week. At 228K crafters, old rate would take months; new rate should halve rebalancing time.
+131. **Zero Mountain hexes in the world** — FIXED: `MountainLvl` lowered from 0.72 to 0.60 in `DefaultGenConfig()`. With seed 42 and edge falloff, this creates 17 Mountain hexes (1.1% of land). Mountains provide Iron Ore, Stone, Coal, and Gems. World map regenerates deterministically on restart — existing settlements on newly-mountainous hexes gain mineral resources. 256 miners (0% work rate) will now have accessible Iron Ore.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

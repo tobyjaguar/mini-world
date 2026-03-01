@@ -558,9 +558,9 @@ func resourceName(r world.ResourceType) string {
 
 // processCrafterRecovery transitions idle crafters to producer occupations
 // matching the richest resource in their settlement's 7-hex neighborhood.
-// Cap: 5% of settlement idle crafters per week (min 1).
+// Cap: 10% of settlement idle crafters per week (min 1).
 func (s *Simulation) processCrafterRecovery(tick uint64) {
-	twoWeeks := uint64(TicksPerSimDay * 14)
+	oneWeek := uint64(TicksPerSimDay * 7)
 
 	for settID, settAgents := range s.SettlementAgents {
 		sett, ok := s.SettlementIndex[settID]
@@ -568,13 +568,13 @@ func (s *Simulation) processCrafterRecovery(tick uint64) {
 			continue
 		}
 
-		// Find idle crafters (no materials, idle 14+ sim-days).
+		// Find idle crafters (no materials, idle 7+ sim-days).
 		var idleCrafters []*agents.Agent
 		for _, a := range settAgents {
 			if !a.Alive || a.Occupation != agents.OccupationCrafter {
 				continue
 			}
-			if tick-a.LastWorkTick < twoWeeks {
+			if tick-a.LastWorkTick < oneWeek {
 				continue
 			}
 			idleCrafters = append(idleCrafters, a)
@@ -590,8 +590,8 @@ func (s *Simulation) processCrafterRecovery(tick uint64) {
 			continue // No viable producer role nearby.
 		}
 
-		// Cap: 5% of idle crafters per week (min 1).
-		maxRetrain := len(idleCrafters) * 5 / 100
+		// Cap: 10% of idle crafters per week (min 1).
+		maxRetrain := len(idleCrafters) * 10 / 100
 		if maxRetrain < 1 {
 			maxRetrain = 1
 		}

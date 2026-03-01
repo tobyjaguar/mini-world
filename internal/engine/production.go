@@ -47,8 +47,9 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 
 	if hex == nil {
 		// No hex data — showed up to work but land unavailable. No punishment.
-		a.Needs.Safety += 0.001    // Went to work — still part of the workforce
+		a.Needs.Safety += 0.002    // Went to work — still part of the workforce
 		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
+		a.Needs.Esteem += 0.001    // Showing up matters — the land failed, not the worker
 		a.Needs.Purpose += 0.001   // Has a role even when land is barren
 		clampAgentNeeds(&a.Needs)
 		return nil
@@ -57,8 +58,9 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	available := hex.Resources[resType]
 	if available < 1.0 {
 		// Hex depleted — showed up but land is barren. No punishment.
-		a.Needs.Safety += 0.001    // Went to work — still part of the workforce
+		a.Needs.Safety += 0.002    // Went to work — still part of the workforce
 		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
+		a.Needs.Esteem += 0.001    // Showing up matters — the land failed, not the worker
 		a.Needs.Purpose += 0.001   // Has a role even when land is barren
 		clampAgentNeeds(&a.Needs)
 		return nil

@@ -25,7 +25,7 @@ func DefaultGenConfig() GenConfig {
 		Radius:      22,
 		Seed:        0,
 		SeaLevel:    0.25,
-		MountainLvl: 0.72,
+		MountainLvl: 0.60, // Was 0.72 — unreachable after edge falloff (max elev ~0.66)
 	}
 }
 
