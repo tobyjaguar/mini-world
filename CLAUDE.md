@@ -568,6 +568,16 @@ Crafter recovery (fix 122) was mechanically working — crafter share dropped fr
 133. **Crafter recovery ignores settlement capacity** — FIXED: `processCrafterRecovery()` now counts existing producers in the settlement who worked recently (within 7 sim-days) vs idle. If <50% of producers are working, settlement is skipped — it can't employ more producers. Prevents converting crafters into idle producers that drag down satisfaction.
 134. **ProducersWorking/ProducersIdle metric misleading** — FIXED: `updateStats()` changed from `LastWorkTick > 0` (ever worked) to `LastTick - LastWorkTick <= 7 sim-days` (worked recently). The old metric showed 7,290 "working" producers even though most hadn't worked in weeks. Producer health API (`/api/v1/economy`) now reflects true active work rate.
 
+### Round 27: Fix Hex Health Balance — Rebalance Extraction vs Recovery
+
+Investigation of 0% producer work rate (corrected metric from R26) revealed **892 of 1,019 land hexes (88%) are desertified** (health < 0.236). 836 hexes at health 0.000-0.010. The hex health model was catastrophically unbalanced: extraction degradation was 2,000x faster than fallow recovery. A pristine hex desertified in ~6 weeks; recovery from 0 to 0.236 took ~20 weeks. The entire production sector was trapped.
+
+135. **Extraction degradation 2,000x faster than recovery** — FIXED: Extraction degradation reduced 10x in `production.go`: `Agnosis * 0.01` → `Agnosis * 0.001` (~0.000236/tick). A typical settlement (64 producers, 7 hexes) now loses ~0.012 health/hex per depletion cycle instead of 0.118. Desertification from pristine takes ~65 weeks instead of ~6.5.
+136. **Fallow recovery too slow** — FIXED: Fallow recovery increased 5x in `seasons.go`: `Agnosis * 0.05` → `Agnosis * 0.25` (~5.9%/week). Recovery from 0 to 0.236 takes 4 weeks instead of 20. From 0 to 1.0 takes 17 weeks instead of 85.
+137. **Emergency hex restoration** — FIXED: One-time startup restoration in `main.go`: all desertified hexes (health < Agnosis, health > 0) boosted to Agnosis (0.236). ~892 hexes restored. Weekly resource regen kicks in immediately. Can be removed after one successful deploy.
+
+**New equilibrium:** Net +0.047 health/week per hex at typical density. Break-even at ~1,750 producers/settlement (impossible). System self-balances. Laborers also restore hex health (+0.00118/tick, unchanged), further helping.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

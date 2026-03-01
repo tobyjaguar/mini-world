@@ -98,7 +98,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	}
 
 	// Extraction degrades hex health.
-	hex.Health -= phi.Agnosis * 0.01 // ~0.00236 per extraction tick
+	hex.Health -= phi.Agnosis * 0.001 // ~0.000236 per extraction tick
 	if hex.Health < 0 {
 		hex.Health = 0
 	}

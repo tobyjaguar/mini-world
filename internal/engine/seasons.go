@@ -209,7 +209,7 @@ func (s *Simulation) weeklyResourceRegen() {
 
 			// Fallow recovery: un-extracted hexes regain health.
 			if hex.LastExtractedTick == 0 || s.LastTick-hex.LastExtractedTick > TicksPerSimDay {
-				hex.Health += phi.Agnosis * 0.05 // ~1.2% health per week when fallow
+				hex.Health += phi.Agnosis * 0.25 // ~5.9% health per week when fallow
 				if hex.Health > 1.0 {
 					hex.Health = 1.0
 				}

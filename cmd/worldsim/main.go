@@ -241,6 +241,21 @@ func main() {
 		}
 	}
 
+	// Emergency restoration: boost desertified hexes to Agnosis threshold.
+	// The R27 balance changes (10x lower degradation, 5x faster fallow)
+	// prevent re-desertification under normal production load.
+	// Can be removed after one successful deploy.
+	restoredHexes := 0
+	for _, hex := range worldMap.Hexes {
+		if hex.Terrain != world.TerrainOcean && hex.Health < phi.Agnosis && hex.Health > 0 {
+			hex.Health = phi.Agnosis
+			restoredHexes++
+		}
+	}
+	if restoredHexes > 0 {
+		slog.Info("emergency hex restoration", "restored", restoredHexes, "to_health", phi.Agnosis)
+	}
+
 	// Link settlement hex references (needed for both fresh and loaded worlds).
 	for _, st := range allSettlements {
 		sid := st.ID
