@@ -30,6 +30,7 @@ The full design specification lives in `docs/worldsim-design.md` (~1,500 lines, 
 - **Event Journal**: Append-only log, news generation, newspaper endpoint
 - **HTTP API**: Query interface for checking in on the world
 - **Claude Gardener**: Autonomous steward that observes the world and intervenes via admin API
+- **Sentinel**: Read-only structural health monitor — 8 checks, trend detection, alerts (every 30 min)
 
 ### Key Design Principles
 1. Emergence over scripting — never hard-code storylines
@@ -53,6 +54,9 @@ The full design specification lives in `docs/worldsim-design.md` (~1,500 lines, 
 
 ### `/observe` — Deity-Level World Analysis
 Defined in `.claude/commands/observe.md`. Fetches live API data and runs SQLite queries against the local database to produce a world health report covering economic health, agent well-being, political balance, and population dynamics. Use this to diagnose issues and plan tuning changes.
+
+### `/sentinel` — Structural Health Check
+Defined in `.claude/commands/sentinel.md`. SSHs to the production server, reads the latest `sentinel_report.json` and recent journal logs, and presents a structured health summary with check statuses, trends, and alerts. Use this for a quick health check before deeper `/observe` analysis.
 
 ## External Dependencies
 
@@ -83,7 +87,8 @@ All sensitive values belong in `deploy/config.local` (gitignored) or environment
 mini-world/
 ├── CLAUDE.md                    # This file — project guide
 ├── .claude/commands/
-│   └── observe.md               # /observe skill — deity-level world analysis
+│   ├── observe.md               # /observe skill — deity-level world analysis
+│   └── sentinel.md              # /sentinel skill — structural health check via SSH
 ├── docs/
 │   ├── worldsim-design.md       # Complete design spec (source of truth)
 │   ├── CLAUDE_CODE_PROMPT.md    # Implementation guide
@@ -104,6 +109,8 @@ mini-world/
 │   └── main.go                  # Entry point
 ├── cmd/gardener/
 │   └── main.go                  # Gardener entry point
+├── cmd/sentinel/
+│   └── main.go                  # Sentinel entry point
 ├── internal/
 │   ├── phi/                     # Emanation constants (Φ-derived)
 │   │   ├── constants.go         #   Golden ratio powers, growth angle
@@ -154,11 +161,19 @@ mini-world/
 │   │   ├── decide.go            #   Haiku analysis → Decision + guardrails
 │   │   ├── act.go               #   Intervention execution via admin API
 │   │   └── memory.go            #   Cycle memory persistence (last 10 cycles)
+│   ├── sentinel/                # Sentinel — structural health monitor (read-only)
+│   │   ├── observe.go           #   API data collection → WorldSnapshot
+│   │   ├── checks.go            #   8 health checks with Φ-derived thresholds
+│   │   ├── trends.go            #   Ring buffer trend computation
+│   │   ├── alerts.go            #   State transition detection + cooldown
+│   │   ├── report.go            #   JSON report builder + slog output
+│   │   └── state.go             #   Load/save sentinel_state.json
 │   └── api/server.go            # HTTP API (public GET, auth POST)
 ├── deploy/
-│   ├── deploy.sh                # Build, upload, restart (worldsim + gardener)
+│   ├── deploy.sh                # Build, upload, restart (worldsim + gardener + sentinel + relay)
 │   ├── worldsim.service         # systemd unit file
 │   ├── gardener.service         # Gardener systemd unit file
+│   ├── sentinel.service         # Sentinel systemd unit file
 │   ├── config.local.example     # Template for connection details
 │   └── config.local             # Real values (gitignored)
 ├── data/                        # Runtime SQLite DB (gitignored)
@@ -178,9 +193,14 @@ go build -o worldsim ./cmd/worldsim
 go build -o gardener ./cmd/gardener
 WORLDSIM_API_URL=http://localhost WORLDSIM_ADMIN_KEY=<key> ANTHROPIC_API_KEY=<key> ./gardener
 
+# Build sentinel
+go build -o sentinel ./cmd/sentinel
+SENTINEL_API_URL=http://localhost:8080 SENTINEL_DATA_DIR=. ./sentinel
+
 # Cross-compile for server
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/worldsim ./cmd/worldsim
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/gardener ./cmd/gardener
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/sentinel ./cmd/sentinel
 
 # Deploy to production (builds + deploys both worldsim and gardener)
 ./deploy/deploy.sh
@@ -196,7 +216,7 @@ The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for 
 | API | `https://api.crossworlds.xyz/api/v1/status` (Cloudflare proxy → port 80) |
 | Frontend | `https://crossworlds.xyz` (Next.js on Vercel, separate repo) |
 | SSH | `ssh -i <your-key> debian@<server-ip>` |
-| Services | systemd `worldsim.service` + `gardener.service`, auto-restart, start on boot |
+| Services | systemd `worldsim.service` + `gardener.service` + `sentinel.service`, auto-restart, start on boot |
 | Database | `/opt/worldsim/data/crossworlds.db` (SQLite, auto-saves daily) |
 | Storage | 20GB data volume mounted at `/opt/worldsim/data` (boot disk is 2.8GB) |
 | Security | UFW (ports 22+80 only), fail2ban, no root login, no passwords |

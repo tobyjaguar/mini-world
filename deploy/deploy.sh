@@ -32,6 +32,7 @@ export PATH=$PATH:/usr/local/go/bin
 cd "$REPO_DIR"
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/worldsim ./cmd/worldsim
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/gardener ./cmd/gardener
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/sentinel ./cmd/sentinel
 
 # Relay (from sibling repo)
 RELAY_DIR="$REPO_DIR/../crossworlds-relay"
@@ -43,16 +44,18 @@ cd "$RELAY_DIR"
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "$REPO_DIR/build/relay" .
 cd "$REPO_DIR"
 
-ls -lh build/worldsim build/gardener build/relay
+ls -lh build/worldsim build/gardener build/sentinel build/relay
 
 echo "=== Uploading binaries ==="
 $SCP_CMD build/worldsim $USER@$HOST:/tmp/worldsim
 $SCP_CMD build/gardener $USER@$HOST:/tmp/gardener
+$SCP_CMD build/sentinel $USER@$HOST:/tmp/sentinel
 $SCP_CMD build/relay $USER@$HOST:/tmp/relay
 
 echo "=== Uploading service files and nginx config ==="
 $SCP_CMD "$SCRIPT_DIR/worldsim.service" $USER@$HOST:/tmp/worldsim.service
 $SCP_CMD "$SCRIPT_DIR/gardener.service" $USER@$HOST:/tmp/gardener.service
+$SCP_CMD "$SCRIPT_DIR/sentinel.service" $USER@$HOST:/tmp/sentinel.service
 $SCP_CMD "$SCRIPT_DIR/relay.service" $USER@$HOST:/tmp/relay.service
 $SCP_CMD "$SCRIPT_DIR/nginx-crossworlds.conf" $USER@$HOST:/tmp/nginx-crossworlds.conf
 
@@ -77,15 +80,22 @@ GOVERRIDE="${GOVERRIDE}\nEnvironment=\"WORLDSIM_ADMIN_KEY=${ADMIN_KEY}\""
 [ -n "${ANTHROPIC_API_KEY:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\""
 [ -n "${GARDENER_INTERVAL:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"GARDENER_INTERVAL=${GARDENER_INTERVAL}\""
 
+# Sentinel override — read-only, no admin key needed.
+SOVERRIDE="[Service]"
+SOVERRIDE="${SOVERRIDE}\nEnvironment=\"SENTINEL_API_URL=http://localhost:${WORLDSIM_PORT}\""
+SOVERRIDE="${SOVERRIDE}\nEnvironment=\"SENTINEL_DATA_DIR=/opt/worldsim\""
+[ -n "${SENTINEL_INTERVAL:-}" ] && SOVERRIDE="${SOVERRIDE}\nEnvironment=\"SENTINEL_INTERVAL=${SENTINEL_INTERVAL}\""
+
 # Relay env file.
 RELAY_ENV="WORLDSIM_SSE_URL=http://localhost:${WORLDSIM_PORT}/api/v1/stream"
 RELAY_ENV="${RELAY_ENV}\nWORLDSIM_RELAY_KEY=${RELAY_KEY}"
 RELAY_ENV="${RELAY_ENV}\nPORT=${RELAY_PORT}"
 [ -n "${CORS_ORIGINS:-}" ] && RELAY_ENV="${RELAY_ENV}\nCORS_ORIGINS=${CORS_ORIGINS}"
 
-$SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d /etc/systemd/system/gardener.service.d && \
+$SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d /etc/systemd/system/gardener.service.d /etc/systemd/system/sentinel.service.d && \
     echo -e '${OVERRIDE}' | sudo tee /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
     echo -e '${GOVERRIDE}' | sudo tee /etc/systemd/system/gardener.service.d/override.conf > /dev/null && \
+    echo -e '${SOVERRIDE}' | sudo tee /etc/systemd/system/sentinel.service.d/override.conf > /dev/null && \
     echo -e '${RELAY_ENV}' | sudo tee /opt/worldsim/relay.env > /dev/null && \
     sudo chown worldsim:worldsim /opt/worldsim/relay.env && \
     sudo chmod 600 /opt/worldsim/relay.env && \
@@ -93,15 +103,18 @@ $SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d /etc/systemd/syst
 
 echo "=== Deploying ==="
 $SSH_CMD "sudo systemctl stop relay || true && \
+    sudo systemctl stop sentinel || true && \
     sudo systemctl stop gardener || true && \
     sudo systemctl stop worldsim || true && \
     sudo mv /tmp/worldsim /opt/worldsim/worldsim && \
     sudo mv /tmp/gardener /opt/worldsim/gardener && \
+    sudo mv /tmp/sentinel /opt/worldsim/sentinel && \
     sudo mv /tmp/relay /opt/worldsim/relay && \
-    sudo chown worldsim:worldsim /opt/worldsim/worldsim /opt/worldsim/gardener /opt/worldsim/relay && \
-    sudo chmod +x /opt/worldsim/worldsim /opt/worldsim/gardener /opt/worldsim/relay && \
+    sudo chown worldsim:worldsim /opt/worldsim/worldsim /opt/worldsim/gardener /opt/worldsim/sentinel /opt/worldsim/relay && \
+    sudo chmod +x /opt/worldsim/worldsim /opt/worldsim/gardener /opt/worldsim/sentinel /opt/worldsim/relay && \
     sudo mv /tmp/worldsim.service /etc/systemd/system/worldsim.service && \
     sudo mv /tmp/gardener.service /etc/systemd/system/gardener.service && \
+    sudo mv /tmp/sentinel.service /etc/systemd/system/sentinel.service && \
     sudo mv /tmp/relay.service /etc/systemd/system/relay.service && \
     sudo mv /tmp/nginx-crossworlds.conf /etc/nginx/sites-available/crossworlds && \
     sudo ln -sf /etc/nginx/sites-available/crossworlds /etc/nginx/sites-enabled/crossworlds && \
@@ -109,9 +122,10 @@ $SSH_CMD "sudo systemctl stop relay || true && \
     sudo nginx -t && \
     sudo systemctl reload nginx && \
     sudo systemctl daemon-reload && \
-    sudo systemctl enable worldsim gardener relay && \
+    sudo systemctl enable worldsim gardener sentinel relay && \
     sudo systemctl start worldsim && \
     sudo systemctl start gardener && \
+    sudo systemctl start sentinel && \
     sudo systemctl start relay"
 
 echo "=== Checking status ==="
@@ -119,6 +133,8 @@ sleep 2
 $SSH_CMD "sudo systemctl status worldsim --no-pager -l" || true
 echo ""
 $SSH_CMD "sudo systemctl status gardener --no-pager -l" || true
+echo ""
+$SSH_CMD "sudo systemctl status sentinel --no-pager -l" || true
 echo ""
 $SSH_CMD "sudo systemctl status relay --no-pager -l" || true
 echo ""

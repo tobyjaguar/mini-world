@@ -1,0 +1,21 @@
+[Unit]
+Description=Crossworlds Sentinel — Structural Health Monitor
+After=worldsim.service
+Requires=worldsim.service
+
+[Service]
+Type=simple
+User=worldsim
+Group=worldsim
+WorkingDirectory=/opt/worldsim
+ExecStart=/opt/worldsim/sentinel
+Restart=on-failure
+RestartSec=60
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sentinel
+
+[Install]
+WantedBy=multi-user.target
