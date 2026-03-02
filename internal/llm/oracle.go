@@ -49,7 +49,7 @@ func GenerateOracleVision(client *Client, ctx *OracleContext) (*OracleVision, er
 	system := buildOracleSystemPrompt(ctx)
 	user := buildOracleUserPrompt(ctx)
 
-	response, err := client.Complete(system, user, 500)
+	response, err := client.CompleteTagged(system, user, 500, "oracle")
 	if err != nil {
 		return nil, fmt.Errorf("oracle vision: %w", err)
 	}

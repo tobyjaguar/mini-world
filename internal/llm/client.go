@@ -29,6 +29,12 @@ type Client struct {
 	callCount int
 	resetAt   time.Time
 	maxPerMin int
+
+	// Usage tracking.
+	trackMu      sync.Mutex
+	callsByTag   map[string]int64
+	tokensByTag  map[string][2]int64 // [input, output] tokens per tag
+	trackStart   time.Time
 }
 
 // NewClient creates a new Haiku API client.
@@ -37,13 +43,21 @@ func NewClient(apiKey string) *Client {
 	if apiKey == "" {
 		return nil
 	}
-	return &Client{
+	c := &Client{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		maxPerMin: 20, // Conservative rate limit
+		maxPerMin:   20, // Conservative rate limit
+		callsByTag:  make(map[string]int64),
+		tokensByTag: make(map[string][2]int64),
+		trackStart:  time.Now(),
 	}
+
+	// Start hourly usage summary logger.
+	go c.logUsagePeriodically()
+
+	return c
 }
 
 // Enabled returns true if the client has a valid API key.
@@ -77,7 +91,13 @@ type response struct {
 }
 
 // Complete sends a prompt to Haiku and returns the response text.
+// For tracked usage, prefer CompleteTagged.
 func (c *Client) Complete(system, userPrompt string, maxTokens int) (string, error) {
+	return c.CompleteTagged(system, userPrompt, maxTokens, "unknown")
+}
+
+// CompleteTagged sends a prompt to Haiku and records usage under the given tag.
+func (c *Client) CompleteTagged(system, userPrompt string, maxTokens int, tag string) (string, error) {
 	if !c.Enabled() {
 		return "", fmt.Errorf("LLM client not configured")
 	}
@@ -143,9 +163,89 @@ func (c *Client) Complete(system, userPrompt string, maxTokens int) (string, err
 	}
 
 	slog.Debug("haiku call",
+		"tag", tag,
 		"input_tokens", apiResp.Usage.InputTokens,
 		"output_tokens", apiResp.Usage.OutputTokens,
 	)
 
+	// Record usage.
+	c.trackMu.Lock()
+	c.callsByTag[tag]++
+	tok := c.tokensByTag[tag]
+	tok[0] += int64(apiResp.Usage.InputTokens)
+	tok[1] += int64(apiResp.Usage.OutputTokens)
+	c.tokensByTag[tag] = tok
+	c.trackMu.Unlock()
+
 	return apiResp.Content[0].Text, nil
+}
+
+// UsageSummary returns current tracking period counters.
+func (c *Client) UsageSummary() map[string]any {
+	if c == nil {
+		return nil
+	}
+	c.trackMu.Lock()
+	defer c.trackMu.Unlock()
+
+	totalCalls := int64(0)
+	totalInput := int64(0)
+	totalOutput := int64(0)
+	perTag := make(map[string]map[string]int64)
+
+	for tag, calls := range c.callsByTag {
+		totalCalls += calls
+		tok := c.tokensByTag[tag]
+		totalInput += tok[0]
+		totalOutput += tok[1]
+		perTag[tag] = map[string]int64{
+			"calls":         calls,
+			"input_tokens":  tok[0],
+			"output_tokens": tok[1],
+		}
+	}
+
+	return map[string]any{
+		"period_start":       c.trackStart.UTC().Format(time.RFC3339),
+		"period_duration":    time.Since(c.trackStart).Truncate(time.Second).String(),
+		"total_calls":        totalCalls,
+		"total_input_tokens": totalInput,
+		"total_output_tokens": totalOutput,
+		"by_tag":             perTag,
+	}
+}
+
+// logUsagePeriodically logs a usage summary every hour.
+func (c *Client) logUsagePeriodically() {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.trackMu.Lock()
+		totalCalls := int64(0)
+		var totalInput, totalOutput int64
+		tags := make([]any, 0, len(c.callsByTag)*2)
+		for tag, calls := range c.callsByTag {
+			totalCalls += calls
+			tok := c.tokensByTag[tag]
+			totalInput += tok[0]
+			totalOutput += tok[1]
+			tags = append(tags, tag, calls)
+		}
+
+		// Reset counters for next period.
+		c.callsByTag = make(map[string]int64)
+		c.tokensByTag = make(map[string][2]int64)
+		c.trackStart = time.Now()
+		c.trackMu.Unlock()
+
+		args := []any{
+			"period", "1h",
+			"total_calls", totalCalls,
+			"input_tokens", totalInput,
+			"output_tokens", totalOutput,
+		}
+		args = append(args, tags...)
+		slog.Info("llm usage summary", args...)
+	}
 }

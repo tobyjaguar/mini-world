@@ -634,6 +634,18 @@ Post-R28 observation (tick 708K): governance frozen at 0.996 (scholar bonus unbo
 150. **Hourly continuous resource regen** — NEW: `hourlyResourceRegen()` in `seasons.go` runs every sim-hour via `TickHour`. Rate: `deficit * Agnosis * 0.06 * health` per hour (equivalent to `Agnosis * 0.001` per tick, batched hourly for performance). Coast Fish at health 0.5: ~0.5 Fish/hour = ~12 Fish/day. Resources reach 1.0 extraction threshold every ~2 hours, enabling a few producers per hex per cycle. Combined with weekly/seasonal regen, sustains ~83 extractions/settlement/day at current population density.
 151. **Sentinel land_health check used wrong metric** — FIXED: `checkLandHealth()` in `sentinel/checks.go` used settlement API health (organizational, always 1.0) as primary metric. Changed to use work_rate as primary (direct measure of production capacity). Settlement health retained as secondary context.
 
+### Round 31: LLM Cost Reduction & Usage Tracking
+
+World structurally stable after 30 tuning rounds. LLM budget audit showed ~330 Haiku calls/day, with the gardener alone responsible for 73% (240 calls at 6-min intervals). Newspaper regenerated every sim-day (~85 real seconds), vulnerable to external request spam.
+
+**Design principle:** All LLM calls are world-driven. No external user action can trigger unbounded LLM usage. The simulation is insulated — outsiders hitting public endpoints cannot drive up API costs. See `docs/20-llm-budget.md` for the full budget architecture.
+
+152. **Gardener interval 6→15 real minutes** — CHANGED: Default in `cmd/gardener/main.go` from 6 to 15. World is stable; 15-min cycles (~96/day) still catch any crisis. Saves 144 calls/day. Configurable via `GARDENER_INTERVAL` env var.
+153. **Newspaper cache: sim-day→wall-clock hours** — CHANGED: `handleNewspaper()` in `server.go` now caches by real time (default 3 hours via `NEWSPAPER_CACHE_HOURS`) instead of sim-day (~85 seconds). Max 8 LLM calls/day instead of ~1,000 when actively queried. On LLM failure, returns stale cached newspaper instead of 500 error.
+154. **LLM usage tracking** — NEW: `CompleteTagged()` in `internal/llm/client.go` records per-tag call counts and token usage. 7 tags: gardener, tier2, newspaper, oracle, archetype, narration, biography. Hourly summary logged to journal. `GET /api/v1/llm-usage` returns current period counters as JSON.
+
+**Impact:** ~330 calls/day → ~170 calls/day (48% reduction). ~$24/month → ~$13/month at Haiku 4.5 pricing.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

@@ -38,7 +38,7 @@ Rules:
 
 	prompt := fmt.Sprintf("Archetype: %s\n\nCurrent world conditions:\n%s\n\nHow should this archetype behave?", archetype, worldSummary)
 
-	response, err := client.Complete(system, prompt, 300)
+	response, err := client.CompleteTagged(system, prompt, 300, "archetype")
 	if err != nil {
 		return nil, fmt.Errorf("archetype update: %w", err)
 	}

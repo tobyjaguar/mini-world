@@ -63,5 +63,5 @@ Write a brief biography (150-250 words) of this citizen in period-appropriate pr
 
 	prompt := fmt.Sprintf("Write a biography for this citizen of Crossworlds:\n\n%s", strings.Join(details, "\n"))
 
-	return client.Complete(system, prompt, 400)
+	return client.CompleteTagged(system, prompt, 400, "biography")
 }

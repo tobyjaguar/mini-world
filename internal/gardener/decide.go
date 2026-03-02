@@ -107,7 +107,7 @@ func Decide(client *llm.Client, snap *WorldSnapshot, health *WorldHealth, memory
 
 	slog.Debug("gardener prompt", "length", len(prompt))
 
-	resp, err := client.Complete(systemPrompt, prompt, 1024)
+	resp, err := client.CompleteTagged(systemPrompt, prompt, 1024, "gardener")
 	if err != nil {
 		return nil, fmt.Errorf("haiku call: %w", err)
 	}

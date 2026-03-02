@@ -105,7 +105,7 @@ Write in an engaging, period-appropriate style — broadsheet prose with a philo
 
 	prompt := buildNewspaperPrompt(data)
 
-	content, err := client.Complete(system, prompt, 1000)
+	content, err := client.CompleteTagged(system, prompt, 1000, "newspaper")
 	if err != nil {
 		// Fall back to simple newspaper on API failure.
 		return &Newspaper{

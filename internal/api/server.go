@@ -41,10 +41,11 @@ type Server struct {
 	// Active SSE connection count (atomic).
 	sseConns int32
 
-	// Cached newspaper (regenerated at most once per sim-day).
-	newspaperMu    sync.Mutex
-	cachedPaper    *llm.Newspaper
-	lastPaperTick  uint64
+	// Cached newspaper (regenerated at most once per cache interval).
+	newspaperMu             sync.Mutex
+	cachedPaper             *llm.Newspaper
+	lastPaperTime           time.Time
+	newspaperCacheInterval  time.Duration
 
 	// Cached biographies (agent ID → cached bio).
 	bioMu    sync.Mutex
@@ -58,6 +59,15 @@ type cachedBio struct {
 
 // Start begins serving the HTTP API in a goroutine.
 func (s *Server) Start() {
+	// Initialize newspaper cache interval from env (default 3 hours).
+	cacheHours := 3
+	if v := os.Getenv("NEWSPAPER_CACHE_HOURS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cacheHours = n
+		}
+	}
+	s.newspaperCacheInterval = time.Duration(cacheHours) * time.Hour
+
 	// Rate limiters for LLM-consuming endpoints.
 	storyLimiter := NewRateLimiter(10, time.Hour)
 	newspaperLimiter := NewRateLimiter(30, time.Hour)
@@ -82,6 +92,7 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/map", s.handleMapRoutes)
 	mux.HandleFunc("/api/v1/map/", s.handleMapRoutes)
 	mux.HandleFunc("/api/v1/stats/history", s.handleStatsHistory)
+	mux.HandleFunc("/api/v1/llm-usage", s.handleLLMUsage)
 
 	// SSE streaming endpoint (GET, requires bearer token — relay only).
 	mux.HandleFunc("/api/v1/stream", s.handleStream)
@@ -569,11 +580,8 @@ func (s *Server) handleNewspaper(w http.ResponseWriter, r *http.Request) {
 	s.newspaperMu.Lock()
 	defer s.newspaperMu.Unlock()
 
-	currentTick := s.Sim.CurrentTick()
-	currentDay := currentTick / engine.TicksPerSimDay
-
-	// Return cached newspaper if still from today.
-	if s.cachedPaper != nil && s.lastPaperTick/engine.TicksPerSimDay == currentDay {
+	// Return cached newspaper if within cache window.
+	if s.cachedPaper != nil && time.Since(s.lastPaperTime) < s.newspaperCacheInterval {
 		writeJSON(w, s.cachedPaper)
 		return
 	}
@@ -584,13 +592,27 @@ func (s *Server) handleNewspaper(w http.ResponseWriter, r *http.Request) {
 	paper, err := llm.GenerateNewspaper(s.LLM, data)
 	if err != nil {
 		slog.Error("newspaper generation failed", "error", err)
+		// Return stale cache if available.
+		if s.cachedPaper != nil {
+			writeJSON(w, s.cachedPaper)
+			return
+		}
 		http.Error(w, "newspaper generation failed", http.StatusInternalServerError)
 		return
 	}
 
 	s.cachedPaper = paper
-	s.lastPaperTick = currentTick
+	s.lastPaperTime = time.Now()
 	writeJSON(w, paper)
+}
+
+func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
+	summary := s.LLM.UsageSummary()
+	if summary == nil {
+		writeJSON(w, map[string]string{"status": "llm disabled"})
+		return
+	}
+	writeJSON(w, summary)
 }
 
 func (s *Server) buildNewspaperData() *llm.NewspaperData {

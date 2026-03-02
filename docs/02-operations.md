@@ -81,7 +81,8 @@ curl -X POST http://<server-ip>/api/v1/speed \
 | `GET /api/v1/events` | Recent world events (`?limit=N`) |
 | `GET /api/v1/stats` | Aggregate statistics |
 | `GET /api/v1/stats/history` | Time-series stats (`?from=TICK&to=TICK&limit=N`) |
-| `GET /api/v1/newspaper` | Weekly Haiku-generated newspaper |
+| `GET /api/v1/newspaper` | Haiku-generated newspaper (cached 3 real hours) |
+| `GET /api/v1/llm-usage` | LLM call counts and token usage by tag |
 | `GET /api/v1/factions` | All factions with influence and treasury |
 | `GET /api/v1/faction/:id` | Faction detail: members, influence, events |
 | `GET /api/v1/economy` | Economy overview: prices, trade volume, Gini |
@@ -162,6 +163,8 @@ This reads `deploy/config.local`, cross-compiles, uploads the binary, and restar
 | `WEATHER_LOCATION` | Real-world location for weather mapping | Yes |
 | `RANDOM_ORG_API_KEY` | random.org API key for true randomness | Yes |
 | `CORS_ORIGINS` | Comma-separated allowed CORS origins | Recommended |
+| `GARDENER_INTERVAL` | Gardener cycle interval in real minutes (default 15) | No |
+| `NEWSPAPER_CACHE_HOURS` | Newspaper wall-clock cache duration in hours (default 3) | No |
 
 Set in the systemd service override:
 ```bash

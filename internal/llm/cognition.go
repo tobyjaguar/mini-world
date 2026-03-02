@@ -52,7 +52,7 @@ func GenerateTier2Decision(client *Client, ctx *Tier2Context) ([]Tier2Decision, 
 	system := buildTier2SystemPrompt(ctx)
 	user := buildTier2UserPrompt(ctx)
 
-	response, err := client.Complete(system, user, 500)
+	response, err := client.CompleteTagged(system, user, 500, "tier2")
 	if err != nil {
 		return nil, fmt.Errorf("tier 2 decision: %w", err)
 	}

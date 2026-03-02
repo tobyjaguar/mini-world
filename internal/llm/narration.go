@@ -19,5 +19,5 @@ Narrate this event in 2-3 sentences of period-appropriate prose with emanationis
 
 	prompt := fmt.Sprintf("World context: %s\n\nEvent to narrate: %s", worldContext, eventDesc)
 
-	return client.Complete(system, prompt, 200)
+	return client.CompleteTagged(system, prompt, 200, "narration")
 }

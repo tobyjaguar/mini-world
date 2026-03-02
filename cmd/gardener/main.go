@@ -28,7 +28,7 @@ func main() {
 	apiURL := envOrDefault("WORLDSIM_API_URL", "http://localhost")
 	adminKey := os.Getenv("WORLDSIM_ADMIN_KEY")
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	intervalMin := envIntOrDefault("GARDENER_INTERVAL", 6)
+	intervalMin := envIntOrDefault("GARDENER_INTERVAL", 15)
 
 	if adminKey == "" {
 		slog.Error("WORLDSIM_ADMIN_KEY is required")
