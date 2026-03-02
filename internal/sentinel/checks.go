@@ -433,10 +433,22 @@ func checkSatisfactionTrend(hs HealthSnapshot, state *SentinelState) CheckResult
 
 func checkLandHealth(hs HealthSnapshot) CheckResult {
 	cr := CheckResult{
-		Name:  "land_health",
-		Value: hs.AvgSettHealth,
+		Name: "land_health",
 	}
 
+	// Primary metric: work rate — the direct measure of whether land supports production.
+	// Settlement health from the API is organizational health (always ~1.0), not hex health.
+	workLevel := LevelHealthy
+	switch {
+	case hs.WorkRate < phi.Agnosis*phi.Agnosis: // ~5.6%
+		workLevel = LevelCritical
+	case hs.WorkRate < phi.Agnosis*phi.Matter: // ~14.6%
+		workLevel = LevelWarning
+	case hs.WorkRate < phi.Agnosis: // 23.6%
+		workLevel = LevelWatch
+	}
+
+	// Secondary: settlement health (organizational, useful if it ever degrades).
 	healthLevel := LevelHealthy
 	switch {
 	case hs.AvgSettHealth < phi.Psyche: // 0.382
@@ -445,22 +457,12 @@ func checkLandHealth(hs HealthSnapshot) CheckResult {
 		healthLevel = LevelWatch
 	}
 
-	// Use work rate as secondary proxy (same thresholds as producer health).
-	workLevel := LevelHealthy
-	switch {
-	case hs.WorkRate < phi.Agnosis*phi.Agnosis:
-		workLevel = LevelCritical
-	case hs.WorkRate < phi.Agnosis*phi.Matter:
-		workLevel = LevelWarning
-	case hs.WorkRate < phi.Agnosis:
-		workLevel = LevelWatch
-	}
-
-	cr.Status = worstLevel(healthLevel, workLevel)
-	cr.Threshold = fmt.Sprintf("Avg health >= %.3f (Matter), work rate >= %.1f%%",
-		phi.Matter, phi.Agnosis*100)
-	cr.Detail = fmt.Sprintf("Avg settlement health %.3f, work rate %.1f%%",
-		hs.AvgSettHealth, hs.WorkRate*100)
+	cr.Status = worstLevel(workLevel, healthLevel)
+	cr.Value = hs.WorkRate
+	cr.Threshold = fmt.Sprintf("Work rate >= %.1f%% (Agnosis), avg health >= %.3f (Matter)",
+		phi.Agnosis*100, phi.Matter)
+	cr.Detail = fmt.Sprintf("Work rate %.1f%%, avg settlement health %.3f",
+		hs.WorkRate*100, hs.AvgSettHealth)
 	return cr
 }
 

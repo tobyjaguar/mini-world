@@ -266,12 +266,13 @@ func (s *Simulation) handleAgentDeath(a *agents.Agent, tick uint64, cause string
 	}
 }
 
-// TickHour runs every sim-hour: market updates, weather checks.
+// TickHour runs every sim-hour: market updates, weather checks, resource regen.
 func (s *Simulation) TickHour(tick uint64) {
 	s.resolveMarkets(tick)
 	s.resolveMerchantTrade(tick)
 	s.decayInventories()
 	s.updateWeather()
+	s.hourlyResourceRegen()
 }
 
 // updateWeather fetches real weather and maps it to simulation modifiers.

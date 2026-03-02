@@ -235,6 +235,44 @@ func (s *Simulation) weeklyResourceRegen() {
 	}
 }
 
+// hourlyResourceRegen provides continuous resource recovery every sim-hour.
+// Weekly regen alone is consumed within 1-2 ticks by hundreds of producers, keeping
+// resources permanently near zero. Hourly micro-regen sustains a steady trickle.
+//
+// Rate: deficit * Agnosis * 0.06 * health per hour (equivalent to Agnosis * 0.001
+// per tick, run hourly for performance). For a Coast hex (Fish cap 70, health 0.5):
+// ~0.5 Fish/hour = ~12 Fish/day. Resources reach the 1.0 extraction threshold every
+// ~2 hours, allowing a few producers per hex to work each cycle. Combined with weekly
+// regen, this sustains meaningful production at current population density (341K agents).
+func (s *Simulation) hourlyResourceRegen() {
+	for q := -s.WorldMap.Radius; q <= s.WorldMap.Radius; q++ {
+		for r := -s.WorldMap.Radius; r <= s.WorldMap.Radius; r++ {
+			coord := world.HexCoord{Q: q, R: r}
+			hex := s.WorldMap.Get(coord)
+			if hex == nil || hex.Terrain == world.TerrainOcean {
+				continue
+			}
+
+			// Desertified hexes don't regenerate.
+			if hex.Health < phi.Agnosis {
+				continue
+			}
+
+			for res, qty := range hex.Resources {
+				maxQty := ResourceCap(hex.Terrain, res)
+				if qty < maxQty {
+					deficit := maxQty - qty
+					regen := deficit * phi.Agnosis * 0.06 * hex.Health
+					hex.Resources[res] = qty + regen
+					if hex.Resources[res] > maxQty {
+						hex.Resources[res] = maxQty
+					}
+				}
+			}
+		}
+	}
+}
+
 // autumnHarvest gives farmers a seasonal production bonus.
 func (s *Simulation) autumnHarvest(tick uint64) {
 	harvestCount := 0

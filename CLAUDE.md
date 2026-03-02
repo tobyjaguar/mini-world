@@ -627,6 +627,13 @@ Post-R28 observation (tick 708K): governance frozen at 0.996 (scholar bonus unbo
 148. **Crafter recovery gate too high** — FIXED: Work-rate threshold in `processCrafterRecovery()` lowered from `0.3` to `0.2`. At 28.8% global work rate, many settlements will now pass the gate, unblocking crafter→producer conversion.
 149. **Oracle vision memory loop** — FIXED (two parts): **(A)** Oracle prompt context in `processOracleVisions()` switched from `ImportantMemories(a, 10)` to `RecentMemories(a, 10)`. Recent memories show temporal variety (trade results, blessings, events) instead of top-10-by-importance (all visions). Breaks the self-reinforcing loop. **(B)** `AddMemory()` in `memory.go` now decays all existing "Vision: " prefixed memories by `× 0.8` before adding a new vision. Importance drops 0.9 → 0.72 → 0.58 → 0.47, allowing other experience types to surface in importance-based queries.
 
+### Round 30: Resource Throughput Crisis — Continuous Regen
+
+`/observe` + `/sentinel` at tick 752K: work rate stuck at 2.6% (2,525 working / 96,551 producers). All hex resources depleted below 1.0 extraction threshold worldwide. Weekly regen adds ~3 units per hex but consumed in 1-2 ticks by hundreds of producers. Resources never accumulate. Hex health recovering (0.49 avg, up from 0.236 R27) but resources stay depleted because regen-extraction imbalance.
+
+150. **Hourly continuous resource regen** — NEW: `hourlyResourceRegen()` in `seasons.go` runs every sim-hour via `TickHour`. Rate: `deficit * Agnosis * 0.06 * health` per hour (equivalent to `Agnosis * 0.001` per tick, batched hourly for performance). Coast Fish at health 0.5: ~0.5 Fish/hour = ~12 Fish/day. Resources reach 1.0 extraction threshold every ~2 hours, enabling a few producers per hex per cycle. Combined with weekly/seasonal regen, sustains ~83 extractions/settlement/day at current population density.
+151. **Sentinel land_health check used wrong metric** — FIXED: `checkLandHealth()` in `sentinel/checks.go` used settlement API health (organizational, always 1.0) as primary metric. Changed to use work_rate as primary (direct measure of production capacity). Settlement health retained as secondary context.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
