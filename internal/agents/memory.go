@@ -2,7 +2,10 @@
 // See design doc Section 4.2 (Tier 2 needs situational context to make decisions).
 package agents
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 const MaxMemories = 50
 
@@ -16,6 +19,17 @@ type Memory struct {
 // AddMemory appends a memory to the agent's stream. When full, drops the
 // lowest-importance memory to make room.
 func AddMemory(a *Agent, tick uint64, content string, importance float32) {
+	// Decay old vision importance when adding a new vision.
+	// Pushes old visions below other memory types, allowing rotation.
+	// 0.9 → 0.72 → 0.58 → 0.47 over successive visions.
+	if strings.HasPrefix(content, "Vision: ") {
+		for i := range a.Memories {
+			if strings.HasPrefix(a.Memories[i].Content, "Vision: ") {
+				a.Memories[i].Importance *= 0.8
+			}
+		}
+	}
+
 	m := Memory{Tick: tick, Content: content, Importance: importance}
 
 	if len(a.Memories) < MaxMemories {

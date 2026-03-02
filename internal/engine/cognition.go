@@ -499,9 +499,9 @@ func (s *Simulation) buildOracleContext(
 		ctx.Weather = s.CurrentWeather.Description
 	}
 
-	// Top 10 important memories (oracles draw from depth, not recency).
-	important := agents.ImportantMemories(a, 10)
-	for _, m := range important {
+	// Top 10 recent memories (temporal variety breaks the vision self-reinforcing loop).
+	recent := agents.RecentMemories(a, 10)
+	for _, m := range recent {
 		ctx.Memories = append(ctx.Memories, m.Content)
 	}
 

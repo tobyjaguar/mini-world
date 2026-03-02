@@ -599,6 +599,14 @@ The faction detail API (`/api/v1/faction/:id`) showed zero `recent_events` for 4
 
 **Design principle:** Only faction-institutional events carry `faction_name` — tensions, revolutions, recruitment, expulsion, governance transitions. Individual agent events (deaths, migrations, retraining) are deliberately not tagged. With 90% faction affiliation, tagging all agent events would make faction feeds identical to the global event feed.
 
+### Round 29: Governance Diversity, Crafter Rebalance, Oracle Novelty
+
+Post-R28 observation (tick 708K): governance frozen at 0.996 (scholar bonus unbounded, no opposing force), crafter share stuck at 61.5% (work-rate gate at 30% vs 28.8% global rate), oracle visions looping (50 identical visions from self-reinforcing LLM context).
+
+147. **Scholar bonus exceeds drift target** — FIXED: `applyScholarBonus()` in `simulation.go` now caps the scholar nudge at the governance drift target (`0.3 + leaderCoherence * 0.5`, same formula as `decayGovernance()`). Scholars push governance toward equilibrium faster but never above it. Leaderless settlements cap at 0.3 (revolution possible). Strong leader (c=0.8): caps at 0.7 (stable). Revolution window opens after leader death drops score by 0.2.
+148. **Crafter recovery gate too high** — FIXED: Work-rate threshold in `processCrafterRecovery()` lowered from `0.3` to `0.2`. At 28.8% global work rate, many settlements will now pass the gate, unblocking crafter→producer conversion.
+149. **Oracle vision memory loop** — FIXED (two parts): **(A)** Oracle prompt context in `processOracleVisions()` switched from `ImportantMemories(a, 10)` to `RecentMemories(a, 10)`. Recent memories show temporal variety (trade results, blessings, events) instead of top-10-by-importance (all visions). Breaks the self-reinforcing loop. **(B)** `AddMemory()` in `memory.go` now decays all existing "Vision: " prefixed memories by `× 0.8` before adding a new vision. Importance drops 0.9 → 0.72 → 0.58 → 0.47, allowing other experience types to surface in importance-based queries.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

@@ -705,6 +705,23 @@ func (s *Simulation) applyScholarBonus() {
 		}
 		scholarRatio := float64(scholarCount) / (float64(sett.Population) + 1)
 		nudge := scholarRatio * phi.Agnosis
+
+		// Cap scholar nudge at drift target (same formula as decayGovernance).
+		// Scholars strengthen governance toward its natural equilibrium but never above it.
+		target := 0.3
+		if sett.LeaderID != nil {
+			leader, ok := s.AgentIndex[agents.AgentID(*sett.LeaderID)]
+			if ok && leader.Alive {
+				target = 0.3 + float64(leader.Soul.CittaCoherence)*0.5
+			}
+		}
+		if sett.GovernanceScore+nudge > target {
+			nudge = target - sett.GovernanceScore
+			if nudge < 0 {
+				nudge = 0
+			}
+		}
+
 		sett.GovernanceScore += nudge
 		if sett.GovernanceScore > 1.0 {
 			sett.GovernanceScore = 1.0
