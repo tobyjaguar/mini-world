@@ -250,13 +250,15 @@ func (s *Simulation) processFactionRecruitment(alive []*agents.Agent, tick uint6
 			fid := *a.FactionID
 			target.FactionID = &fid
 
+			factionName := s.factionNameByID(fid)
 			s.EmitEvent(Event{
 				Tick:        tick,
-				Description: fmt.Sprintf("%s recruited %s to their faction", a.Name, target.Name),
+				Description: fmt.Sprintf("%s recruited %s to %s", a.Name, target.Name, factionName),
 				Category:    "social",
 				Meta: map[string]any{
-					"agent_name":  a.Name,
-					"target_name": target.Name,
+					"agent_name":   a.Name,
+					"target_name":  target.Name,
+					"faction_name": factionName,
 				},
 			})
 		}

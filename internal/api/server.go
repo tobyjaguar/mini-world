@@ -1580,10 +1580,21 @@ func (s *Server) handleFactionDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Recent faction events.
+	// Recent faction events — match by structured Meta fields first, then description fallback.
 	var recentEvents []engine.Event
 	for _, e := range s.Sim.Events {
-		if strings.Contains(e.Description, faction.Name) {
+		matched := strings.Contains(e.Description, faction.Name)
+		if !matched && e.Meta != nil {
+			for _, key := range []string{"faction_name", "faction_1", "faction_2"} {
+				if v, ok := e.Meta[key]; ok {
+					if name, ok := v.(string); ok && name == faction.Name {
+						matched = true
+						break
+					}
+				}
+			}
+		}
+		if matched {
 			recentEvents = append(recentEvents, e)
 		}
 	}

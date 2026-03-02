@@ -314,15 +314,17 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 				if candidate.Alive && candidate.Name == d.Target && candidate.FactionID == nil {
 					fid := *a.FactionID
 					candidate.FactionID = &fid
+					factionName := s.agentFactionName(a)
 					s.EmitEvent(Event{
 						Tick:        tick,
-						Description: fmt.Sprintf("%s recruited %s to their faction", a.Name, candidate.Name),
+						Description: fmt.Sprintf("%s recruited %s to %s", a.Name, candidate.Name, factionName),
 						Category:    "social",
 						Meta: map[string]any{
 							"agent_id":      a.ID,
 							"agent_name":    a.Name,
 							"target_name":   candidate.Name,
 							"settlement_id": a.HomeSettID,
+							"faction_name":  factionName,
 						},
 					})
 					break

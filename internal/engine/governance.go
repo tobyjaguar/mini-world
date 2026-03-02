@@ -53,17 +53,23 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 		sett.LeaderID = nil
 
 		leaderName := "the leader"
+		var leaderFaction string
 		if ok {
 			leaderName = leader.Name
+			leaderFaction = s.agentFactionName(leader)
+		}
+		meta := map[string]any{
+			"settlement_id":   sett.ID,
+			"settlement_name": sett.Name,
+		}
+		if leaderFaction != "" {
+			meta["faction_name"] = leaderFaction
 		}
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s of %s has died, causing a succession crisis", leaderName, sett.Name),
 			Category:    "political",
-			Meta: map[string]any{
-				"settlement_id":   sett.ID,
-				"settlement_name": sett.Name,
-			},
+			Meta:        meta,
 		})
 	}
 
@@ -94,17 +100,21 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 		sett.LeaderID = &id
 		newLeader.Role = agents.RoleLeader
 
+		leaderMeta := map[string]any{
+			"agent_id":        newLeader.ID,
+			"agent_name":      newLeader.Name,
+			"settlement_id":   sett.ID,
+			"settlement_name": sett.Name,
+			"governance":      sett.Governance,
+		}
+		if fname := s.agentFactionName(newLeader); fname != "" {
+			leaderMeta["faction_name"] = fname
+		}
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s becomes leader of %s", newLeader.Name, sett.Name),
 			Category:    "political",
-			Meta: map[string]any{
-				"agent_id":        newLeader.ID,
-				"agent_name":      newLeader.Name,
-				"settlement_id":   sett.ID,
-				"settlement_name": sett.Name,
-				"governance":      sett.Governance,
-			},
+			Meta:        leaderMeta,
 		})
 	}
 }

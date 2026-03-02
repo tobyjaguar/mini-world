@@ -11,6 +11,24 @@ import (
 	"github.com/talgya/mini-world/internal/social"
 )
 
+// factionNameByID returns the faction name for a given faction ID, or "" if not found.
+func (s *Simulation) factionNameByID(id uint64) string {
+	for _, f := range s.Factions {
+		if uint64(f.ID) == id {
+			return f.Name
+		}
+	}
+	return ""
+}
+
+// agentFactionName returns the faction name for an agent, or "" if unaffiliated.
+func (s *Simulation) agentFactionName(a *agents.Agent) string {
+	if a.FactionID == nil {
+		return ""
+	}
+	return s.factionNameByID(*a.FactionID)
+}
+
 // InitFactions creates seed factions and assigns agents to them based on occupation/class.
 func (s *Simulation) InitFactions() {
 	s.Factions = social.SeedFactions()

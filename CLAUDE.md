@@ -588,6 +588,17 @@ Post-R27 observation (tick 685K): hex health fix working (work rate 24%→38%), 
 141. **Ghost settlements never removed** — FIXED: Added `compactAbandonedSettlements()` in `settlement_lifecycle.go`, called weekly after `processSettlementAbandonment`. Removes settlements with `Population == 0` and `hex.SettlementID == nil` from `s.Settlements` slice, `SettlementIndex`, and tracking maps. 235 ghosts will clear at next weekly tick.
 142. **Governance revolution threshold too low** — FIXED: Revolution condition in `governance.go` raised from `GovernanceScore < 0.3` to `GovernanceScore < 0.4`. Council leaders' coherence drives governance target to ~0.45; scholar bonus pushes above 0.3 easily. With threshold at 0.4, post-leader-death dips and natural fluctuation create revolution windows.
 
+### Faction Event Visibility Fix
+
+The faction detail API (`/api/v1/faction/:id`) showed zero `recent_events` for 4 of 5 factions. Root cause: events were filtered by `strings.Contains(description, factionName)` — substring matching against English prose. Only events that happened to mention a faction by name in their description text were included. Most faction-institutional events (governance transitions, recruitment) carried structured `faction_name` in Meta but Meta was ignored by the query.
+
+143. **Faction event query ignores Meta** — FIXED: `handleFactionDetail` in `server.go` now checks `Meta["faction_name"]`, `Meta["faction_1"]`, `Meta["faction_2"]` in addition to description substring matching. Structured metadata is the primary match path; description is the fallback.
+144. **Faction lookup helpers** — NEW: `agentFactionName(a)` and `factionNameByID(id)` on `*Simulation` in `factions.go`. Cheap lookup (5 factions, linear scan). Used by all emit sites that need to tag faction metadata.
+145. **Governance events missing faction metadata** — FIXED: Leader death (succession crisis) and new leader events in `governance.go` now carry `faction_name` in Meta when the leader is faction-affiliated. These are faction-institutional events — a Crown leader dying is a Crown event.
+146. **Recruitment events missing faction metadata** — FIXED: Both recruitment paths (Tier 0 in `relationships.go`, Tier 2 in `cognition.go`) now carry `faction_name` in Meta and name the faction in the description (e.g., "X recruited Y to The Crown" instead of "X recruited Y to their faction").
+
+**Design principle:** Only faction-institutional events carry `faction_name` — tensions, revolutions, recruitment, expulsion, governance transitions. Individual agent events (deaths, migrations, retraining) are deliberately not tagged. With 90% faction affiliation, tagging all agent events would make faction feeds identical to the global event feed.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
