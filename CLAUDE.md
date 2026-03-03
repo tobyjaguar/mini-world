@@ -646,6 +646,18 @@ World structurally stable after 30 tuning rounds. LLM budget audit showed ~330 H
 
 **Impact:** ~330 calls/day → ~170 calls/day (48% reduction). ~$24/month → ~$13/month at Haiku 4.5 pricing.
 
+### Round 32: Lower Extraction Threshold — Fix 3% Work Rate
+
+Work rate crashed from 31.8% to 3.0% (122,470 producers, only 3,594 working). All Fish/Grain hex resources universally below the 1.0 extraction threshold. Hourly regen adds ~0.43/hour per hex but a single extraction zeros it — hundreds of producers compete for ~3 successful extractions/hour. Satisfaction insulated at 0.693 (failed-production needs boosts working), but production sector non-functional.
+
+Root cause: three `< 1.0` gates compound to block nearly all production when hex resources are 0.1-0.9 (universal state).
+
+155. **bestProductionHex() filter too high** — FIXED: Hex selection threshold in `simulation.go` lowered from `1.0` to `0.1`. Hexes with fractional resources (0.1-0.9) are now eligible for production instead of being skipped.
+156. **ResolveWork() early-return threshold too high** — FIXED: Early return in `production.go` lowered from `available < 1.0` to `available < 0.1`. Producers can now extract from hexes with 0.1+ resources.
+157. **ResolveWork() production clamp threshold too high** — FIXED: Post-calculation clamp in `production.go` lowered from `1.0` to `0.1` and reordered: depleted check happens before `produced = 1` assignment. A farmer can harvest 0.5 grain, producing 1 unit.
+
+**Why 0.1?** Zero would allow extracting from empty hexes (nonsensical). 0.1 means minimal resource present, enough to justify harvesting. Hourly regen (~0.43/hour) replenishes to 0.1 in ~14 minutes = ~4 extraction cycles/hour/hex vs ~1 before. Expected work rate: 3% → ~15-25%.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

@@ -56,7 +56,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	}
 
 	available := hex.Resources[resType]
-	if available < 1.0 {
+	if available < 0.1 {
 		// Hex depleted — showed up but land is barren. No punishment.
 		a.Needs.Safety += 0.004    // Went to work — still part of the workforce
 		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
@@ -80,15 +80,15 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 		produced = int(available)
 	}
 	if produced < 1 {
-		produced = 1
-		if available < 1.0 {
-			// Clamped to zero — showed up but not enough resources. No punishment.
+		if available < 0.1 {
+			// Truly depleted — showed up but not enough resources. No punishment.
 			a.Needs.Safety += 0.003    // Went to work — still part of the workforce
 			a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
 			a.Needs.Purpose += 0.001   // Has a role even when land is barren
 			clampAgentNeeds(&a.Needs)
 			return nil
 		}
+		produced = 1
 	}
 
 	// Deplete hex resources.

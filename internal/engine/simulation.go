@@ -924,7 +924,7 @@ func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
 		if h == nil || h.Terrain == world.TerrainOcean {
 			return
 		}
-		if h.Resources[resType] < 1.0 {
+		if h.Resources[resType] < 0.1 {
 			return
 		}
 		if h.Health > bestHealth {
