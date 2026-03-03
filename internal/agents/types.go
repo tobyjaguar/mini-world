@@ -102,6 +102,9 @@ type Agent struct {
 	// Memory stream (Tier 2 agents)
 	Memories []Memory `json:"memories,omitempty"`
 
+	// Production accumulator — fractional extraction progress toward producing 1 unit.
+	ProductionProgress float32 `json:"production_progress,omitempty"`
+
 	// Metadata
 	BornTick     uint64 `json:"born_tick"`
 	LastWorkTick uint64 `json:"last_work_tick"` // Last tick agent successfully produced from hex resources

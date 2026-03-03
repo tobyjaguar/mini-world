@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand"
 	"sort"
 	"sync"
 
@@ -187,6 +188,15 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 // TickMinute runs every tick (1 sim-minute): agent decisions and need decay.
 func (s *Simulation) TickMinute(tick uint64) {
 	s.LastTick = tick
+
+	// Shuffle agent processing order so resource access is fair.
+	// Without shuffle, the same agents (first in array) monopolize hex
+	// resources every tick. Seeded by tick for deterministic replay.
+	rng := rand.New(rand.NewSource(int64(tick)))
+	rng.Shuffle(len(s.Agents), func(i, j int) {
+		s.Agents[i], s.Agents[j] = s.Agents[j], s.Agents[i]
+	})
+
 	for _, a := range s.Agents {
 		if !a.Alive {
 			continue
@@ -924,7 +934,7 @@ func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
 		if h == nil || h.Terrain == world.TerrainOcean {
 			return
 		}
-		if h.Resources[resType] < 0.1 {
+		if h.Resources[resType] < 0.01 {
 			return
 		}
 		if h.Health > bestHealth {

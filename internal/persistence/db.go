@@ -166,6 +166,7 @@ func (db *DB) migrate() error {
 		"ALTER TABLE stats_history ADD COLUMN avg_satisfaction REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE stats_history ADD COLUMN avg_alignment REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE agents ADD COLUMN last_work_tick INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE agents ADD COLUMN production_progress REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE stats_history ADD COLUMN occupation_json TEXT NOT NULL DEFAULT ''",
 	}
 	for _, m := range migrations {
@@ -190,8 +191,9 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	stmt, err := tx.Preparex(`INSERT INTO agents
 		(id, name, age, sex, health, pos_q, pos_r, home_settlement_id,
 		 occupation, wealth, tier, mood, alive, born_tick, role, faction_id, archetype,
-		 skills_json, needs_json, soul_json, inventory_json, satisfaction, alignment, last_work_tick)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		 skills_json, needs_json, soul_json, inventory_json, satisfaction, alignment, last_work_tick,
+		 production_progress)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -215,6 +217,7 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 			alive, a.BornTick, a.Role, a.FactionID, a.Archetype,
 			string(skillsJSON), string(needsJSON), string(soulJSON), string(invJSON),
 			a.Wellbeing.Satisfaction, a.Wellbeing.Alignment, a.LastWorkTick,
+			a.ProductionProgress,
 		)
 		if err != nil {
 			return fmt.Errorf("insert agent %d: %w", a.ID, err)
@@ -511,9 +514,10 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 		NeedsJSON        string  `db:"needs_json"`
 		SoulJSON         string  `db:"soul_json"`
 		InventoryJSON    string  `db:"inventory_json"`
-		Satisfaction     float32 `db:"satisfaction"`
-		Alignment        float32 `db:"alignment"`
-		LastWorkTick     uint64  `db:"last_work_tick"`
+		Satisfaction        float32 `db:"satisfaction"`
+		Alignment           float32 `db:"alignment"`
+		LastWorkTick        uint64  `db:"last_work_tick"`
+		ProductionProgress  float32 `db:"production_progress"`
 	}
 
 	var rows []agentRow
@@ -545,11 +549,12 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 				Alignment:     r.Alignment,
 				EffectiveMood: r.Mood,
 			},
-			Alive:        r.Alive != 0,
-			BornTick:     r.BornTick,
-			LastWorkTick: r.LastWorkTick,
-			Role:         agents.SocialRole(r.Role),
-			FactionID:    r.FactionID,
+			Alive:              r.Alive != 0,
+			BornTick:           r.BornTick,
+			LastWorkTick:       r.LastWorkTick,
+			ProductionProgress: r.ProductionProgress,
+			Role:               agents.SocialRole(r.Role),
+			FactionID:          r.FactionID,
 		}
 		if r.Archetype != nil {
 			a.Archetype = *r.Archetype

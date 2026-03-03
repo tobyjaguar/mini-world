@@ -658,6 +658,16 @@ Root cause: three `< 1.0` gates compound to block nearly all production when hex
 
 **Why 0.1?** Zero would allow extracting from empty hexes (nonsensical). 0.1 means minimal resource present, enough to justify harvesting. Hourly regen (~0.43/hour) replenishes to 0.1 in ~14 minutes = ~4 extraction cycles/hour/hex vs ~1 before. Expected work rate: 3% → ~15-25%.
 
+### Round 33: Fractional Extraction with Accumulator + Seeded Shuffle
+
+Work rate stuck at 2.0% despite R32 lowering the extraction threshold. Three compounding structural problems: (1) hourly regen is batched — resources appear once per sim-hour then consumed in 1-2 ticks, (2) minimum extraction was 1 integer unit — a hex with 0.2 Fish gets zeroed by the first agent, (3) agent iteration order is fixed — same ~6 agents per settlement monopolize every cycle. Math: 1 extraction/hex/hour × 7 hexes = 7 per settlement. Same 6-7 agents win. 6/297 = 2.0% — matches observed data exactly.
+
+158. **Fractional extraction with accumulator** — FIXED: `ResolveWork()` in `production.go` now extracts fractional amounts (`math.Min(fullProduction, available)`) instead of integer with min-1 clamp. New `ProductionProgress float32` field on Agent accumulates partial extraction; goods credited when progress crosses 1.0. Health degradation scales by extraction fraction (partial extraction = partial degradation). Secondary outputs (coal, exotics) trigger only on full-unit credit. Needs boosts + skill growth apply every extraction tick. Depleted threshold lowered from 0.1 to 0.01. Persisted to SQLite via `production_progress` column.
+159. **Seeded shuffle in TickMinute** — FIXED: `TickMinute()` in `simulation.go` now shuffles `s.Agents` each tick using `rand.New(rand.NewSource(int64(tick)))`. Different agents get first access to hex resources each tick. Seeded by tick for deterministic replay. Without shuffle, fractional extraction makes things worse — the first agent in the array takes all 0.2 Fish every tick.
+160. **bestProductionHex threshold too high** — FIXED: `bestProductionHex()` threshold lowered from 0.1 to 0.01 to match the new fractional extraction threshold. Hexes with tiny fractional resources are now eligible.
+
+**Expected impact:** Work rate 2% → near 100% (all producers extract fractionally). Goods production ~1 unit per 1-2 sim-hours per agent. Hex health stable (degradation scales with extraction fraction). Satisfaction stable or improving.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

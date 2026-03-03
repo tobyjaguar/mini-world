@@ -56,7 +56,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	}
 
 	available := hex.Resources[resType]
-	if available < 0.1 {
+	if available < 0.01 {
 		// Hex depleted — showed up but land is barren. No punishment.
 		a.Needs.Safety += 0.004    // Went to work — still part of the workforce
 		a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
@@ -66,52 +66,60 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 		return nil
 	}
 
-	// Calculate production amount (mirrors applyWork logic).
-	produced := productionAmount(a)
+	// Calculate fractional production amount.
+	fullProduction := float64(productionAmount(a))
 	if boostMul > 1.0 {
-		produced = int(float64(produced) * boostMul)
-		if produced < 1 {
-			produced = 1
-		}
+		fullProduction *= boostMul
 	}
 
-	// Clamp to available resources.
-	if float64(produced) > available {
-		produced = int(available)
-	}
-	if produced < 1 {
-		if available < 0.1 {
-			// Truly depleted — showed up but not enough resources. No punishment.
-			a.Needs.Safety += 0.003    // Went to work — still part of the workforce
-			a.Needs.Belonging += 0.002 // Tried to contribute — community recognizes effort
-			a.Needs.Purpose += 0.001   // Has a role even when land is barren
-			clampAgentNeeds(&a.Needs)
-			return nil
-		}
-		produced = 1
+	// Extract what's actually available (fractional).
+	producedFloat := math.Min(fullProduction, available)
+	if producedFloat < 0.01 {
+		// Truly negligible — nothing to extract.
+		a.Needs.Safety += 0.004
+		a.Needs.Belonging += 0.002
+		a.Needs.Esteem += 0.001
+		a.Needs.Purpose += 0.001
+		clampAgentNeeds(&a.Needs)
+		return nil
 	}
 
-	// Deplete hex resources.
-	hex.Resources[resType] -= float64(produced)
+	// Deplete hex resources by fractional amount.
+	hex.Resources[resType] -= producedFloat
 	if hex.Resources[resType] < 0 {
 		hex.Resources[resType] = 0
 	}
 
-	// Extraction degrades hex health.
-	hex.Health -= phi.Agnosis * 0.001 // ~0.000236 per extraction tick
+	// Extraction degrades hex health, scaled by extraction fraction.
+	extractionFraction := producedFloat / fullProduction
+	hex.Health -= phi.Agnosis * 0.001 * extractionFraction // Scaled: partial extraction = partial degradation
 	if hex.Health < 0 {
 		hex.Health = 0
 	}
 	hex.LastExtractedTick = tick
 	a.LastWorkTick = tick
 
-	// Apply production to agent inventory.
-	good := occupationGood(a.Occupation)
-	a.Inventory[good] += produced
+	// Accumulate fractional production progress.
+	a.ProductionProgress += float32(producedFloat)
 
-	// Miners produce 1 coal as secondary output (coal has no dedicated producer).
-	if a.Occupation == agents.OccupationMiner && produced > 0 {
-		a.Inventory[agents.GoodCoal]++
+	// When accumulator crosses 1.0, credit a full unit of goods.
+	if a.ProductionProgress >= 1.0 {
+		unitsProduced := int(a.ProductionProgress)
+		a.ProductionProgress -= float32(unitsProduced)
+
+		good := occupationGood(a.Occupation)
+		a.Inventory[good] += unitsProduced
+
+		// Miners produce 1 coal as secondary output per full unit (coal has no dedicated producer).
+		if a.Occupation == agents.OccupationMiner {
+			a.Inventory[agents.GoodCoal] += unitsProduced
+		}
+
+		// Alchemists gather exotics as secondary output when available.
+		if a.Occupation == agents.OccupationAlchemist && hex.Resources[world.ResourceExotics] >= 1.0 {
+			a.Inventory[agents.GoodExotics]++
+			hex.Resources[world.ResourceExotics] -= 1.0
+		}
 	}
 
 	// Laborers restore hex health while working — land stewardship.
@@ -122,16 +130,10 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 		}
 	}
 
-	// Alchemists gather exotics as secondary output when available.
-	if a.Occupation == agents.OccupationAlchemist && hex.Resources[world.ResourceExotics] >= 1.0 {
-		a.Inventory[agents.GoodExotics]++
-		hex.Resources[world.ResourceExotics] -= 1.0
-	}
-
-	// Skill growth.
+	// Skill growth applies every extraction tick.
 	applySkillGrowth(a)
 
-	// Working improves all social needs.
+	// Working improves all social needs — working is working, even fractionally.
 	// Producing real goods (food, ore, furs) is ontologically grounded work —
 	// the material substrate on which everything else depends.
 	a.Needs.Esteem += 0.012
@@ -139,7 +141,7 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	a.Needs.Belonging += 0.004
 	a.Needs.Purpose += 0.004
 
-	// All hex-resource producers who successfully produced get a Survival boost.
+	// All hex-resource producers who successfully extracted get a Survival boost.
 	// Physical labor extracting real goods = material security.
 	// Must exceed decay rate (Agnosis*0.01*2 ≈ 0.00472/tick) so working producers
 	// build Survival instead of slowly starving. Agnosis*0.025 ≈ 0.0059.
