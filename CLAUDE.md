@@ -668,6 +668,10 @@ Work rate stuck at 2.0% despite R32 lowering the extraction threshold. Three com
 
 **Expected impact:** Work rate 2% → near 100% (all producers extract fractionally). Goods production ~1 unit per 1-2 sim-hours per agent. Hex health stable (degradation scales with extraction fraction). Satisfaction stable or improving.
 
+### Cleanup: Remove Emergency Restoration Code
+
+161. **Remove R27 emergency hex restoration** — REMOVED: One-time startup code in `main.go` that boosted desertified hexes (health < Agnosis) to Agnosis threshold. Hex health now averaging 0.49 and recovering sustainably. Code served its purpose for 6+ weeks. No functional change.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
