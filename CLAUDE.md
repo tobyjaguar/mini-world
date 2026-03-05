@@ -672,6 +672,15 @@ Work rate stuck at 2.0% despite R32 lowering the extraction threshold. Three com
 
 161. **Remove R27 emergency hex restoration** — REMOVED: One-time startup code in `main.go` that boosted desertified hexes (health < Agnosis) to Agnosis threshold. Hex health now averaging 0.49 and recovering sustainably. Code served its purpose for 6+ weeks. No functional change.
 
+### Round 34: Crown Conservation — Faction Economy + Public Works
+
+The economy had two conservation breaks destroying/trapping ~50M crowns per 28 real hours: (1) `popUpkeep` destroyed ~49K crowns/sim-day into the void, (2) faction treasuries were a one-way drain (105M crowns quarantined, growing ~2.5M/sim-week). Combined effect: agent wealth declining ~2M/day, Gini rising (0.627), bottom 50% share falling (10.8%).
+
+162. **Faction patronage system** — NEW: `distributeFactionPatronage()` in `factions.go` distributes `treasury * Agnosis * 0.1` per week (~2.36% of treasury) back to faction members using ideology-specific weight functions. Crown rewards hierarchy (coherence × Being, Noble/Leader loyalty bonus). Merchant's Compact invests in aspiring traders with anti-wealth bias (log1p wealth penalty). Iron Brotherhood pays martial skill (Combat × Nous, role bonuses). Verdant Circle nurtures producers (excludes Soldiers/Merchants, coherence × Psyche). Ashen Path redistributes to the poor (anti-wealth `1 - min(wealth/5000, 1)`, rewards Nihilist/Transcendentalist). Each faction applies distinct needs boosts: Crown → Esteem; Merchant → Purpose; Iron → Safety; Verdant → Purpose+Belonging; Ashen → Belonging (with Safety penalty). Treasury self-balances: at 105M treasury and ~2.5M/week inflow, outflow ≈ 2.48M/week.
+163. **Public works redistribution** — FIXED: `collectTaxes()` in `market.go` no longer destroys `popUpkeep` crowns. Same budget (`population * Agnosis * 0.5`) is redistributed to poor agents using progressive weighting (threshold = `avgWealth * Agnosis`, min 30; weight = `(threshold - wealth) / threshold`). Same pattern as `paySettlementWages()`. Treasury only decremented by actual `paid` amount. Needs boosts: Belonging +0.002, Safety +0.001.
+
+**Expected impact:** Crown leak stopped (~49K/sim-day preserved). Faction treasury recycled (~2.48M/week). Agent wealth should stabilize. Gini should compress (Verdant 37M pro-poor + Ashen 15M strongly anti-wealth > Crown 34M mildly regressive). Each faction now has a distinct economic personality experienced weekly.
+
 ### Remaining Minor Issues
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 

@@ -426,15 +426,60 @@ func (s *Simulation) collectTaxes(tick uint64) {
 
 		sett.Treasury += taxRevenue
 
-		// Settlement upkeep: population services and infrastructure maintenance.
-		// Only population-based upkeep remains — treasury upkeep removed because
-		// it destroyed crowns in the closed economy. Wealth decay now redirects
-		// to treasury, and settlement wages push crowns back to agents.
-		popUpkeep := uint64(float64(sett.Population) * phi.Agnosis * 0.5)
-		if popUpkeep > sett.Treasury {
-			popUpkeep = sett.Treasury
+		// Public works: same budget as old popUpkeep, redistributed to poor agents
+		// instead of destroyed. Progressive weighting — poorest get most.
+		publicWorks := uint64(float64(sett.Population) * phi.Agnosis * 0.5)
+		if publicWorks > sett.Treasury {
+			publicWorks = sett.Treasury
 		}
-		sett.Treasury -= popUpkeep
+		if publicWorks > 0 {
+			settAgents := s.SettlementAgents[sett.ID]
+			avgWealth := 0.0
+			aliveCount := 0
+			for _, a := range settAgents {
+				if a.Alive {
+					avgWealth += float64(a.Wealth)
+					aliveCount++
+				}
+			}
+			if aliveCount > 0 {
+				avgWealth /= float64(aliveCount)
+			}
+			threshold := avgWealth * phi.Agnosis
+			if threshold < 30 {
+				threshold = 30
+			}
+
+			totalWeight := 0.0
+			for _, a := range settAgents {
+				if a.Alive && a.Wealth < uint64(threshold) {
+					totalWeight += (threshold - float64(a.Wealth)) / threshold
+				}
+			}
+
+			if totalWeight > 0 {
+				paid := uint64(0)
+				for _, a := range settAgents {
+					if !a.Alive || a.Wealth >= uint64(threshold) {
+						continue
+					}
+					weight := (threshold - float64(a.Wealth)) / threshold
+					wage := uint64(float64(publicWorks) * weight / totalWeight)
+					if wage == 0 {
+						continue
+					}
+					if paid+wage > publicWorks {
+						break
+					}
+					a.Wealth += wage
+					paid += wage
+					a.Needs.Belonging += 0.002
+					a.Needs.Safety += 0.001
+					clampAgentNeeds(&a.Needs)
+				}
+				sett.Treasury -= paid
+			}
+		}
 	}
 }
 

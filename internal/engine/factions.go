@@ -5,6 +5,7 @@ package engine
 import (
 	"fmt"
 	"log/slog"
+	"math"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/phi"
@@ -232,6 +233,7 @@ func (s *Simulation) processWeeklyFactions(tick uint64) {
 
 	s.updateFactionInfluence()
 	s.collectFactionDues(tick)
+	s.distributeFactionPatronage(tick)
 	s.applyFactionPolicies(tick)
 	s.checkFactionTensions(tick)
 
@@ -403,6 +405,175 @@ func (s *Simulation) adjustFactionInfluenceFromCrime(settID uint64) {
 			f.Influence[settID] += 0.3
 		}
 	}
+}
+
+// distributeFactionPatronage distributes a fraction of each faction's treasury
+// back to its members using ideology-specific weight functions.
+// Budget: treasury * Agnosis * 0.1 per week (~2.36% of treasury).
+func (s *Simulation) distributeFactionPatronage(tick uint64) {
+	factionIndex := make(map[social.FactionID]*social.Faction)
+	for _, f := range s.Factions {
+		factionIndex[f.ID] = f
+	}
+
+	// Build per-faction member lists with weights.
+	type weightedAgent struct {
+		agent  *agents.Agent
+		weight float64
+	}
+	factionMembers := make(map[social.FactionID][]weightedAgent)
+
+	for _, a := range s.Agents {
+		if !a.Alive || a.FactionID == nil {
+			continue
+		}
+		fid := social.FactionID(*a.FactionID)
+		w := factionPatronageWeight(fid, a)
+		if w > 0 {
+			factionMembers[fid] = append(factionMembers[fid], weightedAgent{a, w})
+		}
+	}
+
+	for _, f := range s.Factions {
+		if f.Treasury == 0 {
+			continue
+		}
+		members := factionMembers[f.ID]
+		if len(members) == 0 {
+			continue
+		}
+
+		budget := uint64(float64(f.Treasury) * phi.Agnosis * 0.1)
+		if budget == 0 {
+			continue
+		}
+
+		// Sum weights.
+		totalWeight := 0.0
+		for _, m := range members {
+			totalWeight += m.weight
+		}
+		if totalWeight == 0 {
+			continue
+		}
+
+		// Distribute proportionally.
+		paid := uint64(0)
+		for _, m := range members {
+			payment := uint64(float64(budget) * m.weight / totalWeight)
+			if payment == 0 {
+				continue
+			}
+			if paid+payment > budget {
+				break
+			}
+			m.agent.Wealth += payment
+			paid += payment
+			applyPatronageNeeds(f.ID, m.agent)
+		}
+
+		f.Treasury -= paid
+
+		s.EmitEvent(Event{
+			Tick: tick,
+			Description: fmt.Sprintf("%s distributes %d crowns in patronage to %d members",
+				f.Name, paid, len(members)),
+			Category: "economy",
+			Meta: map[string]any{
+				"faction_name": f.Name,
+				"amount":       paid,
+				"recipients":   len(members),
+			},
+		})
+	}
+}
+
+// factionPatronageWeight returns the ideology-specific distribution weight
+// for an agent within their faction. Returns 0 to exclude from distribution.
+func factionPatronageWeight(factionID social.FactionID, a *agents.Agent) float64 {
+	coherence := float64(a.Soul.CittaCoherence)
+	wealth := float64(a.Wealth)
+
+	switch factionID {
+	case 1: // Crown — royal stipends: rewards hierarchy and inner order.
+		loyaltyBonus := 1.0
+		if a.Role == agents.RoleNoble || a.Role == agents.RoleLeader {
+			loyaltyBonus = phi.Being
+		}
+		return (1.0 + coherence*phi.Being) * loyaltyBonus
+
+	case 2: // Merchant's Compact — trade grants: invests in aspiring traders, anti-wealth bias.
+		merchantBonus := 1.0
+		if a.Occupation == agents.OccupationMerchant {
+			merchantBonus = phi.Being
+		}
+		return (float64(a.Skills.Trade)*phi.Being + phi.Agnosis) * merchantBonus / (1.0 + math.Log1p(wealth)*phi.Agnosis)
+
+	case 3: // Iron Brotherhood — military payroll: pragmatic payment for martial skill.
+		soldierBonus := 0.0
+		switch a.Role {
+		case agents.RoleSoldier:
+			soldierBonus = phi.Nous
+		case agents.RoleOutlaw:
+			soldierBonus = phi.Agnosis
+		}
+		return float64(a.Skills.Combat)*phi.Nous + soldierBonus
+
+	case 4: // Verdant Circle — agricultural grants: nurtures land workers and inner growth.
+		var producerMul float64
+		switch a.Occupation {
+		case agents.OccupationFarmer, agents.OccupationFisher, agents.OccupationLaborer, agents.OccupationMiner, agents.OccupationAlchemist:
+			producerMul = phi.Nous
+		case agents.OccupationHunter:
+			producerMul = phi.Being
+		case agents.OccupationSoldier, agents.OccupationMerchant:
+			return 0 // Excluded
+		default:
+			producerMul = phi.Monad
+		}
+		return producerMul * (1.0 + coherence*phi.Psyche)
+
+	case 5: // Ashen Path — chaos fund: anti-wealth redistribution, rewards seekers.
+		antiWealth := 1.0 - math.Min(wealth/5000.0, 1.0)
+		classBonus := 0.0
+		switch a.Soul.Class {
+		case agents.Nihilist, agents.Transcendentalist:
+			classBonus = phi.Nous
+		}
+		if a.Role == agents.RoleOutlaw {
+			classBonus += phi.Agnosis
+		}
+		return phi.Being*antiWealth + classBonus
+	}
+
+	return 0
+}
+
+// applyPatronageNeeds applies faction-specific needs boosts from patronage.
+func applyPatronageNeeds(factionID social.FactionID, a *agents.Agent) {
+	switch factionID {
+	case 1: // Crown
+		a.Needs.Esteem += 0.015
+		a.Needs.Belonging += 0.010
+		a.Needs.Safety += 0.005
+	case 2: // Merchant's Compact
+		a.Needs.Purpose += 0.020
+		a.Needs.Esteem += 0.010
+		a.Needs.Safety += 0.008
+	case 3: // Iron Brotherhood
+		a.Needs.Safety += 0.020
+		a.Needs.Belonging += 0.015
+		a.Needs.Esteem += 0.005
+	case 4: // Verdant Circle
+		a.Needs.Purpose += 0.020
+		a.Needs.Belonging += 0.015
+		a.Needs.Survival += 0.003
+	case 5: // Ashen Path
+		a.Needs.Belonging += 0.020
+		a.Needs.Purpose += 0.015
+		a.Needs.Safety -= 0.005
+	}
+	clampAgentNeeds(&a.Needs)
 }
 
 // setRelation sets a symmetric relation between two factions.
