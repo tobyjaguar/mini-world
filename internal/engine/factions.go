@@ -527,7 +527,7 @@ func factionPatronageWeight(factionID social.FactionID, a *agents.Agent) float64
 		case agents.OccupationHunter:
 			producerMul = phi.Being
 		case agents.OccupationSoldier, agents.OccupationMerchant:
-			return 0 // Excluded
+			producerMul = phi.Agnosis * 0.5 // Token patronage — they pay dues, so they get a small share.
 		default:
 			producerMul = phi.Monad
 		}

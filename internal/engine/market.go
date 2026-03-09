@@ -804,6 +804,7 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			for i := 0; i < 5; i++ {
 				if a.Wealth >= buyPrice {
 					a.Wealth -= buyPrice
+					sett.Treasury += buyPrice // Home settlement receives payment (closed transfer).
 					buyQty++
 				} else if sett.Treasury >= buyPrice {
 					sett.Treasury -= buyPrice

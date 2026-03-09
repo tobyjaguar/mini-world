@@ -681,7 +681,15 @@ The economy had two conservation breaks destroying/trapping ~50M crowns per 28 r
 
 **Expected impact:** Crown leak stopped (~49K/sim-day preserved). Faction treasury recycled (~2.48M/week). Agent wealth should stabilize. Gini should compress (Verdant 37M pro-poor + Ashen 15M strongly anti-wealth > Crown 34M mildly regressive). Each faction now has a distinct economic personality experienced weekly.
 
+### Round 35: Crown Leak Closure + Verdant Circle Balance
+
+Post-R34 observation revealed R34 addressed only 3% of the total crown leak. A full crown destruction audit traced all `Wealth -=` and `Treasury -=` paths across the engine, finding the dominant leak: merchant cargo purchases destroyed ~1.9M crowns/day.
+
+164. **Merchant cargo purchase destroys crowns** — FIXED: `resolveMerchantTrade()` in `market.go` deducted `buyPrice` from merchant personal wealth when buying cargo at home market, but no one received payment — crowns vanished into the void. Added `sett.Treasury += buyPrice` to credit the home settlement treasury. Consignment path (treasury-funded) was already closed. This was the dominant crown destruction sink (~1.9M/day, 95%+ of total leak). Identified by full-codebase audit of all crown flow paths.
+165. **Verdant Circle patronage excludes dues-payers** — FIXED: Soldiers and Merchants in Verdant Circle paid weekly dues but received zero patronage (`factionPatronageWeight` returned 0). VC treasury grew unbounded (+31K/week) while other factions declined. Changed from hard exclusion to token weight (`Agnosis * 0.5`), giving these members minimal patronage proportional to their marginal role in the faction.
+
 ### Remaining Minor Issues
+- Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
 
 ## Ethics Note
