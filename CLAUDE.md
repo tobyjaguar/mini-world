@@ -688,9 +688,18 @@ Post-R34 observation revealed R34 addressed only 3% of the total crown leak. A f
 164. **Merchant cargo purchase destroys crowns** — FIXED: `resolveMerchantTrade()` in `market.go` deducted `buyPrice` from merchant personal wealth when buying cargo at home market, but no one received payment — crowns vanished into the void. Added `sett.Treasury += buyPrice` to credit the home settlement treasury. Consignment path (treasury-funded) was already closed. This was the dominant crown destruction sink (~1.9M/day, 95%+ of total leak). Identified by full-codebase audit of all crown flow paths.
 165. **Verdant Circle patronage excludes dues-payers** — FIXED: Soldiers and Merchants in Verdant Circle paid weekly dues but received zero patronage (`factionPatronageWeight` returned 0). VC treasury grew unbounded (+31K/week) while other factions declined. Changed from hard exclusion to token weight (`Agnosis * 0.5`), giving these members minimal patronage proportional to their marginal role in the faction.
 
+### Round 36: Population-Pressure-Scaled Regen
+
+Post-R35 observation (tick 1,081K) confirmed crown leak fix working (total crowns stable at 1.616B, bottom 50% share improving). Work rate stuck at 32.1% — a carrying capacity bottleneck. 360K producers compete for ~3,360 settlement hexes. Hourly regen adds `deficit × Agnosis × 0.06 × health` per hex, but first ~30% of shuffled agents consume all resources. Per-capita regen declines linearly with population growth.
+
+166. **Population-pressure-scaled hourly regen** — FIXED: `hourlyResourceRegen()` in `seasons.go` now pre-computes population pressure for each settlement's 7-hex neighborhood via `SettlementCarryingCapacity()`, then applies a Φ-derived logarithmic boost: `factor = 1 + Agnosis × log₂(1 + pressure)`, where `pressure = population / carrying_capacity`. At pressure 1.0 (pop = capacity): +24% regen. At 2.0: +37%. Overlapping neighborhoods use max pressure. Wilderness hexes unaffected. Represents more intensive land management in denser settlements — a pattern from real agricultural history.
+
+**Expected impact:** Work rate 32% → 45-55%. More producers succeed → more goods on market → more trade → healthier economy. Satisfaction stable (already insulated by failed-production boosts).
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
+- Governance monotony (94% Councils) — revolution mechanics structurally over-damped. Three independent barriers (GovernanceScore < 0.4, faction influence > 40, Tier 1+ coherence > 0.4) almost never align. Needs faction-driven governance pressure or lower thresholds.
 
 ## Ethics Note
 

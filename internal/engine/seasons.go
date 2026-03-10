@@ -5,6 +5,7 @@ package engine
 import (
 	"fmt"
 	"log/slog"
+	"math"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/phi"
@@ -239,12 +240,36 @@ func (s *Simulation) weeklyResourceRegen() {
 // Weekly regen alone is consumed within 1-2 ticks by hundreds of producers, keeping
 // resources permanently near zero. Hourly micro-regen sustains a steady trickle.
 //
-// Rate: deficit * Agnosis * 0.06 * health per hour (equivalent to Agnosis * 0.001
-// per tick, run hourly for performance). For a Coast hex (Fish cap 70, health 0.5):
-// ~0.5 Fish/hour = ~12 Fish/day. Resources reach the 1.0 extraction threshold every
-// ~2 hours, allowing a few producers per hex to work each cycle. Combined with weekly
-// regen, this sustains meaningful production at current population density (341K agents).
+// Base rate: deficit * Agnosis * 0.06 * health per hour. Settlement neighborhoods
+// get a population-pressure boost: factor = 1 + Agnosis * log2(1 + pressure), where
+// pressure = population / carrying_capacity. At pressure 1.0: +24% regen. At 2.0: +37%.
+// This represents more intensive land management in denser settlements — a pattern
+// observed in real agricultural history. Wilderness hexes regen at base rate.
 func (s *Simulation) hourlyResourceRegen() {
+	// Pre-compute population pressure boost for settlement neighborhoods.
+	pressureByHex := make(map[world.HexCoord]float64, len(s.Settlements)*7)
+	for _, sett := range s.Settlements {
+		if sett.Population == 0 {
+			continue
+		}
+		_, pressure := s.SettlementCarryingCapacity(sett.ID)
+		if pressure <= 0 {
+			continue
+		}
+		// Φ-derived logarithmic boost: diminishing returns at high density.
+		factor := 1.0 + phi.Agnosis*math.Log2(1.0+pressure)
+		coords := sett.Position.Neighbors()
+		for _, c := range coords {
+			if existing, ok := pressureByHex[c]; !ok || factor > existing {
+				pressureByHex[c] = factor
+			}
+		}
+		// Include settlement hex itself.
+		if existing, ok := pressureByHex[sett.Position]; !ok || factor > existing {
+			pressureByHex[sett.Position] = factor
+		}
+	}
+
 	for q := -s.WorldMap.Radius; q <= s.WorldMap.Radius; q++ {
 		for r := -s.WorldMap.Radius; r <= s.WorldMap.Radius; r++ {
 			coord := world.HexCoord{Q: q, R: r}
@@ -258,11 +283,17 @@ func (s *Simulation) hourlyResourceRegen() {
 				continue
 			}
 
+			// Population pressure boost for settlement neighborhoods.
+			factor := 1.0
+			if f, ok := pressureByHex[coord]; ok {
+				factor = f
+			}
+
 			for res, qty := range hex.Resources {
 				maxQty := ResourceCap(hex.Terrain, res)
 				if qty < maxQty {
 					deficit := maxQty - qty
-					regen := deficit * phi.Agnosis * 0.06 * hex.Health
+					regen := deficit * phi.Agnosis * 0.06 * hex.Health * factor
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty
