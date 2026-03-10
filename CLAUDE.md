@@ -725,6 +725,20 @@ Three features activating previously inert data: settlement culture axes (stored
 
 **Expected impact:** Settlements develop distinct cultural identities shaped by their dominant faction — a Crown-dominated settlement becomes traditional and martial, while a Merchant settlement becomes progressive and cosmopolitan. Weather becomes a real force: rainy periods boost the economy, heat waves stress it. Life events create narrative texture — coming-of-age, marriages, and mentorships generate observable social fabric. All effects are small, Φ-derived, and emergent.
 
+### Round 39: Regional Events + Daily Backups
+
+Random events refactored from global single-settlement to regional with spreading effects. Daily SQLite backup via systemd timer.
+
+182. **Population-weighted event targeting** — FIXED: `processRandomEvents()` in `simulation.go` now selects settlements weighted by population. Denser settlements are more likely targets — cities attract more drama.
+183. **Regional disaster spread** — FIXED: Disasters spread to neighboring settlements within 3 hexes. Damage attenuates with distance (intensity = Psyche/distance). A storm hitting a city affects the surrounding region.
+184. **Drought events** — NEW: Added "drought" to disaster types. Degrades hex health in the 7-hex neighborhood (Agnosis at epicenter, Agnosis×0.5 at neighbors). Creates lasting land damage that takes weeks to recover.
+185. **Plague events** — NEW: 1% chance per week. Spreads along trade connections (within 5 hexes = merchant range). Spread probability = Psyche/distance. Severity varies (Agnosis to Psyche). Creates health and satisfaction damage. Larger settlements more vulnerable due to population-weighted targeting.
+186. **Discovery enrichment** — FIXED: Medicinal springs now heal agents (+Agnosis×0.2 health). Hidden trade routes now boost hex health in neighborhood (+Agnosis×0.5). Discoveries have real mechanical effects beyond treasury bonuses.
+187. **Event metadata enrichment** — FIXED: All random events now include `disaster_type`/`discovery_type` and `affected_count` in metadata. Enables relay pattern detection for regional events.
+188. **Daily SQLite backup** — NEW: Systemd timer (`worldsim-backup.timer`) runs at 04:00 UTC daily. Uses `sqlite3 .backup` (atomic, safe while worldsim runs). Keeps 3 rolling copies in `/opt/worldsim/backups/`. Includes integrity check. Deployed via `deploy.sh`.
+
+**Expected impact:** The world now has regional geography of disaster. A storm doesn't just hit one settlement — it ravages the surrounding area. Plagues spread along trade routes, creating genuine epidemiological dynamics. The backup timer protects 1.2 GB of world state from single-point-of-failure loss.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

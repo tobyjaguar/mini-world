@@ -57,6 +57,9 @@ $SCP_CMD "$SCRIPT_DIR/worldsim.service" $USER@$HOST:/tmp/worldsim.service
 $SCP_CMD "$SCRIPT_DIR/gardener.service" $USER@$HOST:/tmp/gardener.service
 $SCP_CMD "$SCRIPT_DIR/sentinel.service" $USER@$HOST:/tmp/sentinel.service
 $SCP_CMD "$SCRIPT_DIR/relay.service" $USER@$HOST:/tmp/relay.service
+$SCP_CMD "$SCRIPT_DIR/worldsim-backup.service" $USER@$HOST:/tmp/worldsim-backup.service
+$SCP_CMD "$SCRIPT_DIR/worldsim-backup.timer" $USER@$HOST:/tmp/worldsim-backup.timer
+$SCP_CMD "$SCRIPT_DIR/worldsim-backup.sh" $USER@$HOST:/tmp/worldsim-backup.sh
 $SCP_CMD "$SCRIPT_DIR/nginx-crossworlds.conf" $USER@$HOST:/tmp/nginx-crossworlds.conf
 
 echo "=== Updating environment ==="
@@ -116,13 +119,19 @@ $SSH_CMD "sudo systemctl stop relay || true && \
     sudo mv /tmp/gardener.service /etc/systemd/system/gardener.service && \
     sudo mv /tmp/sentinel.service /etc/systemd/system/sentinel.service && \
     sudo mv /tmp/relay.service /etc/systemd/system/relay.service && \
+    sudo mv /tmp/worldsim-backup.service /etc/systemd/system/worldsim-backup.service && \
+    sudo mv /tmp/worldsim-backup.timer /etc/systemd/system/worldsim-backup.timer && \
+    sudo mv /tmp/worldsim-backup.sh /opt/worldsim/worldsim-backup.sh && \
+    sudo chown worldsim:worldsim /opt/worldsim/worldsim-backup.sh && \
+    sudo chmod +x /opt/worldsim/worldsim-backup.sh && \
     sudo mv /tmp/nginx-crossworlds.conf /etc/nginx/sites-available/crossworlds && \
     sudo ln -sf /etc/nginx/sites-available/crossworlds /etc/nginx/sites-enabled/crossworlds && \
     sudo rm -f /etc/nginx/sites-enabled/default && \
     sudo nginx -t && \
     sudo systemctl reload nginx && \
     sudo systemctl daemon-reload && \
-    sudo systemctl enable worldsim gardener sentinel relay && \
+    sudo systemctl enable worldsim gardener sentinel relay worldsim-backup.timer && \
+    sudo systemctl start worldsim-backup.timer && \
     sudo systemctl start worldsim && \
     sudo systemctl start gardener && \
     sudo systemctl start sentinel && \

@@ -464,39 +464,120 @@ func (s *Simulation) inheritWealth(a *agents.Agent, tick uint64) {
 }
 
 // processRandomEvents uses true randomness to trigger rare world events.
+// Events are regional: disasters spread to neighboring settlements within 3 hexes,
+// with damage attenuating by distance. Larger settlements are more likely targets
+// (population-weighted selection). New event types: drought and plague.
 func (s *Simulation) processRandomEvents(tick uint64) {
 	randFloat := func() float64 {
 		return entropy.FloatFromSource(s.Entropy)
 	}
+	if len(s.Settlements) == 0 {
+		return
+	}
 
-	// Natural disaster: 2% chance per week.
-	if randFloat() < 0.02 && len(s.Settlements) > 0 {
-		idx := int(randFloat() * float64(len(s.Settlements)))
-		if idx >= len(s.Settlements) {
-			idx = len(s.Settlements) - 1
+	// Population-weighted settlement selection: denser settlements attract more events.
+	pickSettlement := func() *social.Settlement {
+		totalPop := 0
+		for _, sett := range s.Settlements {
+			totalPop += int(sett.Population)
 		}
-		sett := s.Settlements[idx]
-
-		disasters := []string{"a fierce storm", "an earthquake", "a flood"}
-		dIdx := int(randFloat() * float64(len(disasters)))
-		if dIdx >= len(disasters) {
-			dIdx = 0
+		if totalPop == 0 {
+			idx := int(randFloat() * float64(len(s.Settlements)))
+			if idx >= len(s.Settlements) {
+				idx = len(s.Settlements) - 1
+			}
+			return s.Settlements[idx]
 		}
+		target := int(randFloat() * float64(totalPop))
+		cumulative := 0
+		for _, sett := range s.Settlements {
+			cumulative += int(sett.Population)
+			if cumulative > target {
+				return sett
+			}
+		}
+		return s.Settlements[len(s.Settlements)-1]
+	}
 
-		// Damage: reduce treasury and health.
-		damage := sett.Treasury / 5
+	// Find settlements within radius of a center settlement.
+	nearbySettlements := func(center *social.Settlement, radius int) []*social.Settlement {
+		var nearby []*social.Settlement
+		for _, other := range s.Settlements {
+			if other.ID == center.ID {
+				continue
+			}
+			if world.Distance(center.Position, other.Position) <= radius {
+				nearby = append(nearby, other)
+			}
+		}
+		return nearby
+	}
+
+	// Apply disaster damage to a settlement, scaled by intensity (0-1).
+	applyDisasterDamage := func(sett *social.Settlement, intensity float64) {
+		damage := uint64(float64(sett.Treasury) * 0.2 * intensity)
 		sett.Treasury -= damage
 		for _, a := range s.SettlementAgents[sett.ID] {
 			if a.Alive {
-				a.Health -= 0.1
-				a.Wellbeing.Satisfaction -= 0.2
+				a.Health -= float32(0.1 * intensity)
+				a.Wellbeing.Satisfaction -= float32(0.2 * intensity)
 				if a.Health < 0 {
 					a.Health = 0
 				}
 			}
 		}
+	}
 
-		desc := fmt.Sprintf("%s strikes %s! Treasury loses %d crowns", disasters[dIdx], sett.Name, damage)
+	// Natural disaster: 2% chance per week. Spreads to neighbors within 3 hexes.
+	if randFloat() < 0.02 {
+		sett := pickSettlement()
+
+		disasters := []string{"a fierce storm", "an earthquake", "a flood", "a drought"}
+		dIdx := int(randFloat() * float64(len(disasters)))
+		if dIdx >= len(disasters) {
+			dIdx = 0
+		}
+		disasterType := disasters[dIdx]
+
+		// Full damage to epicenter.
+		applyDisasterDamage(sett, 1.0)
+
+		// Drought also degrades hex health in the region.
+		if disasterType == "a drought" {
+			for _, c := range sett.Position.Neighbors() {
+				if hex := s.WorldMap.Get(c); hex != nil {
+					hex.Health -= float64(phi.Agnosis * 0.5) // ~12% health loss
+					if hex.Health < 0 {
+						hex.Health = 0
+					}
+				}
+			}
+			if hex := s.WorldMap.Get(sett.Position); hex != nil {
+				hex.Health -= float64(phi.Agnosis) // ~24% at epicenter
+				if hex.Health < 0 {
+					hex.Health = 0
+				}
+			}
+		}
+
+		desc := fmt.Sprintf("%s strikes %s!", disasterType, sett.Name)
+
+		// Spread to neighbors: damage attenuates with distance.
+		neighbors := nearbySettlements(sett, 3)
+		affectedNames := []string{sett.Name}
+		for _, neighbor := range neighbors {
+			dist := world.Distance(sett.Position, neighbor.Position)
+			// Intensity: 1/dist (Psyche at dist 1, less further out).
+			intensity := phi.Psyche / float64(dist)
+			applyDisasterDamage(neighbor, intensity)
+			affectedNames = append(affectedNames, neighbor.Name)
+		}
+
+		if len(neighbors) > 0 {
+			desc = fmt.Sprintf("%s strikes the region around %s! %d settlements affected",
+				disasterType, sett.Name, len(affectedNames))
+		}
+
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
@@ -504,19 +585,76 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			Meta: map[string]any{
 				"settlement_id":   sett.ID,
 				"settlement_name": sett.Name,
+				"disaster_type":   disasterType,
+				"affected_count":  len(affectedNames),
 			},
 		})
 		s.createSettlementMemories(sett.ID, tick, desc, 0.9)
-		slog.Info("random event: disaster", "settlement", sett.Name, "type", disasters[dIdx])
+		slog.Info("random event: disaster", "settlement", sett.Name, "type", disasterType, "affected", len(affectedNames))
+	}
+
+	// Plague: 1% chance per week. Spreads along trade connections (neighbors within 5 hexes).
+	// Reduces health and satisfaction, lingers via hex health damage.
+	if randFloat() < 0.01 {
+		sett := pickSettlement()
+		severity := phi.Agnosis + randFloat()*phi.Psyche // 0.236 to 0.618
+
+		// Plague at epicenter.
+		infected := 0
+		for _, a := range s.SettlementAgents[sett.ID] {
+			if a.Alive {
+				a.Health -= float32(severity * 0.3)
+				a.Wellbeing.Satisfaction -= float32(severity * 0.5)
+				if a.Health < 0 {
+					a.Health = 0
+				}
+				infected++
+			}
+		}
+
+		// Spread to trade-connected settlements (within 5 hexes = merchant range).
+		tradeNeighbors := nearbySettlements(sett, 5)
+		spreadCount := 0
+		for _, neighbor := range tradeNeighbors {
+			dist := world.Distance(sett.Position, neighbor.Position)
+			spreadChance := phi.Psyche / float64(dist) // ~38% at dist 1, ~8% at dist 5
+			if randFloat() < spreadChance {
+				for _, a := range s.SettlementAgents[neighbor.ID] {
+					if a.Alive {
+						a.Health -= float32(severity * 0.15) // Half intensity
+						a.Wellbeing.Satisfaction -= float32(severity * 0.25)
+						if a.Health < 0 {
+							a.Health = 0
+						}
+					}
+				}
+				spreadCount++
+			}
+		}
+
+		desc := fmt.Sprintf("Plague breaks out in %s!", sett.Name)
+		if spreadCount > 0 {
+			desc = fmt.Sprintf("Plague breaks out in %s and spreads to %d nearby settlements!", sett.Name, spreadCount)
+		}
+
+		s.EmitEvent(Event{
+			Tick:        tick,
+			Description: desc,
+			Category:    "disaster",
+			Meta: map[string]any{
+				"settlement_id":   sett.ID,
+				"settlement_name": sett.Name,
+				"disaster_type":   "plague",
+				"affected_count":  spreadCount + 1,
+			},
+		})
+		s.createSettlementMemories(sett.ID, tick, desc, 0.95)
+		slog.Info("random event: plague", "settlement", sett.Name, "severity", severity, "spread", spreadCount)
 	}
 
 	// Discovery: 5% chance per week.
-	if randFloat() < 0.05 && len(s.Settlements) > 0 {
-		idx := int(randFloat() * float64(len(s.Settlements)))
-		if idx >= len(s.Settlements) {
-			idx = len(s.Settlements) - 1
-		}
-		sett := s.Settlements[idx]
+	if randFloat() < 0.05 {
+		sett := pickSettlement()
 
 		discoveries := []string{
 			"a rich mineral deposit", "ancient ruins", "a medicinal spring",
@@ -553,6 +691,15 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 				}
 				hex.Resources[world.ResourceHerbs] += amount
 			}
+			// Medicinal spring also heals nearby agents.
+			for _, a := range s.SettlementAgents[sett.ID] {
+				if a.Alive && a.Health < 1.0 {
+					a.Health += float32(phi.Agnosis * 0.2) // ~4.7% healing
+					if a.Health > 1.0 {
+						a.Health = 1.0
+					}
+				}
+			}
 			desc = fmt.Sprintf("Discovery near %s: %s found! +%.0f herbs, treasury gains %d crowns",
 				sett.Name, discoveries[dIdx], amount, bonus)
 		case "a vein of precious gems":
@@ -565,6 +712,18 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			}
 			desc = fmt.Sprintf("Discovery near %s: %s found! +%.0f gems, treasury gains %d crowns",
 				sett.Name, discoveries[dIdx], amount, bonus)
+		case "a hidden trade route":
+			// Trade route discovery boosts hex health in the area (cleared paths).
+			for _, c := range sett.Position.Neighbors() {
+				if h := s.WorldMap.Get(c); h != nil {
+					h.Health += phi.Agnosis * 0.5 // ~12% health boost
+					if h.Health > 1.0 {
+						h.Health = 1.0
+					}
+				}
+			}
+			desc = fmt.Sprintf("Discovery near %s: %s found! Treasury gains %d crowns, land improved",
+				sett.Name, discoveries[dIdx], bonus)
 		default:
 			desc = fmt.Sprintf("Discovery near %s: %s found! Treasury gains %d crowns", sett.Name, discoveries[dIdx], bonus)
 		}
@@ -576,6 +735,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			Meta: map[string]any{
 				"settlement_id":   sett.ID,
 				"settlement_name": sett.Name,
+				"discovery_type":  discoveries[dIdx],
 			},
 		})
 		s.createSettlementMemories(sett.ID, tick, desc, 0.7)
