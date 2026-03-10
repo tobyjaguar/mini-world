@@ -678,6 +678,16 @@ func (db *DB) LoadMemories(agentIndex map[agents.AgentID]*agents.Agent) error {
 			Importance: r.Importance,
 		})
 	}
+
+	// Compact memory slices (same rationale as relationships).
+	for _, a := range agentIndex {
+		if len(a.Memories) > 0 && cap(a.Memories) > len(a.Memories) {
+			compact := make([]agents.Memory, len(a.Memories))
+			copy(compact, a.Memories)
+			a.Memories = compact
+		}
+	}
+
 	return nil
 }
 
@@ -736,6 +746,18 @@ func (db *DB) LoadRelationships(agentIndex map[agents.AgentID]*agents.Agent) err
 			Trust:     r.Trust,
 		})
 	}
+
+	// Compact relationship slices to reclaim wasted capacity.
+	// Go's append doubles slice capacity on growth, so a slice with 3 items
+	// may have capacity 4 or 8. At 494K agents this wastes 30-60 MB.
+	for _, a := range agentIndex {
+		if len(a.Relationships) > 0 && cap(a.Relationships) > len(a.Relationships) {
+			compact := make([]agents.Relationship, len(a.Relationships))
+			copy(compact, a.Relationships)
+			a.Relationships = compact
+		}
+	}
+
 	return nil
 }
 

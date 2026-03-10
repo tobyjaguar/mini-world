@@ -16,9 +16,10 @@ import (
 // SimDaysPerYear is the number of sim-days in one sim-year (4 seasons × 90 days).
 const SimDaysPerYear = 360
 
-// MaxWorldPopulation caps the world at 500K living agents to prevent OOM.
-// At ~480 bytes per agent struct + relationships + indexes, 500K ≈ 360 MB.
-const MaxWorldPopulation = 500_000
+// MaxWorldPopulation caps the world at 450K living agents to prevent OOM.
+// Actual per-agent cost is ~3.2 KB (struct + relationships + indexes + GC overhead).
+// 450K ≈ 1.44 GB baseline heap on a 2 GB server with 1 GB swap.
+const MaxWorldPopulation = 450_000
 
 // processPopulation handles daily aging, natural death, and births.
 func (s *Simulation) processPopulation(tick uint64) {
