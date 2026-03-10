@@ -169,9 +169,9 @@ func (s *Simulation) decayGovernance(sett *social.Settlement) {
 }
 
 // checkRevolution fires a revolution if conditions are met:
-// GovernanceScore < 0.4 AND a faction has >40 influence AND a Tier 1+ agent with coherence > 0.4 exists.
+// GovernanceScore < 0.3 AND a faction has >40 influence AND an agent with coherence > Psyche exists.
 func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Agent, tick uint64) {
-	if sett.GovernanceScore >= 0.4 {
+	if sett.GovernanceScore >= 0.3 {
 		return
 	}
 
@@ -188,10 +188,12 @@ func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Ag
 		return
 	}
 
-	// Find a revolutionary: Tier 1+ agent with coherence > 0.4.
+	// Find a revolutionary: any agent with coherence above Psyche (0.382).
+	// A settlement in political crisis doesn't need a philosopher to revolt —
+	// it needs someone Awakening enough to see the problem and act.
 	var revolutionary *agents.Agent
 	for _, a := range alive {
-		if a.Tier >= agents.Tier1 && a.Soul.CittaCoherence > 0.4 {
+		if a.Soul.CittaCoherence > float32(phi.Psyche) {
 			if revolutionary == nil || a.Soul.CittaCoherence > revolutionary.Soul.CittaCoherence {
 				revolutionary = a
 			}

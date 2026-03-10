@@ -342,6 +342,18 @@ func (s *Simulation) applyFactionPolicies(tick uint64) {
 			sett.GovernanceScore -= strength * 0.5
 		}
 
+		// Faction mismatch pressure: when the dominant faction's preferred
+		// governance doesn't match the current type, they agitate for change.
+		// This creates revolution windows that the static system never produced.
+		// Rate: influence/100 * Agnosis * 0.05 per week. At 40 influence: ~0.0047/week.
+		// Must compete with daily drift (~0.008/week toward target), so mismatch alone
+		// won't trigger revolution — but it widens the window after leader death (-0.2).
+		preferredGov := factionPreferredGov(dominantFaction.ID)
+		if preferredGov != social.GovernanceType(0) && preferredGov != sett.Governance {
+			mismatchDecay := highestInfluence / 100.0 * phi.Agnosis * 0.05
+			sett.GovernanceScore -= mismatchDecay
+		}
+
 		// Clamp governance score.
 		if sett.GovernanceScore < 0 {
 			sett.GovernanceScore = 0
@@ -404,6 +416,21 @@ func (s *Simulation) adjustFactionInfluenceFromCrime(settID uint64) {
 		case 5: // Ashen Path gains from chaos
 			f.Influence[settID] += 0.3
 		}
+	}
+}
+
+// factionPreferredGov returns the governance type a faction prefers.
+// Returns 0 (zero value) for factions with no strong preference.
+func factionPreferredGov(factionID social.FactionID) social.GovernanceType {
+	switch factionID {
+	case 1: // Crown → Monarchy
+		return social.GovMonarchy
+	case 2: // Merchant's Compact → Merchant Republic
+		return social.GovMerchantRepublic
+	case 4: // Verdant Circle → Council (already dominant, neutral)
+		return social.GovCouncil
+	default: // Iron Brotherhood, Ashen Path: no preference
+		return 0
 	}
 }
 

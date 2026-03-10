@@ -91,7 +91,11 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			entry.Demand = 1
 		}
 		seasonMod := SeasonalMarketMod(season, uint8(good))
-		refPrices[good] = entry.ResolvePrice(seasonMod, 1.0)
+		// Market infrastructure compresses price volatility — better stalls, weights,
+		// and trading floors reduce the spread between buyers and sellers.
+		// Each level adds Agnosis * 0.05 (~1.2%) efficiency: level 5 = ~5.9%.
+		marketMod := 1.0 / (1.0 + float64(sett.MarketLevel)*phi.Agnosis*0.05)
+		refPrices[good] = entry.ResolvePrice(seasonMod, marketMod)
 	}
 
 	// Collect sell orders: agents with surplus above threshold.
@@ -770,7 +774,7 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			if bestDest != nil {
 				homePrice := sett.Market.Entries[bestGood].Price
 				destPrice := bestDest.Market.Entries[bestGood].Price
-				tc := routeCost(sett.Position, bestDest.Position, s.WorldMap)
+				tc := roadAdjustedCost(routeCost(sett.Position, bestDest.Position, s.WorldMap), sett.RoadLevel)
 				foodCost := float64(tc/TicksPerSimHour+2) * 2.0 // ~2 crowns per meal
 				grossProfit := (destPrice - homePrice) * 5       // 5-unit cargo
 				if grossProfit <= foodCost {
@@ -823,8 +827,8 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			a.TradeDestSett = &destID
 			a.TradeCargo[bestGood] += buyQty
 
-			// Provision food for the journey.
-			travelCost := routeCost(sett.Position, bestDest.Position, s.WorldMap)
+			// Provision food for the journey. Roads reduce travel time.
+			travelCost := roadAdjustedCost(routeCost(sett.Position, bestDest.Position, s.WorldMap), sett.RoadLevel)
 			currentFood := a.Inventory[agents.GoodGrain] + a.Inventory[agents.GoodFish]
 			mealsNeeded := travelCost/TicksPerSimHour + 2
 			for i := currentFood; i < mealsNeeded; i++ {
@@ -920,6 +924,21 @@ func routeCost(from, to world.HexCoord, worldMap *world.Map) int {
 	}
 
 	return cost
+}
+
+// roadAdjustedCost applies a road-level discount to travel cost.
+// Each road level reduces travel time by Agnosis * 0.1 (~2.4%): level 5 = ~11.8% faster.
+// Roads represent maintained paths through rough terrain — a persistent infrastructure benefit.
+func roadAdjustedCost(baseCost int, roadLevel uint8) int {
+	if roadLevel == 0 {
+		return baseCost
+	}
+	discount := 1.0 - float64(roadLevel)*phi.Agnosis*0.1
+	adjusted := int(float64(baseCost) * discount)
+	if adjusted < 6 {
+		adjusted = 6 // Minimum 1 hex travel
+	}
+	return adjusted
 }
 
 // sellMerchantCargo sells a merchant's cargo at the destination settlement.

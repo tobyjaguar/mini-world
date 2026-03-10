@@ -696,10 +696,22 @@ Post-R35 observation (tick 1,081K) confirmed crown leak fix working (total crown
 
 **Expected impact:** Work rate 32% → 45-55%. More producers succeed → more goods on market → more trade → healthier economy. Satisfaction stable (already insulated by failed-production boosts).
 
+### Round 37: Infrastructure Effects + Governance Diversity
+
+Infrastructure numbers (roads, walls, market level) were mechanically inert — constructed and paid for but had no effect. Governance was 94% Councils because revolution mechanics had three AND-gated barriers that almost never aligned.
+
+167. **Walls deter crime** — FIXED: `processCrime()` in `crime.go` now includes wall bonus in guard strength: `wallBonus = 1 + wallLevel × Psyche`. Each wall level adds ~38% to deterrence. Level 5 walls = ~190% boost. Structural deterrence — walls make theft harder regardless of treasury or governance quality.
+168. **Roads reduce merchant travel cost** — FIXED: `roadAdjustedCost()` helper in `market.go` discounts route cost by `roadLevel × Agnosis × 0.1` per level (min cost 6 ticks). Level 5 roads = ~11.8% travel discount. Applied to both outbound and return merchant routing.
+169. **Market level improves price efficiency** — FIXED: `processMarketDay()` in `market.go` applies market-level price compression via `regionalMod` parameter: `marketMod = 1 / (1 + marketLevel × Agnosis × 0.05)`. Level 5 = ~5.9% price compression toward base prices. Better markets mean fairer prices.
+170. **Revolution threshold lowered** — FIXED: `checkRevolution()` in `governance.go` threshold reduced from GovernanceScore < 0.4 to < 0.3. Settlements in mild political trouble can now revolt.
+171. **Revolutionary pool expanded** — FIXED: Revolution no longer requires Tier 1+ agents. Any adult with coherence > Psyche (0.382) can lead a revolution. A settlement in crisis needs someone Awakening enough to see the problem, not necessarily a philosopher.
+172. **Faction mismatch governance pressure** — FIXED: `applyFactionPolicies()` in `factions.go` adds governance decay when the dominant faction's preferred governance doesn't match the settlement's current type. Crown prefers Monarchy, Merchant's Compact prefers Merchant Republic, Verdant Circle prefers Council. Iron Brotherhood and Ashen Path have no preference. Decay rate: `influence/100 × Agnosis × 0.05`. A Crown faction with 60 influence in a Council settlement slowly erodes governance stability, creating conditions for revolution.
+
+**Expected impact:** Infrastructure construction now has real mechanical consequences — settlements that invest in walls, roads, and markets get tangible benefits. Governance should diversify from 94% Councils as faction mismatch pressure creates revolution conditions, and the wider revolutionary pool + lower threshold make revolutions actually fire.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
-- Governance monotony (94% Councils) — revolution mechanics structurally over-damped. Three independent barriers (GovernanceScore < 0.4, faction influence > 40, Tier 1+ coherence > 0.4) almost never align. Needs faction-driven governance pressure or lower thresholds.
 
 ## Ethics Note
 
