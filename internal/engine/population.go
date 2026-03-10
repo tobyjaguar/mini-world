@@ -37,13 +37,47 @@ func (s *Simulation) processPopulation(tick uint64) {
 }
 
 // ageAgents increments the age of all living agents by 1 year.
+// Emits coming-of-age events when agents turn 16 (adulthood threshold).
 func (s *Simulation) ageAgents(tick uint64) {
+	comingOfAge := 0
 	for _, a := range s.Agents {
-		if a.Alive {
-			a.Age++
+		if !a.Alive {
+			continue
+		}
+		a.Age++
+
+		// Coming-of-age at 16: agent becomes an adult, eligible for governance,
+		// work, and family formation. Belonging boost from community recognition.
+		if a.Age == 16 {
+			a.Needs.Belonging += float32(phi.Agnosis * 0.5) // ~0.118
+			if a.Needs.Belonging > 1 {
+				a.Needs.Belonging = 1
+			}
+			comingOfAge++
+
+			// Only emit individual events for Tier 1+ (avoid flooding with 490K agents).
+			if a.Tier >= agents.Tier1 {
+				settName := "the wilderness"
+				if a.HomeSettID != nil {
+					if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+						settName = sett.Name
+					}
+				}
+				s.EmitEvent(Event{
+					Tick:        tick,
+					Description: fmt.Sprintf("%s comes of age in %s", a.Name, settName),
+					Category:    "social",
+					Meta: map[string]any{
+						"agent_id":        a.ID,
+						"agent_name":      a.Name,
+						"settlement_name": settName,
+						"event_type":      "coming_of_age",
+					},
+				})
+			}
 		}
 	}
-	slog.Info("agents aged", "tick", tick, "time", SimTime(tick))
+	slog.Info("agents aged", "tick", tick, "time", SimTime(tick), "coming_of_age", comingOfAge)
 }
 
 // processNaturalDeaths checks for death from old age and disease.

@@ -342,6 +342,46 @@ func (s *Simulation) applyFactionPolicies(tick uint64) {
 			sett.GovernanceScore -= strength * 0.5
 		}
 
+		// Culture drift: dominant faction nudges settlement culture axes.
+		// Rate: strength * 0.5 per week. Slow drift, faction-shaped identity.
+		cultureDrift := float32(strength * 0.5)
+		switch dominantFaction.ID {
+		case 1: // Crown: traditional, neutral openness, mildly martial
+			sett.CultureTradition += cultureDrift
+			sett.CultureMilitarism += cultureDrift * 0.3
+		case 2: // Merchant's Compact: progressive, cosmopolitan, mercantile
+			sett.CultureTradition -= cultureDrift
+			sett.CultureOpenness += cultureDrift
+			sett.CultureMilitarism -= cultureDrift
+		case 3: // Iron Brotherhood: traditional, isolationist, very martial
+			sett.CultureTradition += cultureDrift * 0.5
+			sett.CultureOpenness -= cultureDrift * 0.5
+			sett.CultureMilitarism += cultureDrift
+		case 4: // Verdant Circle: progressive, cosmopolitan, mercantile
+			sett.CultureTradition -= cultureDrift * 0.5
+			sett.CultureOpenness += cultureDrift * 0.5
+			sett.CultureMilitarism -= cultureDrift * 0.5
+		case 5: // Ashen Path: progressive, isolationist, neutral
+			sett.CultureTradition -= cultureDrift
+			sett.CultureOpenness -= cultureDrift * 0.5
+		}
+		// Clamp culture axes to [-1, 1].
+		if sett.CultureTradition < -1 {
+			sett.CultureTradition = -1
+		} else if sett.CultureTradition > 1 {
+			sett.CultureTradition = 1
+		}
+		if sett.CultureOpenness < -1 {
+			sett.CultureOpenness = -1
+		} else if sett.CultureOpenness > 1 {
+			sett.CultureOpenness = 1
+		}
+		if sett.CultureMilitarism < -1 {
+			sett.CultureMilitarism = -1
+		} else if sett.CultureMilitarism > 1 {
+			sett.CultureMilitarism = 1
+		}
+
 		// Faction mismatch pressure: when the dominant faction's preferred
 		// governance doesn't match the current type, they agitate for change.
 		// This creates revolution windows that the static system never produced.

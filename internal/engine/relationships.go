@@ -141,14 +141,32 @@ func (s *Simulation) formFamilies(sett interface{ }, alive []*agents.Agent, tick
 			boostRelationship(a, bestMatch.ID, 0.3, 0.2)
 			boostRelationship(bestMatch, a.ID, 0.3, 0.2)
 
+			// Marriage belonging boost: both partners feel more connected.
+			a.Needs.Belonging += float32(phi.Agnosis * 0.3) // ~0.071
+			bestMatch.Needs.Belonging += float32(phi.Agnosis * 0.3)
+			if a.Needs.Belonging > 1 {
+				a.Needs.Belonging = 1
+			}
+			if bestMatch.Needs.Belonging > 1 {
+				bestMatch.Needs.Belonging = 1
+			}
+
+			settName := "the wilderness"
+			if a.HomeSettID != nil {
+				if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+					settName = sett.Name
+				}
+			}
 			s.EmitEvent(Event{
 				Tick:        tick,
-				Description: fmt.Sprintf("%s and %s have formed a family", a.Name, bestMatch.Name),
+				Description: fmt.Sprintf("%s and %s have formed a family in %s", a.Name, bestMatch.Name, settName),
 				Category:    "social",
 				Meta: map[string]any{
-					"agent_name":    a.Name,
-					"partner_name":  bestMatch.Name,
-					"settlement_id": a.HomeSettID,
+					"agent_name":       a.Name,
+					"partner_name":     bestMatch.Name,
+					"settlement_id":    a.HomeSettID,
+					"settlement_name":  settName,
+					"event_type":       "marriage",
 				},
 			})
 		}
@@ -186,23 +204,45 @@ func (s *Simulation) processMentorship(sett interface{}, alive []*agents.Agent, 
 	}
 
 	// Pair mentors with mentees (1:1, up to available mentors).
-	mentored := 0
 	for i, mentee := range mentees {
 		if i >= len(mentors) {
 			break
 		}
 		mentor := mentors[i]
 
-		// Apply mentorship effect.
+		// Apply mentorship effect: coherence growth for mentee, purpose for mentor.
 		growth := float32(phi.Agnosis * 0.05)
 		mentee.Soul.AdjustCoherence(growth)
+		mentor.Needs.Purpose += float32(phi.Agnosis * 0.1) // ~0.024 purpose from teaching
+		if mentor.Needs.Purpose > 1 {
+			mentor.Needs.Purpose = 1
+		}
 
 		// Strengthen bond between mentor and mentee.
 		strengthenBond(mentee, mentor)
 		strengthenBond(mentor, mentee)
-		mentored++
+
+		// Emit event for Tier 1+ mentors (notable wisdom-sharing).
+		if mentor.Tier >= agents.Tier1 {
+			settName := "the wilderness"
+			if mentor.HomeSettID != nil {
+				if sett, ok := s.SettlementIndex[*mentor.HomeSettID]; ok {
+					settName = sett.Name
+				}
+			}
+			s.EmitEvent(Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("%s mentors %s in %s", mentor.Name, mentee.Name, settName),
+				Category:    "social",
+				Meta: map[string]any{
+					"agent_name":      mentor.Name,
+					"mentee_name":     mentee.Name,
+					"settlement_name": settName,
+					"event_type":      "mentorship",
+				},
+			})
+		}
 	}
-	_ = mentored
 }
 
 // processRivalries checks for and applies rivalry effects daily.

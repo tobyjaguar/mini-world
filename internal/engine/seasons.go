@@ -200,6 +200,16 @@ func ResourceCap(terrain world.Terrain, res world.ResourceType) float64 {
 // Without this, hexes stay depleted for 24 sim-days between seasons. Weekly regen
 // recovers ~4.7% of deficit (Agnosis * 0.2) so resources trickle back between seasons.
 func (s *Simulation) weeklyResourceRegen() {
+	// Weather affects fallow recovery: rain accelerates healing, heat slows it.
+	fallowMod := 1.0
+	w := s.CurrentWeather
+	if w.TravelPenalty >= 1.2 && w.TravelPenalty < 2.0 {
+		fallowMod = 1.0 + phi.Agnosis // Rain: ~24% faster healing
+	}
+	if w.TempModifier > 0 {
+		fallowMod -= float64(w.TempModifier) * phi.Agnosis * 0.5 // Heat: up to ~12% slower
+	}
+
 	for q := -s.WorldMap.Radius; q <= s.WorldMap.Radius; q++ {
 		for r := -s.WorldMap.Radius; r <= s.WorldMap.Radius; r++ {
 			coord := world.HexCoord{Q: q, R: r}
@@ -208,9 +218,9 @@ func (s *Simulation) weeklyResourceRegen() {
 				continue
 			}
 
-			// Fallow recovery: un-extracted hexes regain health.
+			// Fallow recovery: un-extracted hexes regain health, modified by weather.
 			if hex.LastExtractedTick == 0 || s.LastTick-hex.LastExtractedTick > TicksPerSimDay {
-				hex.Health += phi.Agnosis * 0.25 // ~5.9% health per week when fallow
+				hex.Health += phi.Agnosis * 0.25 * float64(fallowMod) // ~5.9% health per week when fallow
 				if hex.Health > 1.0 {
 					hex.Health = 1.0
 				}
@@ -245,6 +255,10 @@ func (s *Simulation) weeklyResourceRegen() {
 // pressure = population / carrying_capacity. At pressure 1.0: +24% regen. At 2.0: +37%.
 // This represents more intensive land management in denser settlements — a pattern
 // observed in real agricultural history. Wilderness hexes regen at base rate.
+//
+// Weather modifies regen: rain boosts by Agnosis (~24%), hot/dry weather reduces by
+// TempModifier * Agnosis * 0.5 (up to ~12% penalty at max heat). Storms suppress
+// regen entirely (too dangerous to work the land).
 func (s *Simulation) hourlyResourceRegen() {
 	// Pre-compute population pressure boost for settlement neighborhoods.
 	pressureByHex := make(map[world.HexCoord]float64, len(s.Settlements)*7)
@@ -270,6 +284,21 @@ func (s *Simulation) hourlyResourceRegen() {
 		}
 	}
 
+	// Weather modifier: rain helps growth, heat stresses land, storms suppress regen.
+	weatherMod := 1.0
+	w := s.CurrentWeather
+	if w.TravelPenalty >= 2.0 {
+		// Storm: too dangerous to work, land stressed. Suppress regen.
+		weatherMod = 1.0 - phi.Agnosis // ~0.764
+	} else if w.TravelPenalty >= 1.2 {
+		// Rain: nourishes the land.
+		weatherMod = 1.0 + phi.Agnosis // ~1.236
+	}
+	// Heat stress: hot weather dries the land, reducing regen.
+	if w.TempModifier > 0 {
+		weatherMod -= float64(w.TempModifier) * phi.Agnosis * 0.5 // Up to ~12% penalty at max heat
+	}
+
 	for q := -s.WorldMap.Radius; q <= s.WorldMap.Radius; q++ {
 		for r := -s.WorldMap.Radius; r <= s.WorldMap.Radius; r++ {
 			coord := world.HexCoord{Q: q, R: r}
@@ -293,7 +322,7 @@ func (s *Simulation) hourlyResourceRegen() {
 				maxQty := ResourceCap(hex.Terrain, res)
 				if qty < maxQty {
 					deficit := maxQty - qty
-					regen := deficit * phi.Agnosis * 0.06 * hex.Health * factor
+					regen := deficit * phi.Agnosis * 0.06 * hex.Health * factor * weatherMod
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty

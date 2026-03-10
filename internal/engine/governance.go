@@ -169,9 +169,13 @@ func (s *Simulation) decayGovernance(sett *social.Settlement) {
 }
 
 // checkRevolution fires a revolution if conditions are met:
-// GovernanceScore < 0.3 AND a faction has >40 influence AND an agent with coherence > Psyche exists.
+// GovernanceScore < threshold AND a faction has >40 influence AND an agent with coherence > Psyche exists.
+// Tradition axis shifts the threshold: traditional settlements resist revolution, progressive ones welcome it.
 func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Agent, tick uint64) {
-	if sett.GovernanceScore >= 0.3 {
+	// Base threshold 0.3, shifted by Tradition: +Agnosis*0.1 per point of tradition (max ±0.024).
+	// Traditional (+1): threshold 0.276 (harder to revolt). Progressive (-1): threshold 0.324 (easier).
+	threshold := 0.3 - float64(sett.CultureTradition)*phi.Agnosis*0.1
+	if sett.GovernanceScore >= threshold {
 		return
 	}
 

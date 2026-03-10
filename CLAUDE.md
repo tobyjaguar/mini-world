@@ -709,6 +709,22 @@ Infrastructure numbers (roads, walls, market level) were mechanically inert — 
 
 **Expected impact:** Infrastructure construction now has real mechanical consequences — settlements that invest in walls, roads, and markets get tangible benefits. Governance should diversify from 94% Councils as faction mismatch pressure creates revolution conditions, and the wider revolutionary pool + lower threshold make revolutions actually fire.
 
+### Round 38: Culture Axes + Weather Land Health + Agent Life Events
+
+Three features activating previously inert data: settlement culture axes (stored but never read), weather→land health (fetched but cosmetic), and agent life events (relationships existed but weren't celebrated).
+
+173. **Culture: Tradition → revolution resistance** — FIXED: `checkRevolution()` in `governance.go` shifts revolution threshold by `Tradition × Agnosis × 0.1`. Traditional settlements (+1): threshold 0.276 (harder to revolt). Progressive (-1): threshold 0.324 (easier). Small but cumulative with faction mismatch pressure.
+174. **Culture: Openness → trade attractiveness** — FIXED: `resolveMerchantTrade()` in `market.go` applies openness modifier to effective margin: `1 + avg(source, dest) × Agnosis × 0.2`. Cosmopolitan settlement pairs get up to +4.7% margin bonus. Isolationist pairs get penalty. Shapes emergent trade geography.
+175. **Culture: Militarism → crime deterrence** — FIXED: `processCrime()` in `crime.go` applies `1 + Militarism × Agnosis × 0.5` to guard strength. Martial settlements get up to +11.8% deterrence. Mercantile settlements are easier targets.
+176. **Culture drift from faction dominance** — FIXED: `applyFactionPolicies()` in `factions.go` nudges culture axes weekly. Crown→traditional/martial, Merchant→progressive/open/mercantile, Iron→traditional/isolationist/very martial, Verdant→progressive/open, Ashen→progressive/isolationist. Rate: `strength × 0.5` per week, clamped to [-1, 1]. Factions shape settlement identity over time.
+177. **Weather → hourly resource regen** — FIXED: `hourlyResourceRegen()` in `seasons.go` applies weather modifier: rain +Agnosis (~24%), heat stress up to -12% (TempModifier × Agnosis × 0.5), storms -Agnosis (~24%). Real OpenWeatherMap data now mechanically affects land productivity.
+178. **Weather → weekly fallow recovery** — FIXED: `weeklyResourceRegen()` in `seasons.go` applies same weather modifier to hex health fallow recovery. Rain accelerates land healing, heat slows it.
+179. **Coming-of-age events** — FIXED: `ageAgents()` in `population.go` emits "coming of age" social events when agents turn 16. Belonging boost (+Agnosis × 0.5 ≈ 0.118) from community recognition. Events emitted for Tier 1+ only (avoid flooding).
+180. **Marriage belonging boost** — FIXED: `formFamilies()` in `relationships.go` now gives both partners a belonging boost (+Agnosis × 0.3 ≈ 0.071). Event enriched with settlement name and `event_type: "marriage"` metadata.
+181. **Mentorship purpose + events** — FIXED: `processMentorship()` in `relationships.go` now gives mentors a purpose boost (+Agnosis × 0.1 ≈ 0.024) for teaching. Events emitted for Tier 1+ mentors with `event_type: "mentorship"` metadata.
+
+**Expected impact:** Settlements develop distinct cultural identities shaped by their dominant faction — a Crown-dominated settlement becomes traditional and martial, while a Merchant settlement becomes progressive and cosmopolitan. Weather becomes a real force: rainy periods boost the economy, heat waves stress it. Life events create narrative texture — coming-of-age, marriages, and mentorships generate observable social fabric. All effects are small, Φ-derived, and emergent.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

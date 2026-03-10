@@ -745,6 +745,10 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			var bestDest *social.Settlement
 
 			for _, neighbor := range neighbors {
+				// Openness axis affects trade attractiveness: cosmopolitan destinations
+				// welcome merchants, isolationist ones discourage them.
+				// Averages source and destination openness: +Agnosis*0.2 per point (max ±4.7%).
+				opennessMod := 1.0 + float64(sett.CultureOpenness+neighbor.CultureOpenness)*0.5*phi.Agnosis*0.2
 				for good, homeEntry := range sett.Market.Entries {
 					destEntry, ok := neighbor.Market.Entries[good]
 					if !ok {
@@ -754,8 +758,8 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 						continue
 					}
 					margin := (destEntry.Price - homeEntry.Price) / homeEntry.Price
-					// Apply Being (Φ) as cooperation bonus.
-					effectiveMargin := margin * phi.Being
+					// Apply Being (Φ) as cooperation bonus, modified by cultural openness.
+					effectiveMargin := margin * phi.Being * opennessMod
 					// Tier 2 merchant LLM preference: scout_route biases this destination.
 					if a.TradePreferredDest != nil && neighbor.ID == *a.TradePreferredDest {
 						effectiveMargin *= phi.Being // ~1.618x bonus for scouted route

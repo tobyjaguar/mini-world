@@ -30,10 +30,12 @@ func (s *Simulation) processCrime(tick uint64) {
 		soldierRatio := float64(soldierCount) / (float64(sett.Population) + 1)
 		militaryBonus := 1.0 + soldierRatio*phi.Being*10 // At 7% soldiers: ~2.13x
 
-		// Law enforcement effectiveness based on treasury, governance, military, and walls.
+		// Law enforcement effectiveness based on treasury, governance, military, walls, and culture.
 		// Walls provide structural deterrence: each level adds Psyche (~38%) to guard strength.
+		// Militarism axis adds martial discipline: +Agnosis*0.5 per point (max ±11.8%).
 		wallBonus := 1.0 + float64(sett.WallLevel)*phi.Psyche
-		guardStrength := float64(sett.Treasury) / (float64(sett.Population) + 1) * sett.GovernanceScore * militaryBonus * wallBonus
+		cultureBonus := 1.0 + float64(sett.CultureMilitarism)*phi.Agnosis*0.5
+		guardStrength := float64(sett.Treasury) / (float64(sett.Population) + 1) * sett.GovernanceScore * militaryBonus * wallBonus * cultureBonus
 		// Deterrence: 0.0 (no law) to 1.0 (perfect enforcement)
 		deterrence := guardStrength / (guardStrength + phi.Totality)
 
