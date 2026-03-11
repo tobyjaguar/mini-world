@@ -450,14 +450,17 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 
 	// Persist hex health state (only non-pristine hexes, to keep payload small).
 	type hexHealthEntry struct {
-		H float64 `json:"h"`
-		T uint64  `json:"t"`
+		H  float64 `json:"h"`
+		T  uint64  `json:"t"`
+		Ir uint8   `json:"ir,omitempty"` // Irrigation level
+		Co uint8   `json:"co,omitempty"` // Conservation level
+		Cl *uint64 `json:"cl,omitempty"` // Claimed by settlement ID
 	}
 	hexHealth := make(map[string]hexHealthEntry)
 	for coord, hex := range sim.WorldMap.Hexes {
-		if hex.Health < 1.0 || hex.LastExtractedTick > 0 {
+		if hex.Health < 1.0 || hex.LastExtractedTick > 0 || hex.IrrigationLevel > 0 || hex.ConservationLevel > 0 || hex.ClaimedBy != nil {
 			key := fmt.Sprintf("%d,%d", coord.Q, coord.R)
-			hexHealth[key] = hexHealthEntry{H: hex.Health, T: hex.LastExtractedTick}
+			hexHealth[key] = hexHealthEntry{H: hex.Health, T: hex.LastExtractedTick, Ir: hex.IrrigationLevel, Co: hex.ConservationLevel, Cl: hex.ClaimedBy}
 		}
 	}
 	if len(hexHealth) > 0 {

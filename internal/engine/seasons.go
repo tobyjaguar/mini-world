@@ -125,14 +125,15 @@ func (s *Simulation) regenerateResources() {
 				continue
 			}
 
-			// Regenerate based on terrain type, scaled by hex health.
+			// Regenerate based on terrain type, scaled by hex health and irrigation.
+			irrFactor := IrrigationRegenFactor(hex.IrrigationLevel)
 			for res, qty := range hex.Resources {
 				maxQty := ResourceCap(hex.Terrain, res)
 				if qty < maxQty {
 					// Regrow at rate proportional to Matter, scaled by hex health.
-					// Degraded land regenerates slower.
+					// Degraded land regenerates slower. Irrigation boosts regen.
 					deficit := maxQty - qty
-					regen := deficit * phi.Matter * 0.3 * hex.Health
+					regen := deficit * phi.Matter * 0.3 * hex.Health * irrFactor
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty
@@ -231,11 +232,12 @@ func (s *Simulation) weeklyResourceRegen() {
 				continue
 			}
 
+			irrFactor2 := IrrigationRegenFactor(hex.IrrigationLevel)
 			for res, qty := range hex.Resources {
 				maxQty := ResourceCap(hex.Terrain, res)
 				if qty < maxQty {
 					deficit := maxQty - qty
-					regen := deficit * phi.Agnosis * 0.4 * hex.Health // ~9.4% scaled by health
+					regen := deficit * phi.Agnosis * 0.4 * hex.Health * irrFactor2 // ~9.4% scaled by health + irrigation
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty
@@ -318,11 +320,14 @@ func (s *Simulation) hourlyResourceRegen() {
 				factor = f
 			}
 
+			// Irrigation boost: improved hexes regenerate faster.
+			irrFactor := IrrigationRegenFactor(hex.IrrigationLevel)
+
 			for res, qty := range hex.Resources {
 				maxQty := ResourceCap(hex.Terrain, res)
 				if qty < maxQty {
 					deficit := maxQty - qty
-					regen := deficit * phi.Agnosis * 0.06 * hex.Health * factor * weatherMod
+					regen := deficit * phi.Agnosis * 0.06 * hex.Health * factor * weatherMod * irrFactor
 					hex.Resources[res] = qty + regen
 					if hex.Resources[res] > maxQty {
 						hex.Resources[res] = maxQty

@@ -143,6 +143,8 @@ mini-world/
 │   │   ├── crime.go             #   Theft mechanics
 │   │   ├── perpetuation.go      #   Anti-stagnation safeguards
 │   │   ├── intervention.go      #   Gardener intervention handlers (provision, cultivate, consolidate)
+│   │   ├── land_governance.go   #   Hex claims, irrigation/conservation, coherence extraction
+│   │   ├── relations.go         #   Inter-settlement relations (sentiment, trade)
 │   │   └── seasons.go           #   Seasonal resource caps, weather modifiers
 │   ├── llm/                     # LLM integration (Haiku)
 │   │   ├── client.go            #   Anthropic API client
@@ -261,7 +263,7 @@ POST /api/v1/intervention    → Inject events, adjust wealth, spawn agents, pro
 4. **LLM Integration** — COMPLETE: Haiku API client, Tier 2 cognition, Tier 1 archetypes, newspaper generation, event narration, agent biographies, oracle visions
 5. **Polish & Perpetuation** — COMPLETE: Population dynamics (births/aging/death/migration), resource regen, anti-stagnation, settlement lifecycle (founding/abandonment), stats history, admin endpoints, random.org entropy, weather integration
 6. **Closed Economy** — COMPLETE: Order-matched market engine, merchant/Tier 2 trade closed via treasury, fallback wages removed, remaining mints throttled 60x. See `docs/08-closed-economy-changelog.md`.
-7. **Land Management** — PHASE A COMPLETE: Hex health model (0.0–1.0), extraction degrades health, regen scales by health, desertification threshold at Agnosis, fallow recovery, carrying capacity metric, hex health persisted across restarts. Phase B (settlement claims, infrastructure investment, coherence-based policy) pending observation. See `docs/15-land-management-proposal.md`.
+7. **Land Management** — PHASE A+B COMPLETE: Phase A: Hex health model (0.0–1.0), extraction degrades health, regen scales by health, desertification threshold at Agnosis, fallow recovery, carrying capacity metric, hex health persisted. Phase B (Round 42): Settlement hex claims, irrigation/conservation investment (levels 0-5), coherence-based extraction modifier, infrastructure decay. See `docs/15-land-management-proposal.md`.
 8. **Live View Pipeline** — COMPLETE: SSE event streaming endpoint (`/api/v1/stream`, relay-key auth, max 2 conns). Event struct has `Meta map[string]any` with structured metadata (agent IDs, settlement IDs, occupations, amounts) on all 35 event emit sites. Meta is `omitempty` in JSON, not persisted to SQLite — flows only through SSE to the relay. Relay enrichment layer deployed: settlement filtering (`?settlement=ID`), activity tracker (30s rolling window, 10s synthetic `activity` events), pattern detection (`trade_burst`, `crime_wave`, `baby_boom`), governance change detection (`regime_change`). Frontend Phase 3 animation: behavioral dot state machine (6 states, occupation-weighted cycling), traveling trails, SSE event reactions (ripples + behavior overrides), time-of-day ambient lighting (~85s day cycle), zone architecture line-art. See `docs/17-live-view-animation-design.md`.
 
 ## Tuning Fixes Applied
@@ -756,6 +758,19 @@ Post-R40 observation revealed work rate dropped from 50.1% to 28.3%. Investigati
 192. **Inter-settlement relations** — NEW: `SettlementRelation` type with `Sentiment` (-1 to +1) and `Trade` (weekly volume). Computed weekly in `computeSettlementRelations()` in `relations.go` from four Φ-derived factors: (a) shared faction dominance (same faction → positive `Being`, different → negative `Agnosis`), (b) trade volume (logarithmic, capped at `Psyche`), (c) culture axis similarity (identical → +Agnosis, opposite → -Agnosis), (d) distance attenuation (max 10 hexes). Sentiment decays weekly by Agnosis (~23.6%). Trade tracked via `RecordInterSettlementTrade()` called from merchant cargo sale. Persisted to `world_meta` key `settlement_relations`. API: relations included in settlement detail response. Foundation for diplomacy, persistent trade routes, and warfare.
 
 **Expected impact:** Work rate will now show the true steady-state equilibrium on every restart instead of artificial spikes. Settlements develop observable relationships — allies (shared faction, active trade, similar culture) and rivals (competing factions, cultural divergence). Relations are the keystone for the inter-settlement feature chain.
+
+### Round 42: Land Governance Phase 7B — Hex Claims, Infrastructure Investment, Coherence Extraction
+
+Ostrom commons governance — settlements claim land, invest in improvements, and extraction damage scales with governance quality. Previously hex land was a commons with no ownership or stewardship incentives. See `docs/15-land-management-proposal.md` for the research proposal.
+
+193. **Hex claims** — NEW: `initSettlementClaims()` in `land_governance.go` assigns hex claims on startup. Each settlement claims its home hex + up to 6 unclaimed non-ocean neighbors. Claims persist via `hex_health` JSON (Cl field). New settlements claim on founding (`foundSettlement()`), abandoned settlements release claims (`processSettlementAbandonment()`). Claims are the boundary layer for infrastructure investment — only claimed hexes can be improved.
+194. **Irrigation investment** — NEW: `processLandInvestment()` runs weekly. Well-governed settlements (GovernanceScore > Psyche) invest treasury in irrigation on productive claimed hexes. Levels 0-5. Cost: `level × Agnosis × pop × 0.1` (min 50 crowns). Effect: `IrrigationRegenFactor()` = `1 + level × Matter`. At level 5: 4.09× resource regen. Applied to hourly, weekly, and seasonal regen, plus carrying capacity.
+195. **Conservation investment** — NEW: Same weekly process invests in conservation on degraded claimed hexes (health < Matter). Levels 0-5. Effect: `ConservationDamageFactor()` = `1 - level × Agnosis × 0.1`. At level 5: ~12% damage reduction. Protects land from extraction degradation.
+196. **Coherence-based extraction** — NEW: `coherenceExtractionMod()` modulates extraction damage by settlement governance quality × average agent coherence. Well-governed, coherent settlements extract more carefully (mod 0.618–1.0). Poorly-governed settlements cause more damage (mod 1.0–1.236). Applied in both Tier 0 and Tier 2 `ResolveWork` call sites.
+197. **Infrastructure decay** — NEW: `processInfrastructureDecay()` runs weekly. Each irrigated/conserved hex has ~1.18% chance (Agnosis × 0.05) to lose a level per week. Claimed hexes with active settlements resist 50% of decay. Represents natural entropy — improvements need maintenance.
+198. **API exposure** — NEW: Hex detail shows `irrigation_level`, `conservation_level`, `claimed_by`. Bulk map includes these fields (omitted when zero/nil). Carrying capacity factors in irrigation.
+
+**Expected impact:** Settlements with good governance and treasury invest in their land, creating a positive feedback loop: better governance → irrigation/conservation → higher regen + lower damage → more production → more trade → more treasury → more investment. Poorly-governed settlements degrade their land faster. The coherence extraction modifier creates the philosophical payoff: a settlement of awakening agents treats land with care. Infrastructure decay ensures maintenance is needed — abandoned land returns to wilderness.
 
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.

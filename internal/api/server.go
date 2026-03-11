@@ -160,12 +160,15 @@ func (s *Server) handleMapRoutes(w http.ResponseWriter, r *http.Request) {
 // handleBulkMap returns all hexes for the hex map renderer.
 func (s *Server) handleBulkMap(w http.ResponseWriter, r *http.Request) {
 	type hexEntry struct {
-		Q            int      `json:"q"`
-		R            int      `json:"r"`
-		Terrain      uint8    `json:"terrain"`
-		Elevation    float64  `json:"elevation"`
-		SettlementID *uint64  `json:"settlement_id,omitempty"`
-		Health       *float64 `json:"health,omitempty"` // Omitted when pristine (1.0)
+		Q                 int      `json:"q"`
+		R                 int      `json:"r"`
+		Terrain           uint8    `json:"terrain"`
+		Elevation         float64  `json:"elevation"`
+		SettlementID      *uint64  `json:"settlement_id,omitempty"`
+		Health            *float64 `json:"health,omitempty"`             // Omitted when pristine (1.0)
+		IrrigationLevel   uint8    `json:"irrigation_level,omitempty"`   // Omitted when 0
+		ConservationLevel uint8    `json:"conservation_level,omitempty"` // Omitted when 0
+		ClaimedBy         *uint64  `json:"claimed_by,omitempty"`         // Omitted when unclaimed
 	}
 
 	type settlementEntry struct {
@@ -179,11 +182,14 @@ func (s *Server) handleBulkMap(w http.ResponseWriter, r *http.Request) {
 	hexes := make([]hexEntry, 0, len(s.Sim.WorldMap.Hexes))
 	for _, h := range s.Sim.WorldMap.Hexes {
 		entry := hexEntry{
-			Q:            h.Coord.Q,
-			R:            h.Coord.R,
-			Terrain:      uint8(h.Terrain),
-			Elevation:    h.Elevation,
-			SettlementID: h.SettlementID,
+			Q:                 h.Coord.Q,
+			R:                 h.Coord.R,
+			Terrain:           uint8(h.Terrain),
+			Elevation:         h.Elevation,
+			SettlementID:      h.SettlementID,
+			IrrigationLevel:   h.IrrigationLevel,
+			ConservationLevel: h.ConservationLevel,
+			ClaimedBy:         h.ClaimedBy,
 		}
 		// Only include health for non-pristine hexes to keep payload small.
 		if h.Health < 1.0 {
@@ -1769,6 +1775,9 @@ func (s *Server) handleHexDetail(w http.ResponseWriter, r *http.Request) {
 		"temperature":        hex.Temperature,
 		"health":             hex.Health,
 		"last_extracted_tick": hex.LastExtractedTick,
+		"irrigation_level":   hex.IrrigationLevel,
+		"conservation_level": hex.ConservationLevel,
+		"claimed_by":         hex.ClaimedBy,
 		"resources":          resources,
 		"settlement":         settlement,
 		"agent_count":        agentCount,

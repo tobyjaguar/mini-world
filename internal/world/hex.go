@@ -51,6 +51,13 @@ type Hex struct {
 	// Extraction degrades health; fallow hexes recover.
 	Health            float64 `json:"health"`
 	LastExtractedTick uint64  `json:"last_extracted_tick"`
+
+	// Land governance (Phase 7B).
+	// Irrigation multiplies resource regen: factor = 1 + level × Φ⁻¹.
+	// Conservation reduces extraction degradation: factor = 1 - level × Φ⁻².
+	IrrigationLevel   uint8 `json:"irrigation_level"`   // 0–5
+	ConservationLevel uint8 `json:"conservation_level"` // 0–5
+	ClaimedBy         *uint64 `json:"claimed_by,omitempty"` // Settlement ID that claims this hex
 }
 
 // ResourceType enumerates primary resources harvestable from terrain.

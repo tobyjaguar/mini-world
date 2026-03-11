@@ -25,7 +25,9 @@ var occupationResource = map[agents.Occupation]world.ResourceType{
 // For resource-producing occupations (farmer, miner, fisher, hunter),
 // production is limited by available hex resources.
 // boostMul applies a gardener "cultivate" production multiplier (1.0 = no boost).
-func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uint64, boostMul float64) []string {
+// coherenceMod modulates extraction damage (from settlement governance + coherence).
+// conservationMod modulates extraction damage (from hex conservation level).
+func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uint64, boostMul float64, coherenceMod float64, conservationMod float64) []string {
 	if action.Kind != agents.ActionWork {
 		return agents.ApplyAction(a, action, tick)
 	}
@@ -91,8 +93,9 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	}
 
 	// Extraction degrades hex health, scaled by extraction fraction.
+	// Conservation level and governance coherence reduce damage.
 	extractionFraction := producedFloat / fullProduction
-	hex.Health -= phi.Agnosis * 0.001 * extractionFraction // Scaled: partial extraction = partial degradation
+	hex.Health -= phi.Agnosis * 0.001 * extractionFraction * conservationMod * coherenceMod
 	if hex.Health < 0 {
 		hex.Health = 0
 	}

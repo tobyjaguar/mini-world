@@ -210,6 +210,9 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 					},
 				})
 
+				// Release hex claims.
+				s.releaseSettlementClaims(sett.ID)
+
 				// Clear hex settlement reference.
 				hex := s.WorldMap.Get(sett.Position)
 				if hex != nil {
@@ -288,6 +291,9 @@ func (s *Simulation) foundSettlement(coord world.HexCoord, founders []*agents.Ag
 	if hex != nil {
 		hex.SettlementID = &newID
 	}
+
+	// Claim hexes for new settlement.
+	s.claimHexesForSettlement(newID)
 
 	// Move founders to new settlement.
 	s.SettlementAgents[newID] = make([]*agents.Agent, 0, len(founders))

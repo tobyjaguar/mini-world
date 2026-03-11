@@ -216,8 +216,11 @@ func main() {
 	if startTick > 0 {
 		if healthStr, err := db.GetMeta("hex_health"); err == nil {
 			var hexHealth map[string]struct {
-				H float64 `json:"h"`
-				T uint64  `json:"t"`
+				H  float64 `json:"h"`
+				T  uint64  `json:"t"`
+				Ir uint8   `json:"ir,omitempty"`
+				Co uint8   `json:"co,omitempty"`
+				Cl *uint64 `json:"cl,omitempty"`
 			}
 			if json.Unmarshal([]byte(healthStr), &hexHealth) == nil && len(hexHealth) > 0 {
 				for key, entry := range hexHealth {
@@ -226,6 +229,9 @@ func main() {
 					if hex := worldMap.Get(world.HexCoord{Q: q, R: r}); hex != nil {
 						hex.Health = entry.H
 						hex.LastExtractedTick = entry.T
+						hex.IrrigationLevel = entry.Ir
+						hex.ConservationLevel = entry.Co
+						hex.ClaimedBy = entry.Cl
 					}
 				}
 				slog.Info("hex health restored", "degraded_hexes", len(hexHealth))

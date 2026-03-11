@@ -250,11 +250,17 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 		// Resource producers work the healthiest hex in their settlement neighborhood.
 		hex := s.bestProductionHex(a)
 		boostMul := 1.0
+		coherenceMod := 1.0
+		conservationMod := 1.0
 		if a.HomeSettID != nil {
 			boostMul = s.GetSettlementBoost(*a.HomeSettID)
+			coherenceMod = s.coherenceExtractionMod(*a.HomeSettID)
+		}
+		if hex != nil {
+			conservationMod = ConservationDamageFactor(hex.ConservationLevel)
 		}
 		workAction := agents.Action{Kind: agents.ActionWork}
-		ResolveWork(a, workAction, hex, tick, boostMul)
+		ResolveWork(a, workAction, hex, tick, boostMul, coherenceMod, conservationMod)
 
 	case "trade":
 		// Sell surplus to settlement treasury — closed transfer, no crowns minted.

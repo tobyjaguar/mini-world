@@ -185,6 +185,7 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 		AbandonedWeeks:   make(map[uint64]int),
 		NonViableWeeks:   make(map[uint64]int),
 	}
+	sim.initSettlementClaims()
 	sim.updateStats()
 	return sim
 }
@@ -226,10 +227,16 @@ func (s *Simulation) TickMinute(tick uint64) {
 			// Resource-producing occupations draw from hex resources.
 			hex := s.bestProductionHex(a)
 			boostMul := 1.0
+			coherenceMod := 1.0
+			conservationMod := 1.0
 			if a.HomeSettID != nil {
 				boostMul = s.GetSettlementBoost(*a.HomeSettID)
+				coherenceMod = s.coherenceExtractionMod(*a.HomeSettID)
 			}
-			events = ResolveWork(a, action, hex, tick, boostMul)
+			if hex != nil {
+				conservationMod = ConservationDamageFactor(hex.ConservationLevel)
+			}
+			events = ResolveWork(a, action, hex, tick, boostMul, coherenceMod, conservationMod)
 		}
 
 		// Record notable events.
@@ -398,6 +405,8 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processRandomEvents(tick)
 	s.narrateRecentMajorEvents(tick)
 	s.computeSettlementRelations()
+	s.processLandInvestment(tick)
+	s.processInfrastructureDecay(tick)
 
 	slog.Info("weekly summary",
 		"tick", tick,
@@ -1037,10 +1046,12 @@ func (s *Simulation) SettlementCarryingCapacity(settID uint64) (capacity float64
 	}
 
 	// Sum health-weighted resource caps for settlement hex and neighbors.
+	// Irrigation boosts effective capacity (same factor as regen).
 	addHexCapacity := func(h *world.Hex) {
+		irrFactor := IrrigationRegenFactor(h.IrrigationLevel)
 		for res, _ := range h.Resources {
 			cap := ResourceCap(h.Terrain, res)
-			capacity += cap * h.Health
+			capacity += cap * h.Health * irrFactor
 		}
 	}
 
