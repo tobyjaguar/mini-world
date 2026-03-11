@@ -238,6 +238,9 @@ GET  /api/v1/agent/:id/story → Haiku-generated biography (?refresh=true to reg
 GET  /api/v1/events          → Recent world events (?limit=N&settlement=NAME)
 GET  /api/v1/stats           → Aggregate statistics
 GET  /api/v1/stats/history   → Time-series stats (?from=TICK&to=TICK&limit=N)
+GET  /api/v1/settlement/history/:id → Per-settlement time-series (?limit=N)
+GET  /api/v1/agent/timeline/:id → Agent event timeline (?limit=N)
+GET  /api/v1/metrics         → Prometheus/OpenMetrics text metrics
 GET  /api/v1/newspaper       → Weekly Haiku-generated newspaper
 GET  /api/v1/factions        → All factions with influence and treasury
 GET  /api/v1/faction/:id     → Faction detail: members, influence, events
@@ -771,6 +774,15 @@ Ostrom commons governance — settlements claim land, invest in improvements, an
 198. **API exposure** — NEW: Hex detail shows `irrigation_level`, `conservation_level`, `claimed_by`. Bulk map includes these fields (omitted when zero/nil). Carrying capacity factors in irrigation.
 
 **Expected impact:** Settlements with good governance and treasury invest in their land, creating a positive feedback loop: better governance → irrigation/conservation → higher regen + lower damage → more production → more trade → more treasury → more investment. Poorly-governed settlements degrade their land faster. The coherence extraction modifier creates the philosophical payoff: a settlement of awakening agents treats land with care. Infrastructure decay ensures maintenance is needed — abandoned land returns to wilderness.
+
+### Round 43: Observability — Metrics, Settlement History, Agent Timeline
+
+Three observability features enabling monitoring of R42 land governance effects and general world health.
+
+199. **Prometheus metrics endpoint** — NEW: `GET /api/v1/metrics` returns OpenMetrics-compatible text. Exposes: tick counter, speed, population, settlements, total wealth, births/deaths, trade volume, satisfaction/mood/alignment, producers working/idle, per-occupation counts, Go runtime memory stats (heap alloc, sys, heap inuse), goroutines, LLM call counts by tag. No external dependencies — pure stdlib `fmt.Fprintf`. Enables Prometheus scraping and alerting.
+200. **Per-settlement daily history** — NEW: `settlement_stats_history` table stores daily snapshots per settlement: population, treasury, avg satisfaction, trade volume, governance type + score, carrying capacity, population pressure. Saved in `OnDay` callback alongside global stats. `GET /api/v1/settlement/history/:id?limit=N` returns time-series. Frontend: history table on settlement detail page.
+201. **Agent event timeline** — NEW: `agent_id` and `settlement_id` columns added to events table (migration-safe). `SaveEvents()` extracts agent_id/settlement_id from event Meta and persists them. Indexed for fast queries. `GET /api/v1/agent/timeline/:id?limit=N` returns events involving a specific agent. Frontend: timeline section on agent detail page.
+202. **Event Meta persistence** — FIXED: Event Meta fields `agent_id` and `settlement_id` were previously only available through SSE streaming (not persisted to SQLite). Now persisted as indexed columns, enabling historical queries without parsing description text.
 
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.

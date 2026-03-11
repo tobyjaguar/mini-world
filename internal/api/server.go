@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,7 +93,10 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/map", s.handleMapRoutes)
 	mux.HandleFunc("/api/v1/map/", s.handleMapRoutes)
 	mux.HandleFunc("/api/v1/stats/history", s.handleStatsHistory)
+	mux.HandleFunc("/api/v1/settlement/history/", s.handleSettlementHistory)
+	mux.HandleFunc("/api/v1/agent/timeline/", s.handleAgentTimeline)
 	mux.HandleFunc("/api/v1/llm-usage", s.handleLLMUsage)
+	mux.HandleFunc("/api/v1/metrics", s.handleMetrics)
 
 	// SSE streaming endpoint (GET, requires bearer token — relay only).
 	mux.HandleFunc("/api/v1/stream", s.handleStream)
@@ -619,6 +623,183 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, summary)
+}
+
+// handleMetrics returns Prometheus/OpenMetrics-compatible text metrics.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+
+	stats := s.Sim.Stats
+	tick := s.Eng.Tick
+
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	fmt.Fprintf(w, "# HELP worldsim_tick Current simulation tick.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_tick counter\n")
+	fmt.Fprintf(w, "worldsim_tick %d\n", tick)
+
+	fmt.Fprintf(w, "# HELP worldsim_speed Simulation speed multiplier.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_speed gauge\n")
+	fmt.Fprintf(w, "worldsim_speed %g\n", s.Eng.Speed)
+
+	fmt.Fprintf(w, "# HELP worldsim_population Total living agents.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_population gauge\n")
+	fmt.Fprintf(w, "worldsim_population %d\n", stats.TotalPopulation)
+
+	fmt.Fprintf(w, "# HELP worldsim_settlements Active settlement count.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_settlements gauge\n")
+	fmt.Fprintf(w, "worldsim_settlements %d\n", len(s.Sim.Settlements))
+
+	fmt.Fprintf(w, "# HELP worldsim_total_wealth Total crowns in economy.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_total_wealth gauge\n")
+	fmt.Fprintf(w, "worldsim_total_wealth %d\n", stats.TotalWealth)
+
+	fmt.Fprintf(w, "# HELP worldsim_births Cumulative births since last reset.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_births counter\n")
+	fmt.Fprintf(w, "worldsim_births %d\n", stats.Births)
+
+	fmt.Fprintf(w, "# HELP worldsim_deaths Cumulative deaths since last reset.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_deaths counter\n")
+	fmt.Fprintf(w, "worldsim_deaths %d\n", stats.Deaths)
+
+	fmt.Fprintf(w, "# HELP worldsim_trade_volume Cumulative merchant trade completions.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_trade_volume counter\n")
+	fmt.Fprintf(w, "worldsim_trade_volume %d\n", stats.TradeVolume)
+
+	fmt.Fprintf(w, "# HELP worldsim_avg_satisfaction Average material satisfaction (0-1).\n")
+	fmt.Fprintf(w, "# TYPE worldsim_avg_satisfaction gauge\n")
+	fmt.Fprintf(w, "worldsim_avg_satisfaction %g\n", stats.AvgSatisfaction)
+
+	fmt.Fprintf(w, "# HELP worldsim_avg_mood Average effective mood (0-1).\n")
+	fmt.Fprintf(w, "# TYPE worldsim_avg_mood gauge\n")
+	fmt.Fprintf(w, "worldsim_avg_mood %g\n", stats.AvgMood)
+
+	fmt.Fprintf(w, "# HELP worldsim_avg_alignment Average coherence alignment (0-1).\n")
+	fmt.Fprintf(w, "# TYPE worldsim_avg_alignment gauge\n")
+	fmt.Fprintf(w, "worldsim_avg_alignment %g\n", stats.AvgAlignment)
+
+	fmt.Fprintf(w, "# HELP worldsim_producers_working Producers who worked recently.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_producers_working gauge\n")
+	fmt.Fprintf(w, "worldsim_producers_working %d\n", stats.ProducersWorking)
+
+	fmt.Fprintf(w, "# HELP worldsim_producers_idle Producers who have not worked recently.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_producers_idle gauge\n")
+	fmt.Fprintf(w, "worldsim_producers_idle %d\n", stats.ProducersIdle)
+
+	occNames := []string{"farmer", "miner", "crafter", "merchant", "soldier", "scholar", "alchemist", "laborer", "fisher", "hunter"}
+	fmt.Fprintf(w, "# HELP worldsim_occupation_count Agents per occupation.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_occupation_count gauge\n")
+	for i, name := range occNames {
+		fmt.Fprintf(w, "worldsim_occupation_count{occupation=%q} %d\n", name, stats.OccupationCounts[i])
+	}
+
+	fmt.Fprintf(w, "# HELP worldsim_go_memstats_alloc_bytes Current heap allocation in bytes.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_go_memstats_alloc_bytes gauge\n")
+	fmt.Fprintf(w, "worldsim_go_memstats_alloc_bytes %d\n", mem.Alloc)
+
+	fmt.Fprintf(w, "# HELP worldsim_go_memstats_sys_bytes Total memory obtained from OS.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_go_memstats_sys_bytes gauge\n")
+	fmt.Fprintf(w, "worldsim_go_memstats_sys_bytes %d\n", mem.Sys)
+
+	fmt.Fprintf(w, "# HELP worldsim_go_memstats_heap_inuse_bytes Heap in-use bytes.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_go_memstats_heap_inuse_bytes gauge\n")
+	fmt.Fprintf(w, "worldsim_go_memstats_heap_inuse_bytes %d\n", mem.HeapInuse)
+
+	fmt.Fprintf(w, "# HELP worldsim_go_goroutines Current number of goroutines.\n")
+	fmt.Fprintf(w, "# TYPE worldsim_go_goroutines gauge\n")
+	fmt.Fprintf(w, "worldsim_go_goroutines %d\n", runtime.NumGoroutine())
+
+	// LLM usage if available.
+	if summary := s.LLM.UsageSummary(); summary != nil {
+		if tags, ok := summary["tags"].(map[string]any); ok {
+			fmt.Fprintf(w, "# HELP worldsim_llm_calls_total LLM calls by tag.\n")
+			fmt.Fprintf(w, "# TYPE worldsim_llm_calls_total counter\n")
+			for tag, data := range tags {
+				if m, ok := data.(map[string]any); ok {
+					if calls, ok := m["calls"]; ok {
+						fmt.Fprintf(w, "worldsim_llm_calls_total{tag=%q} %v\n", tag, calls)
+					}
+				}
+			}
+		}
+	}
+}
+
+// handleSettlementHistory returns per-settlement time-series data.
+func (s *Server) handleSettlementHistory(w http.ResponseWriter, r *http.Request) {
+	if s.DB == nil {
+		http.Error(w, "database not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse settlement ID from URL: /api/v1/settlement/history/:id
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/settlement/history/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.Error(w, "settlement ID required", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid settlement ID", http.StatusBadRequest)
+		return
+	}
+
+	limit := 30
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 500 {
+			limit = v
+		}
+	}
+
+	rows, err := s.DB.LoadSettlementHistory(id, limit)
+	if err != nil {
+		slog.Error("settlement history query failed", "error", err, "settlement_id", id)
+		writeJSON(w, []persistence.SettlementStatsRow{})
+		return
+	}
+	if rows == nil {
+		rows = []persistence.SettlementStatsRow{}
+	}
+	writeJSON(w, rows)
+}
+
+// handleAgentTimeline returns events involving a specific agent.
+func (s *Server) handleAgentTimeline(w http.ResponseWriter, r *http.Request) {
+	if s.DB == nil {
+		http.Error(w, "database not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse agent ID from URL: /api/v1/agent/timeline/:id
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/agent/timeline/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.Error(w, "agent ID required", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid agent ID", http.StatusBadRequest)
+		return
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 500 {
+			limit = v
+		}
+	}
+
+	events, err := s.DB.LoadAgentTimeline(id, limit)
+	if err != nil {
+		slog.Error("agent timeline query failed", "error", err, "agent_id", id)
+		writeJSON(w, []engine.Event{})
+		return
+	}
+	if events == nil {
+		events = []engine.Event{}
+	}
+	writeJSON(w, events)
 }
 
 func (s *Server) buildNewspaperData() *llm.NewspaperData {

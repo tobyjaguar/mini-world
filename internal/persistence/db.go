@@ -157,6 +157,26 @@ func (db *DB) migrate() error {
 		return err
 	}
 
+	// Settlement stats history table.
+	_, err = db.conn.Exec(`
+	CREATE TABLE IF NOT EXISTS settlement_stats_history (
+		tick INTEGER NOT NULL,
+		settlement_id INTEGER NOT NULL,
+		population INTEGER NOT NULL,
+		treasury INTEGER NOT NULL,
+		avg_satisfaction REAL NOT NULL,
+		trade_volume INTEGER NOT NULL,
+		governance TEXT NOT NULL,
+		governance_score REAL NOT NULL,
+		carrying_capacity REAL NOT NULL,
+		population_pressure REAL NOT NULL,
+		PRIMARY KEY (tick, settlement_id)
+	)`)
+	if err != nil {
+		return err
+	}
+	db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_settlement_stats_id ON settlement_stats_history(settlement_id)")
+
 	// Add columns that may not exist in older databases.
 	migrations := []string{
 		"ALTER TABLE events ADD COLUMN narrated TEXT NOT NULL DEFAULT ''",
@@ -168,10 +188,14 @@ func (db *DB) migrate() error {
 		"ALTER TABLE agents ADD COLUMN last_work_tick INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE agents ADD COLUMN production_progress REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE stats_history ADD COLUMN occupation_json TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE events ADD COLUMN agent_id INTEGER",
+		"ALTER TABLE events ADD COLUMN settlement_id INTEGER",
 	}
 	for _, m := range migrations {
 		db.conn.Exec(m) // Ignore errors — column may already exist.
 	}
+	db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id)")
+	db.conn.Exec("CREATE INDEX IF NOT EXISTS idx_events_settlement ON events(settlement_id)")
 
 	return nil
 }
@@ -364,9 +388,23 @@ func (db *DB) SaveEvents(events []engine.Event) error {
 	defer tx.Rollback()
 
 	for _, e := range events {
+		// Extract agent_id and settlement_id from Meta for queryability.
+		var agentID, settlementID *uint64
+		if e.Meta != nil {
+			if v, ok := e.Meta["agent_id"]; ok {
+				if id := metaToUint64(v); id != 0 {
+					agentID = &id
+				}
+			}
+			if v, ok := e.Meta["settlement_id"]; ok {
+				if id := metaToUint64(v); id != 0 {
+					settlementID = &id
+				}
+			}
+		}
 		_, err := tx.Exec(
-			"INSERT INTO events (tick, description, category, narrated) VALUES (?, ?, ?, ?)",
-			e.Tick, e.Description, e.Category, e.NarratedDescription,
+			"INSERT INTO events (tick, description, category, narrated, agent_id, settlement_id) VALUES (?, ?, ?, ?, ?, ?)",
+			e.Tick, e.Description, e.Category, e.NarratedDescription, agentID, settlementID,
 		)
 		if err != nil {
 			return err
@@ -866,4 +904,93 @@ func (db *DB) LoadStatsHistory(fromTick, toTick uint64, limit int) ([]StatsRow, 
 		fromTick, toTick, limit,
 	)
 	return rows, err
+}
+
+// SettlementStatsRow represents a per-settlement historical snapshot.
+type SettlementStatsRow struct {
+	Tick               uint64  `json:"tick" db:"tick"`
+	SettlementID       uint64  `json:"settlement_id" db:"settlement_id"`
+	Population         int     `json:"population" db:"population"`
+	Treasury           uint64  `json:"treasury" db:"treasury"`
+	AvgSatisfaction    float64 `json:"avg_satisfaction" db:"avg_satisfaction"`
+	TradeVolume        int     `json:"trade_volume" db:"trade_volume"`
+	Governance         string  `json:"governance" db:"governance"`
+	GovernanceScore    float64 `json:"governance_score" db:"governance_score"`
+	CarryingCapacity   float64 `json:"carrying_capacity" db:"carrying_capacity"`
+	PopulationPressure float64 `json:"population_pressure" db:"population_pressure"`
+}
+
+// SaveSettlementStats records per-settlement daily snapshots.
+func (db *DB) SaveSettlementStats(rows []SettlementStatsRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := db.conn.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, r := range rows {
+		_, err := tx.Exec(
+			`INSERT OR REPLACE INTO settlement_stats_history
+			(tick, settlement_id, population, treasury, avg_satisfaction, trade_volume,
+			 governance, governance_score, carrying_capacity, population_pressure)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.Tick, r.SettlementID, r.Population, r.Treasury, r.AvgSatisfaction,
+			r.TradeVolume, r.Governance, r.GovernanceScore, r.CarryingCapacity, r.PopulationPressure,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// LoadSettlementHistory returns per-settlement stats snapshots.
+func (db *DB) LoadSettlementHistory(settlementID uint64, limit int) ([]SettlementStatsRow, error) {
+	var rows []SettlementStatsRow
+	if limit <= 0 {
+		limit = 30
+	}
+	err := db.conn.Select(&rows,
+		`SELECT tick, settlement_id, population, treasury, avg_satisfaction, trade_volume,
+		 governance, governance_score, carrying_capacity, population_pressure
+		 FROM settlement_stats_history WHERE settlement_id = ?
+		 ORDER BY tick DESC LIMIT ?`,
+		settlementID, limit,
+	)
+	return rows, err
+}
+
+// LoadAgentTimeline returns events involving a specific agent.
+func (db *DB) LoadAgentTimeline(agentID uint64, limit int) ([]engine.Event, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var events []engine.Event
+	err := db.conn.Select(&events,
+		`SELECT tick, description, category, narrated
+		 FROM events WHERE agent_id = ?
+		 ORDER BY tick DESC LIMIT ?`,
+		agentID, limit,
+	)
+	return events, err
+}
+
+// metaToUint64 extracts a uint64 from Meta values which may be int, uint64, float64, etc.
+func metaToUint64(v any) uint64 {
+	switch n := v.(type) {
+	case int:
+		return uint64(n)
+	case int64:
+		return uint64(n)
+	case uint64:
+		return n
+	case float64:
+		return uint64(n)
+	case uint:
+		return uint64(n)
+	}
+	return 0
 }

@@ -469,6 +469,51 @@ func main() {
 		if err := db.SaveStatsSnapshot(statsRow); err != nil {
 			slog.Error("stats snapshot failed", "error", err)
 		}
+		// Save per-settlement stats snapshot.
+		govNames := [4]string{"Monarchy", "Council", "Merchant Republic", "Commune"}
+		var settRows []persistence.SettlementStatsRow
+		for _, sett := range sim.Settlements {
+			agents := sim.SettlementAgents[sett.ID]
+			pop := 0
+			totalSat := float64(0)
+			for _, a := range agents {
+				if a.Alive {
+					pop++
+					totalSat += float64(a.Wellbeing.Satisfaction)
+				}
+			}
+			avgSat := float64(0)
+			if pop > 0 {
+				avgSat = totalSat / float64(pop)
+			}
+			cap, pressure := sim.SettlementCarryingCapacity(sett.ID)
+			// Count trade volume from relations.
+			tradeVol := 0
+			for key, rel := range sim.Relations {
+				if key.A == sett.ID || key.B == sett.ID {
+					tradeVol += int(rel.Trade)
+				}
+			}
+			govName := "Unknown"
+			if int(sett.Governance) < len(govNames) {
+				govName = govNames[sett.Governance]
+			}
+			settRows = append(settRows, persistence.SettlementStatsRow{
+				Tick:               tick,
+				SettlementID:       sett.ID,
+				Population:         pop,
+				Treasury:           sett.Treasury,
+				AvgSatisfaction:    avgSat,
+				TradeVolume:        tradeVol,
+				Governance:         govName,
+				GovernanceScore:    sett.GovernanceScore,
+				CarryingCapacity:   cap,
+				PopulationPressure: pressure,
+			})
+		}
+		if err := db.SaveSettlementStats(settRows); err != nil {
+			slog.Error("settlement stats snapshot failed", "error", err)
+		}
 		// Auto-save daily.
 		if err := db.SaveWorldState(sim); err != nil {
 			slog.Error("daily save failed", "error", err)
