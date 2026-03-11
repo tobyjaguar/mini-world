@@ -68,6 +68,9 @@ type Simulation struct {
 	// Persistent trade routes: settlement pairs with sustained trade.
 	TradeRoutes map[SettRelKey]*TradeRoute
 
+	// Diplomatic agreements between settlement pairs.
+	Agreements map[SettRelKey]*Agreement
+
 	// Event streaming support.
 	eventSubMu sync.RWMutex
 	eventSubs  map[int]chan Event
@@ -409,6 +412,8 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.narrateRecentMajorEvents(tick)
 	s.processTradeRoutes(tick)
 	s.computeSettlementRelations()
+	s.processDiplomacy(tick)
+	s.ApplyDiplomacyEffects()
 	s.processLandInvestment(tick)
 	s.processInfrastructureDecay(tick)
 

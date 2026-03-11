@@ -340,6 +340,30 @@ func main() {
 		}
 	}
 
+	// Restore diplomatic agreements from database.
+	if startTick > 0 {
+		if agreeStr, err := db.GetMeta("agreements"); err == nil {
+			type agreeEntry struct {
+				A  uint64 `json:"a"`
+				B  uint64 `json:"b"`
+				T  uint8  `json:"t"`
+				SW int    `json:"sw"`
+				FT uint64 `json:"ft"`
+			}
+			var agrees []agreeEntry
+			if json.Unmarshal([]byte(agreeStr), &agrees) == nil && len(agrees) > 0 {
+				sim.Agreements = make(map[engine.SettRelKey]*engine.Agreement, len(agrees))
+				for _, a := range agrees {
+					key := engine.SettRelKey{A: a.A, B: a.B}
+					sim.Agreements[key] = &engine.Agreement{
+						Type: engine.AgreementType(a.T), SustainedWeeks: a.SW, FormedAtTick: a.FT,
+					}
+				}
+				slog.Info("agreements restored", "count", len(agrees))
+			}
+		}
+	}
+
 	// Initialize or load factions.
 	if startTick > 0 && db.HasFactions() {
 		factions, err := db.LoadFactions()

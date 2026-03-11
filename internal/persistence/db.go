@@ -577,6 +577,30 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		slog.Info("trade routes persisted", "count", len(routes))
 	}
 
+	// Persist diplomatic agreements.
+	if len(sim.Agreements) > 0 {
+		type agreeEntry struct {
+			A  uint64 `json:"a"`
+			B  uint64 `json:"b"`
+			T  uint8  `json:"t"`  // type
+			SW int    `json:"sw"` // sustained weeks
+			FT uint64 `json:"ft"` // formed at tick
+		}
+		agrees := make([]agreeEntry, 0, len(sim.Agreements))
+		for key, a := range sim.Agreements {
+			if a.Type > 0 { // Only persist formed agreements
+				agrees = append(agrees, agreeEntry{
+					A: key.A, B: key.B, T: uint8(a.Type), SW: a.SustainedWeeks, FT: a.FormedAtTick,
+				})
+			}
+		}
+		agreesJSON, _ := json.Marshal(agrees)
+		if err := db.SaveMeta("agreements", string(agreesJSON)); err != nil {
+			return fmt.Errorf("save agreements: %w", err)
+		}
+		slog.Info("agreements persisted", "count", len(agrees))
+	}
+
 	// Persist cumulative counters that can't be derived from agent/settlement state.
 	if err := db.SaveMeta("births", fmt.Sprintf("%d", sim.Stats.Births)); err != nil {
 		return fmt.Errorf("save births: %w", err)

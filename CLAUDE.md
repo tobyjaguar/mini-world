@@ -794,6 +794,16 @@ When merchants repeatedly trade between the same settlement pair, the route beco
 
 **Expected impact:** High-traffic merchant corridors become visible infrastructure. Routes between complementary economies (grain producer ↔ tool crafter) should establish first. Bonuses create positive feedback: profitable routes → more trade → route upgrades → better bonuses. Decay prevents permanent routes — trade must continue to maintain them.
 
+### Round 45: Inter-Settlement Diplomacy
+
+Formal diplomatic agreements that emerge from sustained positive sentiment. Three escalating types with mechanical bonuses — no scripted outcomes.
+
+206. **Diplomatic agreements** — NEW: `processDiplomacy()` in `diplomacy.go` runs weekly after `computeSettlementRelations()`. Three agreement types emerge from sustained sentiment: Trade Pact (sentiment > Psyche for 2+ weeks), Non-Aggression Pact (sentiment > Matter for 3+ weeks), Alliance (sentiment > Psyche+Matter for 4+ weeks). Dissolution thresholds create hysteresis (form at 0.382, dissolve at 0.236 for Trade Pact). Agreements downgrade one level on dissolution rather than disappearing instantly. Events emitted for formation/upgrade/downgrade/dissolution.
+207. **Agreement mechanical effects** — NEW: `ApplyDiplomacyEffects()` applies weekly bonuses. Trade Pact+: trade sentiment weight amplified via `GetDiplomacyTradeBonus()` (~19% boost per agreement level). Non-Aggression+: culture axes drift toward each other (Agnosis × 0.1/week), crime deterrence bonus via `GetDiplomacyCrimeBonus()` (~0.118 per NAP+ partner). Alliance: all above + `HasMutualDefense()` flag (foundation for warfare). All Φ-derived.
+208. **Diplomacy persistence + API** — NEW: Agreements persisted in `world_meta` key `agreements`. Restored on startup. Settlement detail includes `agreements` array. Social overview includes `diplomacy` summary (counts by type + strongest pair). Frontend: agreements table on settlement detail, diplomacy section on social page.
+
+**Expected impact:** Settlements with strong trade and shared factions will naturally form trade pacts, which amplify trade sentiment, creating a positive feedback loop toward non-aggression pacts and eventually alliances. Cultural convergence from NAPs means allied settlements grow more alike over time. Crime deterrence bonus rewards diplomatic settlements. The alliance mutual defense flag is inert now but is the foundation for the warfare feature.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

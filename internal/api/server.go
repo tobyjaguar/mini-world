@@ -1420,6 +1420,7 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 			"liberated": liberated,
 		},
 		"recent_political_events": politicalEvents,
+		"diplomacy":              s.Sim.DiplomacySummary(),
 	}
 
 	writeJSON(w, result)
@@ -1742,6 +1743,7 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		},
 		"relations":             relations,
 		"trade_routes":          s.Sim.GetSettlementRoutes(sett.ID),
+		"agreements":            s.Sim.GetSettlementAgreements(sett.ID),
 		"occupations":          occupations,
 		"avg_mood":             avgMood,
 		"avg_satisfaction":     avgSat,

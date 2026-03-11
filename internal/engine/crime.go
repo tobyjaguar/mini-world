@@ -35,7 +35,8 @@ func (s *Simulation) processCrime(tick uint64) {
 		// Militarism axis adds martial discipline: +Agnosis*0.5 per point (max ±11.8%).
 		wallBonus := 1.0 + float64(sett.WallLevel)*phi.Psyche
 		cultureBonus := 1.0 + float64(sett.CultureMilitarism)*phi.Agnosis*0.5
-		guardStrength := float64(sett.Treasury) / (float64(sett.Population) + 1) * sett.GovernanceScore * militaryBonus * wallBonus * cultureBonus
+		diplomacyBonus := 1.0 + s.GetDiplomacyCrimeBonus(sett.ID)
+		guardStrength := float64(sett.Treasury) / (float64(sett.Population) + 1) * sett.GovernanceScore * militaryBonus * wallBonus * cultureBonus * diplomacyBonus
 		// Deterrence: 0.0 (no law) to 1.0 (perfect enforcement)
 		deterrence := guardStrength / (guardStrength + phi.Totality)
 

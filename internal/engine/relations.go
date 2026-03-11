@@ -122,10 +122,12 @@ func (s *Simulation) computeSettlementRelations() {
 			}
 
 			// 2. Trade affinity: recent trade volume → positive sentiment.
+			//    Trade pacts amplify this via GetDiplomacyTradeBonus().
 			tradeScore := 0.0
 			if tradeVol, ok := s.TradeTracker[key]; ok && tradeVol > 0 {
 				// Logarithmic: diminishing returns. 1 trade = 0, 10 = 0.54, 50 = 0.92.
 				tradeScore = math.Log2(1+tradeVol) * phi.Agnosis * 0.1
+				tradeScore *= s.GetDiplomacyTradeBonus(settA.ID, settB.ID)
 				if tradeScore > phi.Psyche {
 					tradeScore = phi.Psyche // Cap at ~0.382
 				}
