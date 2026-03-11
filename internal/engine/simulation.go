@@ -368,6 +368,7 @@ func (s *Simulation) TickDay(tick uint64) {
 		"events_crime", eventCounts["crime"],
 		"events_social", eventCounts["social"],
 		"events_economy", eventCounts["economy"],
+		"events_warfare", eventCounts["warfare"],
 	)
 
 	// Log recent notable events (deaths, crimes, social).
@@ -414,6 +415,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.computeSettlementRelations()
 	s.processDiplomacy(tick)
 	s.ApplyDiplomacyEffects()
+	s.processWarfare(tick)
 	s.processLandInvestment(tick)
 	s.processInfrastructureDecay(tick)
 

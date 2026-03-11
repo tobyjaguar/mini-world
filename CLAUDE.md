@@ -804,6 +804,16 @@ Formal diplomatic agreements that emerge from sustained positive sentiment. Thre
 
 **Expected impact:** Settlements with strong trade and shared factions will naturally form trade pacts, which amplify trade sentiment, creating a positive feedback loop toward non-aggression pacts and eventually alliances. Cultural convergence from NAPs means allied settlements grow more alike over time. Crime deterrence bonus rewards diplomatic settlements. The alliance mutual defense flag is inert now but is the foundation for the warfare feature.
 
+### Round 46: Inter-Settlement Warfare
+
+Raids emerge from negative sentiment between nearby settlements with military capability. Defense is strongly favored — walls, soldiers, governance, and alliances all contribute. Wars are costly, rare, and consequential.
+
+209. **Raid evaluation** — NEW: `processWarfare()` in `warfare.go` runs weekly after diplomacy. Evaluates all hostile pairs (sentiment < -Agnosis) within 5 hexes. Raid probability scales with hostility depth × militarism culture × soldier ratio × Iron Brotherhood dominance. Mutual defense pacts prevent aggression. Deterministic per settlement-pair per week. Settlements below 50 population are exempt.
+210. **Battle resolution** — NEW: `resolveRaid()` computes attack strength (sum of soldier Combat skills × militarism × Being, distance-penalized) vs defense strength (soldier Combat × wall bonus × Being home advantage × governance × alliance reinforcements). Victory probability = attack/(attack+defense). Alliance mutual defense activated: allied soldiers contribute at Psyche efficiency with distance attenuation (8-hex reinforcement range). Casualties proportional to battle intensity (balanced fights = more casualties). Lower-skill soldiers fall first. Uses `handleAgentDeath()` for each casualty.
+211. **War outcomes** — NEW: Victor plunders Agnosis×0.5 of loser treasury (closed transfer). Winner soldiers get Purpose+Esteem boosts, loser soldiers get Belonging boost (shared adversity) and Safety penalty. Sentiment drops -Psyche after each raid. Events emitted with full metadata (attacker, defender, casualties, plunder). Warfare events appear in political event feed on social page.
+
+**Expected impact:** Iron Brotherhood-dominated settlements with negative faction relations and high militarism will initiate raids against rival-faction neighbors. Well-walled settlements with strong governance and alliances will be near-impervious. Wars create a wealth transfer mechanism between hostile settlements, soldier casualties make warfare costly, and the sentiment penalty means wars tend to escalate (deeper hostility → more raids). The mutual defense flag from R45 alliances now has mechanical meaning — allied settlements are harder targets.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

@@ -1389,7 +1389,7 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 	// Recent political events.
 	var politicalEvents []engine.Event
 	for _, e := range s.Sim.Events {
-		if e.Category == "political" {
+		if e.Category == "political" || e.Category == "warfare" {
 			politicalEvents = append(politicalEvents, e)
 		}
 	}
