@@ -763,7 +763,9 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 					}
 					margin := (destEntry.Price - homeEntry.Price) / homeEntry.Price
 					// Apply Being (Φ) as cooperation bonus, modified by cultural openness.
-					effectiveMargin := margin * phi.Being * opennessMod
+					// Persistent trade routes add a small margin bonus.
+					_, routeMarginBonus := s.GetRouteBonus(sett.ID, neighbor.ID)
+					effectiveMargin := margin * phi.Being * opennessMod * (1.0 + routeMarginBonus)
 					// Tier 2 merchant LLM preference: scout_route biases this destination.
 					if a.TradePreferredDest != nil && neighbor.ID == *a.TradePreferredDest {
 						effectiveMargin *= phi.Being // ~1.618x bonus for scouted route
@@ -782,7 +784,12 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			if bestDest != nil {
 				homePrice := sett.Market.Entries[bestGood].Price
 				destPrice := bestDest.Market.Entries[bestGood].Price
-				tc := roadAdjustedCost(routeCost(sett.Position, bestDest.Position, s.WorldMap), sett.RoadLevel)
+				baseTc := roadAdjustedCost(routeCost(sett.Position, bestDest.Position, s.WorldMap), sett.RoadLevel)
+				routeDiscount, _ := s.GetRouteBonus(sett.ID, bestDest.ID)
+				tc := int(float64(baseTc) * routeDiscount)
+				if tc < 6 {
+					tc = 6
+				}
 				foodCost := float64(tc/TicksPerSimHour+2) * 2.0 // ~2 crowns per meal
 				grossProfit := (destPrice - homePrice) * 5       // 5-unit cargo
 				if grossProfit <= foodCost {
@@ -835,8 +842,13 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			a.TradeDestSett = &destID
 			a.TradeCargo[bestGood] += buyQty
 
-			// Provision food for the journey. Roads reduce travel time.
-			travelCost := roadAdjustedCost(routeCost(sett.Position, bestDest.Position, s.WorldMap), sett.RoadLevel)
+			// Provision food for the journey. Roads and established trade routes reduce travel time.
+			baseTravelCost := roadAdjustedCost(routeCost(sett.Position, bestDest.Position, s.WorldMap), sett.RoadLevel)
+			routeDisc, _ := s.GetRouteBonus(sett.ID, bestDest.ID)
+			travelCost := int(float64(baseTravelCost) * routeDisc)
+			if travelCost < 6 {
+				travelCost = 6
+			}
 			currentFood := a.Inventory[agents.GoodGrain] + a.Inventory[agents.GoodFish]
 			mealsNeeded := travelCost/TicksPerSimHour + 2
 			for i := currentFood; i < mealsNeeded; i++ {

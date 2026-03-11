@@ -313,6 +313,33 @@ func main() {
 		}
 	}
 
+	// Restore trade routes from database.
+	if startTick > 0 {
+		if routeStr, err := db.GetMeta("trade_routes"); err == nil {
+			type routeEntry struct {
+				A  uint64  `json:"a"`
+				B  uint64  `json:"b"`
+				L  uint8   `json:"l"`
+				N  string  `json:"n"`
+				SW int     `json:"sw"`
+				DW int     `json:"dw"`
+				WT float64 `json:"wt"`
+			}
+			var routes []routeEntry
+			if json.Unmarshal([]byte(routeStr), &routes) == nil && len(routes) > 0 {
+				sim.TradeRoutes = make(map[engine.SettRelKey]*engine.TradeRoute, len(routes))
+				for _, r := range routes {
+					key := engine.SettRelKey{A: r.A, B: r.B}
+					sim.TradeRoutes[key] = &engine.TradeRoute{
+						Level: r.L, Name: r.N, SustainedWeeks: r.SW,
+						DormantWeeks: r.DW, WeeklyTrade: r.WT,
+					}
+				}
+				slog.Info("trade routes restored", "count", len(routes))
+			}
+		}
+	}
+
 	// Initialize or load factions.
 	if startTick > 0 && db.HasFactions() {
 		factions, err := db.LoadFactions()

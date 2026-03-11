@@ -552,6 +552,31 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		slog.Info("settlement relations persisted", "pairs", len(rels))
 	}
 
+	// Persist trade routes.
+	if len(sim.TradeRoutes) > 0 {
+		type routeEntry struct {
+			A  uint64  `json:"a"`
+			B  uint64  `json:"b"`
+			L  uint8   `json:"l"`           // level
+			N  string  `json:"n"`           // name
+			SW int     `json:"sw"`          // sustained weeks
+			DW int     `json:"dw"`          // dormant weeks
+			WT float64 `json:"wt"`          // weekly trade
+		}
+		routes := make([]routeEntry, 0, len(sim.TradeRoutes))
+		for key, route := range sim.TradeRoutes {
+			routes = append(routes, routeEntry{
+				A: key.A, B: key.B, L: route.Level, N: route.Name,
+				SW: route.SustainedWeeks, DW: route.DormantWeeks, WT: route.WeeklyTrade,
+			})
+		}
+		routesJSON, _ := json.Marshal(routes)
+		if err := db.SaveMeta("trade_routes", string(routesJSON)); err != nil {
+			return fmt.Errorf("save trade_routes: %w", err)
+		}
+		slog.Info("trade routes persisted", "count", len(routes))
+	}
+
 	// Persist cumulative counters that can't be derived from agent/settlement state.
 	if err := db.SaveMeta("births", fmt.Sprintf("%d", sim.Stats.Births)); err != nil {
 		return fmt.Errorf("save births: %w", err)

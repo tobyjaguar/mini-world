@@ -65,6 +65,9 @@ type Simulation struct {
 	Relations    map[SettRelKey]*SettlementRelation
 	TradeTracker map[SettRelKey]float64 // Weekly trade volume accumulator, reset each week.
 
+	// Persistent trade routes: settlement pairs with sustained trade.
+	TradeRoutes map[SettRelKey]*TradeRoute
+
 	// Event streaming support.
 	eventSubMu sync.RWMutex
 	eventSubs  map[int]chan Event
@@ -404,6 +407,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processOracleVisions(tick)
 	s.processRandomEvents(tick)
 	s.narrateRecentMajorEvents(tick)
+	s.processTradeRoutes(tick)
 	s.computeSettlementRelations()
 	s.processLandInvestment(tick)
 	s.processInfrastructureDecay(tick)

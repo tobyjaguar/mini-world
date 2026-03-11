@@ -1212,6 +1212,41 @@ func (s *Server) handleEconomy(w http.ResponseWriter, r *http.Request) {
 		workRate = float64(s.Sim.Stats.ProducersWorking) / float64(producerTotal)
 	}
 
+	// Collect all established trade routes.
+	type routeSummary struct {
+		Name        string  `json:"name"`
+		Level       uint8   `json:"level"`
+		LevelName   string  `json:"level_name"`
+		WeeklyTrade float64 `json:"weekly_trade"`
+		SettAID     uint64  `json:"settlement_a_id"`
+		SettAName   string  `json:"settlement_a_name"`
+		SettBID     uint64  `json:"settlement_b_id"`
+		SettBName   string  `json:"settlement_b_name"`
+	}
+	var routes []routeSummary
+	for key, route := range s.Sim.TradeRoutes {
+		if route.Level == 0 {
+			continue
+		}
+		nameA, nameB := "Unknown", "Unknown"
+		if sett, ok := s.Sim.SettlementIndex[key.A]; ok {
+			nameA = sett.Name
+		}
+		if sett, ok := s.Sim.SettlementIndex[key.B]; ok {
+			nameB = sett.Name
+		}
+		routes = append(routes, routeSummary{
+			Name:        route.Name,
+			Level:       route.Level,
+			LevelName:   engine.RouteLevelName(route.Level),
+			WeeklyTrade: route.WeeklyTrade,
+			SettAID:     key.A,
+			SettAName:   nameA,
+			SettBID:     key.B,
+			SettBName:   nameB,
+		})
+	}
+
 	result := map[string]any{
 		"total_crowns":       totalAgentWealth + totalTreasury,
 		"agent_wealth":       totalAgentWealth,
@@ -1229,6 +1264,10 @@ func (s *Server) handleEconomy(w http.ResponseWriter, r *http.Request) {
 			"working":   s.Sim.Stats.ProducersWorking,
 			"idle":      s.Sim.Stats.ProducersIdle,
 			"work_rate": workRate,
+		},
+		"trade_routes": map[string]any{
+			"count":  len(routes),
+			"routes": routes,
 		},
 	}
 
@@ -1702,6 +1741,7 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 			"market_level": sett.MarketLevel,
 		},
 		"relations":             relations,
+		"trade_routes":          s.Sim.GetSettlementRoutes(sett.ID),
 		"occupations":          occupations,
 		"avg_mood":             avgMood,
 		"avg_satisfaction":     avgSat,

@@ -784,6 +784,16 @@ Three observability features enabling monitoring of R42 land governance effects 
 201. **Agent event timeline** — NEW: `agent_id` and `settlement_id` columns added to events table (migration-safe). `SaveEvents()` extracts agent_id/settlement_id from event Meta and persists them. Indexed for fast queries. `GET /api/v1/agent/timeline/:id?limit=N` returns events involving a specific agent. Frontend: timeline section on agent detail page.
 202. **Event Meta persistence** — FIXED: Event Meta fields `agent_id` and `settlement_id` were previously only available through SSE streaming (not persisted to SQLite). Now persisted as indexed columns, enabling historical queries without parsing description text.
 
+### Round 44: Persistent Trade Routes
+
+When merchants repeatedly trade between the same settlement pair, the route becomes named infrastructure with efficiency bonuses. Creates visible economic geography — emergent trade networks that shape the world.
+
+203. **Trade route processing** — NEW: `processTradeRoutes()` in `trade_routes.go` runs weekly BEFORE `computeSettlementRelations()` (reads TradeTracker before reset). Evaluates all settlement pairs with trade volume. Routes establish at ≥4 trades/week for 2+ consecutive weeks. Upgrade: Level 2 (Flourishing) at ≥8/week for 3+ weeks, Level 3 (Legendary) at ≥16/week for 4+ weeks. Decay: below 2 trades/week for 2+ weeks degrades; dissolved routes are removed. Pre-established routes (Level 0) that never materialize are cleaned up after 3 dormant weeks.
+204. **Route efficiency bonuses** — NEW: `GetRouteBonus()` returns per-level bonuses applied in `resolveMerchantTrade()`: travel cost discount = `1 - level × Agnosis × 0.1` (~2.4% per level, applied to both outbound routing and actual travel), margin bonus = `level × Agnosis × 0.05` (~1.2% per level, multiplied into effective margin during route selection). Level 3 route: ~7.1% travel discount + ~3.5% margin bonus. All Φ-derived.
+205. **Route persistence + API** — NEW: Routes saved as JSON array in `world_meta` key `trade_routes` (compact field names). Restored on startup. Settlement detail API includes `trade_routes` array. Economy API includes `trade_routes` summary with count and full route list. Route events emitted for established/upgraded/degraded/dissolved. Frontend: trade routes table on settlement detail page, trade routes section on economy page.
+
+**Expected impact:** High-traffic merchant corridors become visible infrastructure. Routes between complementary economies (grain producer ↔ tool crafter) should establish first. Bonuses create positive feedback: profitable routes → more trade → route upgrades → better bonuses. Decay prevents permanent routes — trade must continue to maintain them.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
