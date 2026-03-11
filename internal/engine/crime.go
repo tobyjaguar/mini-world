@@ -39,6 +39,21 @@ func (s *Simulation) processCrime(tick uint64) {
 		// Deterrence: 0.0 (no law) to 1.0 (perfect enforcement)
 		deterrence := guardStrength / (guardStrength + phi.Totality)
 
+		// Soldiers gain purpose from protecting people. The more effective the
+		// deterrence they contribute to, the more meaningful their role feels.
+		// Purpose boost = deterrence * Agnosis * 0.3 per day (~0.017 at 25% deterrence).
+		if soldierCount > 0 {
+			purposeBoost := float32(deterrence * phi.Agnosis * 0.3)
+			for _, sa := range settAgents {
+				if sa.Alive && sa.Occupation == agents.OccupationSoldier {
+					sa.Needs.Purpose += purposeBoost
+					if sa.Needs.Purpose > 1 {
+						sa.Needs.Purpose = 1
+					}
+				}
+			}
+		}
+
 		for i, a := range settAgents {
 			if !a.Alive {
 				continue

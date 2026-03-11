@@ -739,6 +739,15 @@ Random events refactored from global single-settlement to regional with spreadin
 
 **Expected impact:** The world now has regional geography of disaster. A storm doesn't just hit one settlement — it ravages the surrounding area. Plagues spread along trade routes, creating genuine epidemiological dynamics. The backup timer protects 1.2 GB of world state from single-point-of-failure loss.
 
+### Round 40: Iron Brotherhood Influence + Soldier Purpose
+
+Post-R39 observation revealed Iron Brotherhood max influence was 20% — structurally unable to trigger revolutions (requires >40). Soldiers were persistently lowest satisfaction (0.674) with no psychological reward for protecting settlements.
+
+189. **Iron Brotherhood soldier influence bonus** — FIXED: `updateFactionInfluence()` in `factions.go` now weights Iron Brotherhood soldiers at Being (~1.618) per member instead of 1.0. Martial discipline = outsized political presence. Also added +5 Council governance alignment bonus for Iron Brotherhood (structured governance suits military organization). Combined effect: Iron Brotherhood influence rises from ~20% to ~28-35% in soldier-heavy settlements, within striking distance of the 40 revolution threshold.
+190. **Soldier purpose from crime deterrence** — FIXED: `processCrime()` in `crime.go` gives soldiers a daily purpose boost proportional to settlement deterrence: `deterrence × Agnosis × 0.3` (~0.017/day at 25% deterrence). Protecting people feels meaningful. Should close the 0.674→0.693 satisfaction gap over time.
+
+**Expected impact:** Iron Brotherhood becomes politically relevant — their soldiers' martial discipline gives outsized influence. Combined with the R37 faction mismatch pressure, this creates a pathway for military-backed governance changes. Soldier satisfaction should rise as purpose accrues from their protective role.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

@@ -158,9 +158,11 @@ func (s *Simulation) updateFactionInfluence() {
 	}
 
 	// Count faction members per settlement.
+	// Iron Brotherhood soldiers count with a martial discipline bonus (Being weight
+	// per soldier) — soldiers exert outsized political influence through military presence.
 	for _, sett := range s.Settlements {
 		settAgents := s.SettlementAgents[sett.ID]
-		factionCounts := make(map[social.FactionID]int)
+		factionCounts := make(map[social.FactionID]float64)
 		aliveCount := 0
 
 		for _, a := range settAgents {
@@ -169,7 +171,14 @@ func (s *Simulation) updateFactionInfluence() {
 			}
 			aliveCount++
 			if a.FactionID != nil {
-				factionCounts[social.FactionID(*a.FactionID)]++
+				fid := social.FactionID(*a.FactionID)
+				weight := 1.0
+				// Iron Brotherhood soldiers count as Being (~1.618) members each.
+				// Martial discipline = outsized political weight.
+				if fid == 3 && a.Occupation == agents.OccupationSoldier {
+					weight = phi.Being
+				}
+				factionCounts[fid] += weight
 			}
 		}
 
@@ -177,13 +186,13 @@ func (s *Simulation) updateFactionInfluence() {
 			continue
 		}
 
-		// Influence = (members / total) * 100, plus governance alignment bonus.
-		for fid, count := range factionCounts {
+		// Influence = (weighted members / total) * 100, plus governance alignment bonus.
+		for fid, weightedCount := range factionCounts {
 			f, ok := factionIndex[fid]
 			if !ok {
 				continue
 			}
-			influence := float64(count) / float64(aliveCount) * 100.0
+			influence := weightedCount / float64(aliveCount) * 100.0
 
 			// Governance alignment bonus: matching faction-governance pairs get +15/+10.
 			switch fid {
@@ -194,6 +203,10 @@ func (s *Simulation) updateFactionInfluence() {
 			case 2: // Merchant's Compact benefits from merchant republics.
 				if sett.Governance == social.GovMerchantRepublic {
 					influence += 15
+				}
+			case 3: // Iron Brotherhood benefits from councils (structured governance).
+				if sett.Governance == social.GovCouncil {
+					influence += 5
 				}
 			case 4: // Verdant Circle benefits from councils.
 				if sett.Governance == social.GovCouncil {
