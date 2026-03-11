@@ -233,6 +233,30 @@ func main() {
 		}
 	}
 
+	// Restore hex resource quantities from database. Without this, resources reset
+	// to fresh-generation values on every restart, causing an artificial work rate spike.
+	if startTick > 0 {
+		if resStr, err := db.GetMeta("hex_resources"); err == nil {
+			var hexResources map[string]map[string]float64
+			if json.Unmarshal([]byte(resStr), &hexResources) == nil && len(hexResources) > 0 {
+				restored := 0
+				for key, resMap := range hexResources {
+					var q, r int
+					fmt.Sscanf(key, "%d,%d", &q, &r)
+					if hex := worldMap.Get(world.HexCoord{Q: q, R: r}); hex != nil {
+						for resKey, qty := range resMap {
+							var resType int
+							fmt.Sscanf(resKey, "%d", &resType)
+							hex.Resources[world.ResourceType(resType)] = qty
+						}
+						restored++
+					}
+				}
+				slog.Info("hex resources restored", "hexes", restored)
+			}
+		}
+	}
+
 	// Default any hex with zero health to pristine (handles first deploy
 	// where no hex_health metadata exists yet).
 	for _, hex := range worldMap.Hexes {
@@ -261,6 +285,27 @@ func main() {
 	sim.Spawner = spawner
 	sim.LastTick = startTick
 	sim.CurrentSeason = startSeason
+
+	// Restore inter-settlement relations from database.
+	if startTick > 0 {
+		if relStr, err := db.GetMeta("settlement_relations"); err == nil {
+			type relEntry struct {
+				A uint64  `json:"a"`
+				B uint64  `json:"b"`
+				S float64 `json:"s"`
+				T float64 `json:"t"`
+			}
+			var rels []relEntry
+			if json.Unmarshal([]byte(relStr), &rels) == nil && len(rels) > 0 {
+				sim.Relations = make(map[engine.SettRelKey]*engine.SettlementRelation, len(rels))
+				for _, r := range rels {
+					key := engine.SettRelKey{A: r.A, B: r.B}
+					sim.Relations[key] = &engine.SettlementRelation{Sentiment: r.S, Trade: r.T}
+				}
+				slog.Info("settlement relations restored", "pairs", len(rels))
+			}
+		}
+	}
 
 	// Initialize or load factions.
 	if startTick > 0 && db.HasFactions() {

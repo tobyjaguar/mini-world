@@ -61,6 +61,10 @@ type Simulation struct {
 	// Active production boosts from gardener "cultivate" interventions.
 	ActiveBoosts []ProductionBoost
 
+	// Inter-settlement relations: sentiment scores between settlement pairs.
+	Relations    map[SettRelKey]*SettlementRelation
+	TradeTracker map[SettRelKey]float64 // Weekly trade volume accumulator, reset each week.
+
 	// Event streaming support.
 	eventSubMu sync.RWMutex
 	eventSubs  map[int]chan Event
@@ -393,6 +397,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processOracleVisions(tick)
 	s.processRandomEvents(tick)
 	s.narrateRecentMajorEvents(tick)
+	s.computeSettlementRelations()
 
 	slog.Info("weekly summary",
 		"tick", tick,

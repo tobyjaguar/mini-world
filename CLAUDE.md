@@ -748,6 +748,15 @@ Post-R39 observation revealed Iron Brotherhood max influence was 20% — structu
 
 **Expected impact:** Iron Brotherhood becomes politically relevant — their soldiers' martial discipline gives outsized influence. Combined with the R37 faction mismatch pressure, this creates a pathway for military-backed governance changes. Soldier satisfaction should rise as purpose accrues from their protective role.
 
+### Round 41: Hex Resource Persistence + Inter-Settlement Relations
+
+Post-R40 observation revealed work rate dropped from 50.1% to 28.3%. Investigation found the root cause: hex resource quantities reset to fresh-generation values on every deploy (world map always regenerated from seed). Only hex health was persisted, not resources. The 50.1% was an artificial spike from fresh resources; 28.3% is the true steady state. Additionally, settlements had no relationship model — economically connected but socially isolated.
+
+191. **Hex resource persistence** — FIXED: `SaveWorldState()` in `db.go` now persists all hex resource quantities to `world_meta` key `hex_resources` as JSON (keyed by `"q,r"` → resource map). Restored on startup in `main.go` after map generation but before hex health restoration. Eliminates the artificial work rate spike that followed every deploy — resources now survive restarts at their true depleted levels.
+192. **Inter-settlement relations** — NEW: `SettlementRelation` type with `Sentiment` (-1 to +1) and `Trade` (weekly volume). Computed weekly in `computeSettlementRelations()` in `relations.go` from four Φ-derived factors: (a) shared faction dominance (same faction → positive `Being`, different → negative `Agnosis`), (b) trade volume (logarithmic, capped at `Psyche`), (c) culture axis similarity (identical → +Agnosis, opposite → -Agnosis), (d) distance attenuation (max 10 hexes). Sentiment decays weekly by Agnosis (~23.6%). Trade tracked via `RecordInterSettlementTrade()` called from merchant cargo sale. Persisted to `world_meta` key `settlement_relations`. API: relations included in settlement detail response. Foundation for diplomacy, persistent trade routes, and warfare.
+
+**Expected impact:** Work rate will now show the true steady-state equilibrium on every restart instead of artificial spikes. Settlements develop observable relationships — allies (shared faction, active trade, similar culture) and rivals (competing factions, cultural divergence). Relations are the keystone for the inter-settlement feature chain.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

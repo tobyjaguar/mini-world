@@ -1471,6 +1471,27 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		recentEvents = recentEvents[len(recentEvents)-20:]
 	}
 
+	// Inter-settlement relations.
+	type relationSummary struct {
+		SettlementID   uint64  `json:"settlement_id"`
+		SettlementName string  `json:"settlement_name"`
+		Sentiment      float64 `json:"sentiment"`
+		Trade          float64 `json:"trade"`
+	}
+	var relations []relationSummary
+	for otherID, rel := range s.Sim.GetSettlementRelations(id) {
+		name := "Unknown"
+		if other, ok := s.Sim.SettlementIndex[otherID]; ok {
+			name = other.Name
+		}
+		relations = append(relations, relationSummary{
+			SettlementID:   otherID,
+			SettlementName: name,
+			Sentiment:      rel.Sentiment,
+			Trade:          rel.Trade,
+		})
+	}
+
 	result := map[string]any{
 		"id":               sett.ID,
 		"name":             sett.Name,
@@ -1493,6 +1514,7 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 			"road_level":   sett.RoadLevel,
 			"market_level": sett.MarketLevel,
 		},
+		"relations":             relations,
 		"occupations":          occupations,
 		"avg_mood":             avgMood,
 		"avg_satisfaction":     avgSat,

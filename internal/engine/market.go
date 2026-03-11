@@ -718,6 +718,10 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 				if ok && destSett.Market != nil {
 					sellMerchantCargo(a, destSett.Market, destSett, s)
 					s.Stats.TradeVolume++
+					// Track inter-settlement trade for relations.
+					if a.HomeSettID != nil {
+						s.RecordInterSettlementTrade(*a.HomeSettID, destSett.ID)
+					}
 				}
 				// Repay consignment debt to home settlement treasury.
 				if a.ConsignmentDebt > 0 {

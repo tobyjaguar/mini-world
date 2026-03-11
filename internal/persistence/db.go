@@ -468,6 +468,49 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		slog.Info("hex health persisted", "degraded_hexes", len(hexHealth))
 	}
 
+	// Persist hex resource quantities. Without this, resources reset to fresh-generation
+	// values on every restart, causing an artificial work rate spike that decays over days.
+	// Save all non-ocean hexes that have resources — the map is keyed by "q,r" coords,
+	// values are maps of resource type (uint8 as string key) to quantity.
+	hexResources := make(map[string]map[string]float64)
+	for coord, hex := range sim.WorldMap.Hexes {
+		if len(hex.Resources) == 0 {
+			continue
+		}
+		key := fmt.Sprintf("%d,%d", coord.Q, coord.R)
+		resMap := make(map[string]float64, len(hex.Resources))
+		for res, qty := range hex.Resources {
+			resMap[fmt.Sprintf("%d", res)] = qty
+		}
+		hexResources[key] = resMap
+	}
+	if len(hexResources) > 0 {
+		hexResJSON, _ := json.Marshal(hexResources)
+		if err := db.SaveMeta("hex_resources", string(hexResJSON)); err != nil {
+			return fmt.Errorf("save hex_resources: %w", err)
+		}
+		slog.Info("hex resources persisted", "hexes", len(hexResources))
+	}
+
+	// Persist inter-settlement relations.
+	if len(sim.Relations) > 0 {
+		type relEntry struct {
+			A uint64  `json:"a"`
+			B uint64  `json:"b"`
+			S float64 `json:"s"` // sentiment
+			T float64 `json:"t"` // trade
+		}
+		rels := make([]relEntry, 0, len(sim.Relations))
+		for key, rel := range sim.Relations {
+			rels = append(rels, relEntry{A: key.A, B: key.B, S: rel.Sentiment, T: rel.Trade})
+		}
+		relsJSON, _ := json.Marshal(rels)
+		if err := db.SaveMeta("settlement_relations", string(relsJSON)); err != nil {
+			return fmt.Errorf("save settlement_relations: %w", err)
+		}
+		slog.Info("settlement relations persisted", "pairs", len(rels))
+	}
+
 	// Persist cumulative counters that can't be derived from agent/settlement state.
 	if err := db.SaveMeta("births", fmt.Sprintf("%d", sim.Stats.Births)); err != nil {
 		return fmt.Errorf("save births: %w", err)
