@@ -364,6 +364,46 @@ func main() {
 		}
 	}
 
+	// Restore peace treaties from database.
+	if startTick > 0 {
+		if peaceStr, err := db.GetMeta("peace_treaties"); err == nil {
+			type peaceEntry struct {
+				A  uint64 `json:"a"`
+				B  uint64 `json:"b"`
+				RW int    `json:"rw"`
+				RC int    `json:"rc"`
+				FT uint64 `json:"ft"`
+			}
+			var entries []peaceEntry
+			if json.Unmarshal([]byte(peaceStr), &entries) == nil && len(entries) > 0 {
+				sim.PeaceTreaties = make(map[engine.SettRelKey]*engine.PeaceTreaty, len(entries))
+				for _, e := range entries {
+					key := engine.SettRelKey{A: e.A, B: e.B}
+					sim.PeaceTreaties[key] = &engine.PeaceTreaty{
+						RemainingWeeks: e.RW, RaidCount: e.RC, FormedAtTick: e.FT,
+					}
+				}
+				slog.Info("peace treaties restored", "count", len(entries))
+			}
+		}
+		if raidStr, err := db.GetMeta("raid_counts"); err == nil {
+			type raidEntry struct {
+				A uint64 `json:"a"`
+				B uint64 `json:"b"`
+				C int    `json:"c"`
+			}
+			var entries []raidEntry
+			if json.Unmarshal([]byte(raidStr), &entries) == nil && len(entries) > 0 {
+				sim.RaidCounts = make(map[engine.SettRelKey]int, len(entries))
+				for _, e := range entries {
+					key := engine.SettRelKey{A: e.A, B: e.B}
+					sim.RaidCounts[key] = e.C
+				}
+				slog.Info("raid counts restored", "count", len(entries))
+			}
+		}
+	}
+
 	// Initialize or load factions.
 	if startTick > 0 && db.HasFactions() {
 		factions, err := db.LoadFactions()

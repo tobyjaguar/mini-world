@@ -749,6 +749,10 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			var bestDest *social.Settlement
 
 			for _, neighbor := range neighbors {
+				// Trade embargo: hostile settlements block merchant routes.
+				if s.IsEmbargoed(sett.ID, neighbor.ID) {
+					continue
+				}
 				// Openness axis affects trade attractiveness: cosmopolitan destinations
 				// welcome merchants, isolationist ones discourage them.
 				// Averages source and destination openness: +Agnosis*0.2 per point (max ±4.7%).

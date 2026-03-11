@@ -1744,6 +1744,7 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 		"relations":             relations,
 		"trade_routes":          s.Sim.GetSettlementRoutes(sett.ID),
 		"agreements":            s.Sim.GetSettlementAgreements(sett.ID),
+		"peace_treaties":        s.Sim.GetSettlementPeace(sett.ID),
 		"occupations":          occupations,
 		"avg_mood":             avgMood,
 		"avg_satisfaction":     avgSat,

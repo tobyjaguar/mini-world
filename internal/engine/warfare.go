@@ -62,6 +62,11 @@ func (s *Simulation) processWarfare(tick uint64) {
 			continue
 		}
 
+		// Active peace treaty prevents raids.
+		if s.HasPeace(settA.ID, settB.ID) {
+			continue
+		}
+
 		// Evaluate both directions — the more aggressive settlement raids.
 		for _, pair := range [2][2]*social.Settlement{{settA, settB}, {settB, settA}} {
 			attacker, defender := pair[0], pair[1]
@@ -73,6 +78,7 @@ func (s *Simulation) processWarfare(tick uint64) {
 				} else {
 					defeats++
 				}
+				s.RecordRaid(attacker.ID, defender.ID)
 				break // Only one raid per pair per week.
 			}
 		}

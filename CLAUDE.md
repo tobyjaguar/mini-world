@@ -814,6 +814,24 @@ Raids emerge from negative sentiment between nearby settlements with military ca
 
 **Expected impact:** Iron Brotherhood-dominated settlements with negative faction relations and high militarism will initiate raids against rival-faction neighbors. Well-walled settlements with strong governance and alliances will be near-impervious. Wars create a wealth transfer mechanism between hostile settlements, soldier casualties make warfare costly, and the sentiment penalty means wars tend to escalate (deeper hostility → more raids). The mutual defense flag from R45 alliances now has mechanical meaning — allied settlements are harder targets.
 
+### Round 47: Peace Treaties & Trade Embargoes
+
+Peace treaties emerge from war exhaustion (3+ raids between a pair). Embargoes block trade between deeply hostile settlements. Oracle-invoked peace provides a shorter spiritual alternative.
+
+212. **Peace treaties from war exhaustion** — NEW: `processPeace()` in `peace.go` runs weekly BEFORE `processWarfare()`. After 3+ raids between a settlement pair, an 8-week peace treaty forms automatically. During peace: no raids allowed, sentiment recovers +Agnosis×0.1 per week (neutrality cap). Raid counter resets on treaty formation. Events emitted for formation and expiration. `HasPeace()` checked in warfare evaluation.
+213. **Trade embargoes** — NEW: `IsEmbargoed()` in `peace.go` blocks merchant trade between hostile pairs (sentiment < -Psyche). No persistence needed — derived from live sentiment state. Checked in `resolveMerchantTrade()` route selection. Lifts when sentiment recovers.
+214. **Peace persistence + API** — NEW: Peace treaties and raid counts persisted in `world_meta` keys `peace_treaties` and `raid_counts`. Restored on startup. Settlement detail includes `peace_treaties` array. Frontend: peace treaties table on settlement detail page.
+
+### Round 48: Oracle Mechanical Visions — Land, Routes, Peace
+
+Three new oracle actions with full mechanical effects. Oracles now receive context about land health, conflicts, and trade routes, enabling informed decisions about world-shaping actions.
+
+215. **Oracle restore_land action** — NEW: Heals degraded hexes (health < Matter) in the oracle's 7-hex settlement neighborhood by `coherence × Agnosis × 0.5` (~0.12 at max coherence). Only targets hexes that actually need restoration. Events emitted with hex count.
+216. **Oracle bless_route action** — NEW: Adds 2 sustained weeks to an existing trade route (accelerating upgrade), or seeds trade volume for a new route if none exists. Spiritual intent creating economic infrastructure.
+217. **Oracle invoke_peace action** — NEW: Creates a 4-week peace treaty between the oracle's settlement and a named hostile neighbor. Shorter than war-exhaustion peace (4 vs 8 weeks) but immediate. Sentiment boost of +Agnosis. Events emitted. Only works when no existing peace treaty and sentiment is negative.
+218. **Oracle context enrichment** — NEW: Three context builders in `cognition.go`: `buildOracleLandHealth()` (hex health summary for settlement neighborhood), `buildOracleConflicts()` (active conflicts, peace treaties, diplomatic agreements), `buildOracleTradeLinks()` (active trade routes with levels and volumes). Enables informed oracle decisions about land restoration, peace invocation, and route blessing.
+219. **Oracle action validation** — FIXED: `parseOracleResponse()` in `oracle.go` now validates `restore_land`, `bless_route`, `invoke_peace` as valid actions (were in the LLM prompt but missing from the validation map).
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

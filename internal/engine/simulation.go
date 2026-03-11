@@ -71,6 +71,10 @@ type Simulation struct {
 	// Diplomatic agreements between settlement pairs.
 	Agreements map[SettRelKey]*Agreement
 
+	// Peace treaties and raid tracking.
+	PeaceTreaties map[SettRelKey]*PeaceTreaty
+	RaidCounts    map[SettRelKey]int
+
 	// Event streaming support.
 	eventSubMu sync.RWMutex
 	eventSubs  map[int]chan Event
@@ -415,6 +419,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.computeSettlementRelations()
 	s.processDiplomacy(tick)
 	s.ApplyDiplomacyEffects()
+	s.processPeace(tick)
 	s.processWarfare(tick)
 	s.processLandInvestment(tick)
 	s.processInfrastructureDecay(tick)

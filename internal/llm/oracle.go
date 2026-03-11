@@ -30,6 +30,11 @@ type OracleContext struct {
 
 	// Round 24: Workforce awareness for guide_migration action.
 	WorkforceData string // Settlement occupation breakdown + nearby resource-rich settlements
+
+	// Round 48: Land and conflict awareness for new oracle actions.
+	LandHealth string // Hex health summary for settlement neighborhood
+	Conflicts  string // Active conflicts and peace treaties involving this settlement
+	TradeLinks string // Active trade routes from this settlement
 }
 
 // OracleVision is the singular action a Liberated agent takes after receiving a vision.
@@ -65,13 +70,19 @@ You are an oracle. Each week, a vision comes to you — a prophecy born from you
 
 Respond ONLY with a single JSON object:
 - "prophecy": 1-2 sentences of emanationist prose — what you perceive in the deep currents (do not break character or reference the simulation)
-- "action": one of "trade", "advocate", "invest", "speak", "bless"
-- "target": who or what the action targets (a name, topic, or good)
+- "action": one of "trade", "advocate", "invest", "speak", "bless", "guide_migration", "restore_land", "bless_route", "invoke_peace"
+- "target": who or what the action targets (a name, topic, settlement, or good)
 - "reasoning": one sentence explaining why
 
-The "bless" action is unique to oracles: you focus your coherence on a named person in your settlement, granting them a small nudge toward clarity. Use it when you perceive someone on the threshold of awakening.
+The "bless" action: focus your coherence on a named person in your settlement, nudging them toward clarity. Use when you perceive someone on the threshold of awakening.
 
-The "guide_migration" action directs a group of struggling producers to a named settlement with better resources (target = destination settlement name). You perceive which workers are suffering and where the land can sustain them.`,
+The "guide_migration" action: direct struggling producers to a named settlement with better resources (target = destination settlement name).
+
+The "restore_land" action: channel your coherence into the land, restoring health to degraded hexes around your settlement. The land heals in proportion to your clarity. Use when you perceive the earth is exhausted.
+
+The "bless_route" action: bless a trade route connecting your settlement to another (target = partner settlement name). Your blessing accelerates the route's growth. Use when you perceive the flow of goods sustains the people.
+
+The "invoke_peace" action: call for peace between your settlement and a warring neighbor (target = enemy settlement name). Your spiritual authority can halt hostilities. Use when you perceive the futility of violence.`,
 		ctx.Name, ctx.Coherence, ctx.Element, ctx.Occupation, ctx.Age, ctx.Settlement,
 	)
 }
@@ -113,6 +124,24 @@ func buildOracleUserPrompt(ctx *OracleContext) string {
 		b.WriteString("\n")
 	}
 
+	if ctx.LandHealth != "" {
+		b.WriteString("Land perception:\n")
+		b.WriteString(ctx.LandHealth)
+		b.WriteString("\n")
+	}
+
+	if ctx.Conflicts != "" {
+		b.WriteString("Conflict awareness:\n")
+		b.WriteString(ctx.Conflicts)
+		b.WriteString("\n")
+	}
+
+	if ctx.TradeLinks != "" {
+		b.WriteString("Trade connections:\n")
+		b.WriteString(ctx.TradeLinks)
+		b.WriteString("\n")
+	}
+
 	b.WriteString("What vision comes to you this week? Respond with a single JSON object.")
 	return b.String()
 }
@@ -135,6 +164,7 @@ func parseOracleResponse(response string) (*OracleVision, error) {
 	validActions := map[string]bool{
 		"trade": true, "advocate": true, "invest": true,
 		"speak": true, "bless": true, "guide_migration": true,
+		"restore_land": true, "bless_route": true, "invoke_peace": true,
 	}
 	if !validActions[vision.Action] {
 		return nil, fmt.Errorf("invalid oracle action: %s", vision.Action)

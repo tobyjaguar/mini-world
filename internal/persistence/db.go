@@ -601,6 +601,46 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		slog.Info("agreements persisted", "count", len(agrees))
 	}
 
+	// Persist peace treaties.
+	if len(sim.PeaceTreaties) > 0 {
+		type peaceEntry struct {
+			A  uint64 `json:"a"`
+			B  uint64 `json:"b"`
+			RW int    `json:"rw"` // remaining weeks
+			RC int    `json:"rc"` // raid count
+			FT uint64 `json:"ft"` // formed at tick
+		}
+		entries := make([]peaceEntry, 0, len(sim.PeaceTreaties))
+		for key, p := range sim.PeaceTreaties {
+			entries = append(entries, peaceEntry{
+				A: key.A, B: key.B, RW: p.RemainingWeeks, RC: p.RaidCount, FT: p.FormedAtTick,
+			})
+		}
+		peaceJSON, _ := json.Marshal(entries)
+		if err := db.SaveMeta("peace_treaties", string(peaceJSON)); err != nil {
+			return fmt.Errorf("save peace_treaties: %w", err)
+		}
+	}
+
+	// Persist raid counts.
+	if len(sim.RaidCounts) > 0 {
+		type raidEntry struct {
+			A uint64 `json:"a"`
+			B uint64 `json:"b"`
+			C int    `json:"c"`
+		}
+		entries := make([]raidEntry, 0, len(sim.RaidCounts))
+		for key, c := range sim.RaidCounts {
+			if c > 0 {
+				entries = append(entries, raidEntry{A: key.A, B: key.B, C: c})
+			}
+		}
+		raidJSON, _ := json.Marshal(entries)
+		if err := db.SaveMeta("raid_counts", string(raidJSON)); err != nil {
+			return fmt.Errorf("save raid_counts: %w", err)
+		}
+	}
+
 	// Persist cumulative counters that can't be derived from agent/settlement state.
 	if err := db.SaveMeta("births", fmt.Sprintf("%d", sim.Stats.Births)); err != nil {
 		return fmt.Errorf("save births: %w", err)

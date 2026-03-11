@@ -552,6 +552,11 @@ func (s *Simulation) buildOracleContext(
 	// Round 24: Workforce data for guide_migration.
 	ctx.WorkforceData = s.buildOracleWorkforceData(a)
 
+	// Round 48: Land health, conflicts, and trade links for new oracle actions.
+	ctx.LandHealth = s.buildOracleLandHealth(a)
+	ctx.Conflicts = s.buildOracleConflicts(a)
+	ctx.TradeLinks = s.buildOracleTradeLinks(a)
+
 	return ctx
 }
 
@@ -688,6 +693,125 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 				}
 			}
 		}
+
+	case "restore_land":
+		// Oracle channels coherence into degraded hexes around their settlement.
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				restored := 0
+				healAmount := float64(a.Soul.CittaCoherence) * phi.Agnosis * 0.5 // ~0.12 at max coherence
+				neighbors := sett.Position.Neighbors()
+				allHexes := append([]world.HexCoord{sett.Position}, neighbors[:]...)
+				for _, pos := range allHexes {
+					hex := s.WorldMap.Get(pos)
+					if hex == nil || hex.Health >= phi.Matter {
+						continue // Only restore degraded hexes
+					}
+					hex.Health += healAmount
+					if hex.Health > 1.0 {
+						hex.Health = 1.0
+					}
+					restored++
+				}
+				if restored > 0 {
+					s.EmitEvent(Event{
+						Tick:        tick,
+						Description: fmt.Sprintf("Oracle %s channeled their clarity into the land, restoring %d hexes around %s", a.Name, restored, sett.Name),
+						Category:    "oracle",
+						Meta: map[string]any{
+							"agent_id":        a.ID,
+							"agent_name":      a.Name,
+							"settlement_id":   sett.ID,
+							"settlement_name": sett.Name,
+							"count":           restored,
+						},
+					})
+				}
+			}
+		}
+
+	case "bless_route":
+		// Oracle blesses a trade route, accelerating its growth.
+		if a.HomeSettID != nil {
+			var targetSett *social.Settlement
+			for _, sett := range s.Settlements {
+				if sett.Name == vision.Target {
+					targetSett = sett
+					break
+				}
+			}
+			if targetSett != nil {
+				key := settRelKey(*a.HomeSettID, targetSett.ID)
+				if route, ok := s.TradeRoutes[key]; ok {
+					// Blessing adds sustained weeks, accelerating upgrade.
+					route.SustainedWeeks += 2
+					s.EmitEvent(Event{
+						Tick:        tick,
+						Description: fmt.Sprintf("Oracle %s blessed the %s, strengthening the bond of trade", a.Name, route.Name),
+						Category:    "oracle",
+						Meta: map[string]any{
+							"agent_id":        a.ID,
+							"agent_name":      a.Name,
+							"settlement_id":   targetSett.ID,
+							"settlement_name": targetSett.Name,
+							"route_name":      route.Name,
+						},
+					})
+				} else {
+					// No route yet — seed one by adding trade volume.
+					if s.TradeTracker == nil {
+						s.TradeTracker = make(map[SettRelKey]float64)
+					}
+					s.TradeTracker[key] += 2 // Spiritual trade (not real goods, but intent)
+				}
+			}
+		}
+
+	case "invoke_peace":
+		// Oracle calls for peace between settlements at war.
+		if a.HomeSettID != nil {
+			var targetSett *social.Settlement
+			for _, sett := range s.Settlements {
+				if sett.Name == vision.Target {
+					targetSett = sett
+					break
+				}
+			}
+			if targetSett != nil {
+				key := settRelKey(*a.HomeSettID, targetSett.ID)
+				// If no peace treaty exists and sentiment is negative, create one.
+				if !s.HasPeace(*a.HomeSettID, targetSett.ID) {
+					if rel, ok := s.Relations[key]; ok && rel.Sentiment < 0 {
+						if s.PeaceTreaties == nil {
+							s.PeaceTreaties = make(map[SettRelKey]*PeaceTreaty)
+						}
+						s.PeaceTreaties[key] = &PeaceTreaty{
+							RemainingWeeks: 4, // Shorter than war-exhaustion peace (4 vs 8 weeks)
+							FormedAtTick:   tick,
+						}
+						// Oracle peace also gives a sentiment boost.
+						rel.Sentiment += phi.Agnosis // +0.236
+						if rel.Sentiment > 0 {
+							rel.Sentiment = 0
+						}
+						s.EmitEvent(Event{
+							Tick: tick,
+							Description: fmt.Sprintf("Oracle %s invoked peace between %s and %s — hostilities cease",
+								a.Name, s.SettlementIndex[*a.HomeSettID].Name, targetSett.Name),
+							Category: "oracle",
+							Meta: map[string]any{
+								"agent_id":          a.ID,
+								"agent_name":        a.Name,
+								"settlement_id":     *a.HomeSettID,
+								"settlement_name":   s.SettlementIndex[*a.HomeSettID].Name,
+								"settlement_b_id":   targetSett.ID,
+								"settlement_b_name": targetSett.Name,
+							},
+						})
+					}
+				}
+			}
+		}
 	}
 
 	// Log the oracle's action.
@@ -819,6 +943,116 @@ func (s *Simulation) buildOracleWorkforceData(a *agents.Agent) string {
 		b.WriteString("\n")
 	}
 
+	return b.String()
+}
+
+// --- Round 48: Oracle context builders for new actions ---
+
+// buildOracleLandHealth summarizes hex health in the oracle's settlement neighborhood.
+func (s *Simulation) buildOracleLandHealth(a *agents.Agent) string {
+	if a.HomeSettID == nil {
+		return ""
+	}
+	sett, ok := s.SettlementIndex[*a.HomeSettID]
+	if !ok {
+		return ""
+	}
+
+	neighbors := sett.Position.Neighbors()
+	allHexes := append([]world.HexCoord{sett.Position}, neighbors[:]...)
+
+	total := 0
+	degraded := 0
+	var sumHealth float64
+	for _, pos := range allHexes {
+		hex := s.WorldMap.Get(pos)
+		if hex == nil {
+			continue
+		}
+		total++
+		sumHealth += hex.Health
+		if hex.Health < phi.Matter { // Below 0.618 = degraded
+			degraded++
+		}
+	}
+	if total == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	avgHealth := sumHealth / float64(total)
+	fmt.Fprintf(&b, "%s neighborhood: %d hexes, avg health %.2f, %d degraded.\n",
+		sett.Name, total, avgHealth, degraded)
+	if degraded > total/2 {
+		b.WriteString("The land is exhausted — more than half the hexes need restoration.\n")
+	} else if degraded == 0 {
+		b.WriteString("The land is healthy.\n")
+	}
+	return b.String()
+}
+
+// buildOracleConflicts summarizes active conflicts and peace treaties for the oracle's settlement.
+func (s *Simulation) buildOracleConflicts(a *agents.Agent) string {
+	if a.HomeSettID == nil {
+		return ""
+	}
+	settID := *a.HomeSettID
+
+	var b strings.Builder
+
+	// Active peace treaties.
+	treaties := s.GetSettlementPeace(settID)
+	for _, t := range treaties {
+		fmt.Fprintf(&b, "Peace treaty with %s (%d weeks remaining).\n", t.SettlementName, t.RemainingWeeks)
+	}
+
+	// Hostile relations (potential or active conflicts).
+	for key, rel := range s.Relations {
+		if key.A != settID && key.B != settID {
+			continue
+		}
+		if rel.Sentiment >= -phi.Agnosis {
+			continue // Not hostile
+		}
+		otherID := key.B
+		if key.B == settID {
+			otherID = key.A
+		}
+		otherName := "Unknown"
+		if other, ok := s.SettlementIndex[otherID]; ok {
+			otherName = other.Name
+		}
+		if s.HasPeace(settID, otherID) {
+			continue // Already listed under treaties
+		}
+		fmt.Fprintf(&b, "Hostile relations with %s (sentiment %.2f).\n", otherName, rel.Sentiment)
+	}
+
+	// Diplomatic agreements.
+	agreements := s.GetSettlementAgreements(settID)
+	for _, ag := range agreements {
+		fmt.Fprintf(&b, "%s with %s.\n", ag.TypeName, ag.SettlementName)
+	}
+
+	return b.String()
+}
+
+// buildOracleTradeLinks summarizes active trade routes from the oracle's settlement.
+func (s *Simulation) buildOracleTradeLinks(a *agents.Agent) string {
+	if a.HomeSettID == nil {
+		return ""
+	}
+
+	routes := s.GetSettlementRoutes(*a.HomeSettID)
+	if len(routes) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, r := range routes {
+		fmt.Fprintf(&b, "%s (%s, %.0f trades/week) to %s.\n",
+			r.Name, r.LevelName, r.WeeklyTrade, r.SettlementName)
+	}
 	return b.String()
 }
 
