@@ -832,6 +832,19 @@ Three new oracle actions with full mechanical effects. Oracles now receive conte
 218. **Oracle context enrichment** — NEW: Three context builders in `cognition.go`: `buildOracleLandHealth()` (hex health summary for settlement neighborhood), `buildOracleConflicts()` (active conflicts, peace treaties, diplomatic agreements), `buildOracleTradeLinks()` (active trade routes with levels and volumes). Enables informed oracle decisions about land restoration, peace invocation, and route blessing.
 219. **Oracle action validation** — FIXED: `parseOracleResponse()` in `oracle.go` now validates `restore_land`, `bless_route`, `invoke_peace` as valid actions (were in the LLM prompt but missing from the validation map).
 
+### Round 49: Hex Capture in Warfare
+
+2 fixes expanding warfare mechanics — victorious attackers can now capture border hexes from defenders.
+
+220. **Hex capture in warfare** — NEW: `captureHex()` in `warfare.go` — victorious attacker captures one border hex from defender. Finds defender-claimed hexes adjacent to attacker-claimed hexes, picks highest health. Never takes the last hex or settlement hex. Infrastructure (irrigation, conservation) preserved. Events include capture info.
+221. **Event description cleanup** — FIXED: Removed double-emit pattern (emit + overwrite). Correct attacker/defender casualty attribution. Capture hex coordinates in event metadata.
+
+### Round 50: Faction Doctrines / Religion & Philosophy
+
+1 fix introducing philosophical doctrines that reward faction-aligned behavior with coherence growth.
+
+222. **Faction doctrines** — NEW: `applyFactionDoctrines()` in `factions.go` — weekly coherence boost (Agnosis² × 0.1 ≈ 0.00557/week) for faction members fulfilling their faction's philosophical doctrine. Crown=Order (GovernanceScore > Psyche), Merchant=Exchange (active merchant), Iron=Discipline (soldier in governed settlement), Verdant=Harmony (worked recently + healthy hex), Ashen=Dissolution (poor or deeply belonging). State transitions emit "doctrine_awakening" events for Tier 1+. Wired into TickWeek after processWeeklyFactions.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

@@ -656,6 +656,94 @@ func applyPatronageNeeds(factionID social.FactionID, a *agents.Agent) {
 	clampAgentNeeds(&a.Needs)
 }
 
+// applyFactionDoctrines applies weekly coherence boosts to faction members
+// who fulfill their faction's philosophical doctrine. Each faction has a
+// qualification criterion; qualifying agents receive a small coherence boost
+// of Agnosis² × 0.1 (~0.00557/week). Over months, this creates measurable
+// coherence divergence aligned with each faction's philosophical identity.
+//
+// Doctrines:
+//   Crown (Order): settlement GovernanceScore > Psyche
+//   Merchant (Exchange): active merchant (worked within 7 sim-days)
+//   Iron Brotherhood (Discipline): soldier in governed settlement (GovernanceScore > Agnosis)
+//   Verdant Circle (Harmony): worked recently + home hex health > Psyche
+//   Ashen Path (Dissolution): wealth < 30 or belonging > Matter
+func (s *Simulation) applyFactionDoctrines(tick uint64) {
+	boost := float32(phi.Agnosis * phi.Agnosis * 0.1) // ~0.00557
+	awakenings := 0
+
+	for _, a := range s.Agents {
+		if !a.Alive || a.FactionID == nil {
+			continue
+		}
+
+		var sett *social.Settlement
+		if a.HomeSettID != nil {
+			sett = s.SettlementIndex[*a.HomeSettID]
+		}
+
+		qualifies := false
+		fid := social.FactionID(*a.FactionID)
+
+		switch fid {
+		case 1: // Crown — Order: well-governed settlement
+			if sett != nil && sett.GovernanceScore > phi.Psyche {
+				qualifies = true
+			}
+		case 2: // Merchant's Compact — Exchange: active merchant
+			if a.Occupation == agents.OccupationMerchant && tick-a.LastWorkTick < TicksPerSimDay*7 {
+				qualifies = true
+			}
+		case 3: // Iron Brotherhood — Discipline: soldier in governed settlement
+			if a.Occupation == agents.OccupationSoldier && sett != nil && sett.GovernanceScore > phi.Agnosis {
+				qualifies = true
+			}
+		case 4: // Verdant Circle — Harmony: worked recently + healthy home hex
+			if tick-a.LastWorkTick < TicksPerSimDay*7 && sett != nil {
+				hex := s.WorldMap.Get(sett.Position)
+				if hex != nil && hex.Health > phi.Psyche {
+					qualifies = true
+				}
+			}
+		case 5: // Ashen Path — Dissolution: poor or deeply belonging
+			if a.Wealth < 30 || a.Needs.Belonging > float32(phi.Matter) {
+				qualifies = true
+			}
+		}
+
+		if !qualifies {
+			continue
+		}
+
+		oldState := agents.StateFromCoherence(a.Soul.CittaCoherence)
+		a.Soul.AdjustCoherence(boost)
+		newState := agents.StateFromCoherence(a.Soul.CittaCoherence)
+
+		// Emit event on state transition (Tier 1+ only, avoid flooding).
+		if newState != oldState && a.Tier >= 1 {
+			awakenings++
+			factionName := s.factionNameByID(*a.FactionID)
+			s.EmitEvent(Event{
+				Tick: tick,
+				Description: fmt.Sprintf("%s experiences a doctrine awakening through %s teachings",
+					a.Name, factionName),
+				Category: "spiritual",
+				Meta: map[string]any{
+					"event_type":    "doctrine_awakening",
+					"agent_id":      a.ID,
+					"agent_name":    a.Name,
+					"faction_name":  factionName,
+					"settlement_id": a.HomeSettID,
+				},
+			})
+		}
+	}
+
+	if awakenings > 0 {
+		slog.Info("doctrine awakenings", "count", awakenings)
+	}
+}
+
 // setRelation sets a symmetric relation between two factions.
 func (s *Simulation) setRelation(a, b social.FactionID, value float64) {
 	for _, f := range s.Factions {

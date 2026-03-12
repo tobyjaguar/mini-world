@@ -399,6 +399,7 @@ func (s *Simulation) TickDay(tick uint64) {
 func (s *Simulation) TickWeek(tick uint64) {
 	s.compactDeadAgents()
 	s.processWeeklyFactions(tick)
+	s.applyFactionDoctrines(tick)
 	s.processAntiStagnation(tick)
 	s.weeklyResourceRegen()
 	s.processSeasonalMigration(tick)

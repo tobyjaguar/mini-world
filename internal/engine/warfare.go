@@ -267,6 +267,12 @@ func (s *Simulation) resolveRaid(tick uint64, attacker, defender *social.Settlem
 	loserSett.Treasury -= plunder
 	winnerSett.Treasury += plunder
 
+	// Hex capture: victorious attacker takes one border hex if available.
+	var capturedHex *world.HexCoord
+	if attackerWins {
+		capturedHex = s.captureHex(tick, winnerSett, loserSett)
+	}
+
 	// Morale effects on surviving soldiers.
 	for _, a := range winnerSoldiers {
 		if a.Alive {
@@ -295,35 +301,43 @@ func (s *Simulation) resolveRaid(tick uint64, attacker, defender *social.Settlem
 	if attackerWins {
 		result = "raided"
 	}
-	s.EmitEvent(Event{
-		Tick: tick,
-		Description: fmt.Sprintf("Forces from %s %s %s — %d attackers and %d defenders fell, %d crowns plundered",
-			attacker.Name, result, defender.Name, winnerCasualties+loserCasualties-loserCasualties, loserCasualties+winnerCasualties-winnerCasualties, plunder),
-		Category: "warfare",
-		Meta: map[string]any{
-			"event_type":          "raid",
-			"attacker_id":         attacker.ID,
-			"attacker_name":       attacker.Name,
-			"defender_id":         defender.ID,
-			"defender_name":       defender.Name,
-			"settlement_id":       defender.ID,
-			"settlement_name":     defender.Name,
-			"result":              result,
-			"attacker_casualties": winnerCasualties,
-			"defender_casualties": loserCasualties,
-			"plunder":             plunder,
-		},
-	})
+	attackerCas := loserCasualties
+	defenderCas := winnerCasualties
+	if attackerWins {
+		attackerCas = winnerCasualties
+		defenderCas = loserCasualties
+	}
 
-	// Fix event description to be accurate.
-	// Re-emit with correct casualty attribution.
-	s.Events[len(s.Events)-1].Description = fmt.Sprintf(
-		"Forces from %s %s %s — %d attacker casualties, %d defender casualties, %d crowns plundered",
-		attacker.Name, result, defender.Name,
-		func() int { if attackerWins { return winnerCasualties } else { return loserCasualties } }(),
-		func() int { if attackerWins { return loserCasualties } else { return winnerCasualties } }(),
-		plunder,
-	)
+	desc := fmt.Sprintf("Forces from %s %s %s — %d attacker casualties, %d defender casualties, %d crowns plundered",
+		attacker.Name, result, defender.Name, attackerCas, defenderCas, plunder)
+	if capturedHex != nil {
+		desc += fmt.Sprintf(", captured hex (%d,%d)", capturedHex.Q, capturedHex.R)
+	}
+
+	meta := map[string]any{
+		"event_type":          "raid",
+		"attacker_id":         attacker.ID,
+		"attacker_name":       attacker.Name,
+		"defender_id":         defender.ID,
+		"defender_name":       defender.Name,
+		"settlement_id":       defender.ID,
+		"settlement_name":     defender.Name,
+		"result":              result,
+		"attacker_casualties": attackerCas,
+		"defender_casualties": defenderCas,
+		"plunder":             plunder,
+	}
+	if capturedHex != nil {
+		meta["captured_hex_q"] = capturedHex.Q
+		meta["captured_hex_r"] = capturedHex.R
+	}
+
+	s.EmitEvent(Event{
+		Tick:        tick,
+		Description: desc,
+		Category:    "warfare",
+		Meta:        meta,
+	})
 
 	slog.Info("raid resolved",
 		"attacker", attacker.Name,
@@ -337,6 +351,76 @@ func (s *Simulation) resolveRaid(tick uint64, attacker, defender *social.Settlem
 	)
 
 	return attackerWins
+}
+
+// captureHex transfers one border hex from the loser to the winner after a raid victory.
+// Only captures if the defender has >1 claimed hex (never takes the last one).
+// Selects the highest-health defender hex adjacent to any attacker hex.
+// Infrastructure (irrigation, conservation) is preserved — conquest transfers stewardship.
+func (s *Simulation) captureHex(tick uint64, winner, loser *social.Settlement) *world.HexCoord {
+	// Count defender's claimed hexes — never take the last one.
+	defenderHexes := 0
+	for _, h := range s.WorldMap.Hexes {
+		if h.ClaimedBy != nil && *h.ClaimedBy == loser.ID {
+			defenderHexes++
+		}
+	}
+	if defenderHexes <= 1 {
+		return nil
+	}
+
+	// Build set of attacker-claimed hex coords for adjacency check.
+	attackerClaims := make(map[world.HexCoord]bool)
+	for _, h := range s.WorldMap.Hexes {
+		if h.ClaimedBy != nil && *h.ClaimedBy == winner.ID {
+			attackerClaims[h.Coord] = true
+		}
+	}
+
+	// Find defender hexes adjacent to attacker territory. Pick highest health.
+	var bestHex *world.Hex
+	for _, h := range s.WorldMap.Hexes {
+		if h.ClaimedBy == nil || *h.ClaimedBy != loser.ID {
+			continue
+		}
+		// Skip the defender's settlement hex — don't capture their home.
+		if h.SettlementID != nil && *h.SettlementID == loser.ID {
+			continue
+		}
+		// Check adjacency to attacker territory.
+		neighbors := h.Coord.Neighbors()
+		adjacent := false
+		for _, n := range neighbors[:] {
+			if attackerClaims[n] {
+				adjacent = true
+				break
+			}
+		}
+		if !adjacent {
+			continue
+		}
+		if bestHex == nil || h.Health > bestHex.Health {
+			bestHex = h
+		}
+	}
+
+	if bestHex == nil {
+		return nil
+	}
+
+	// Transfer claim. Infrastructure preserved.
+	winnerID := winner.ID
+	bestHex.ClaimedBy = &winnerID
+	coord := bestHex.Coord
+
+	slog.Info("hex captured",
+		"winner", winner.Name,
+		"loser", loser.Name,
+		"hex", fmt.Sprintf("(%d,%d)", coord.Q, coord.R),
+		"health", fmt.Sprintf("%.2f", bestHex.Health),
+	)
+
+	return &coord
 }
 
 // applyCasualties kills a fraction of soldiers based on casualty rate.
