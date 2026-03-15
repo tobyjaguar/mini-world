@@ -16,10 +16,14 @@ import (
 // SimDaysPerYear is the number of sim-days in one sim-year (4 seasons × 90 days).
 const SimDaysPerYear = 360
 
-// MaxWorldPopulation caps the world at 450K living agents to prevent OOM.
-// Actual per-agent cost is ~3.2 KB (struct + relationships + indexes + GC overhead).
-// 450K ≈ 1.44 GB baseline heap on a 2 GB server with 1 GB swap.
-const MaxWorldPopulation = 450_000
+// MaxWorldPopulation caps births to keep the world within the 2 GB server budget.
+// Per-agent cost is ~3.2 KB (struct + relationships + indexes + GC overhead).
+// 400K ≈ 1.28 GB agent heap → ~1.58 GB total → comfortably in-RAM on 2 GB.
+// Design TPS target is ~15 tps; swap thrashing drops this to <1 tps.
+// At 450K the server still swaps lightly (~2-8 tps). At 400K it runs swap-free
+// at full design speed. Can be raised to 450K if memory optimizations free headroom.
+// See docs/memory-architecture.md for the full analysis.
+const MaxWorldPopulation = 400_000
 
 // processPopulation handles daily aging, natural death, and births.
 func (s *Simulation) processPopulation(tick uint64) {
@@ -226,7 +230,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 //	c=0.1, age 32: bg 0.36% + age  0.04% = ~0.40%/day (scatter vulnerable)
 //	c=0.9, age 32: bg 0.10% + age  0.04% = ~0.14%/day (liberation protective)
 //
-// Initial deaths: ~1,500/day at 494K. Population declines toward 450K
+// Initial deaths: ~1,505/day at 494K. Population declines toward 400K
 // (MaxWorldPopulation gates births), then oscillates tightly as births
 // toggle on/off at the cap boundary.
 //
