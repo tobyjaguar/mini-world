@@ -80,47 +80,105 @@ func (s *Simulation) ageAgents(tick uint64) {
 	slog.Info("agents aged", "tick", tick, "time", SimTime(tick), "coming_of_age", comingOfAge)
 }
 
-// processNaturalDeaths checks for death from old age and disease.
+// processNaturalDeaths checks for death from coherence-scaled mortality,
+// age, and disease. Two stacking mortality curves:
+//
+//  1. Background mortality — Agnosis expressing itself in matter. Scatter
+//     (low coherence) amplifies vulnerability. A Torment agent's identity is
+//     diffused across phenomena, pulled in every direction, reactive to every
+//     stimulus. A Liberation agent's stillness is protective — behavioral, not
+//     supernatural. Floor at Agnosis⁵ ensures even liberated agents are mortal.
+//
+//  2. Age mortality — universal logistic curve from age 50 onward. "That which
+//     has a beginning in time, has an end in time." Liberation is not immortality.
+//
+// Children (age < 16) are protected by family and community — background
+// entropy of autonomous existence begins at adulthood.
 func (s *Simulation) processNaturalDeaths(tick uint64) {
 	simDay := tick / TicksPerSimDay
+	liberationDeaths := 0
+	naturalDeaths := 0
 
 	for _, a := range s.Agents {
 		if !a.Alive {
 			continue
 		}
 
-		// Old age death: probability increases past age 55.
-		if a.Age > 55 {
-			// Daily mortality = Agnosis * (age - 55) / 100
-			// At 55: ~0%, at 70: ~0.35%/day, at 80: ~0.59%/day
-			mortalityRate := phi.Agnosis * float64(a.Age-55) / 100.0
-			// Use deterministic check based on tick to avoid randomness.
-			// Agent dies when accumulated probability exceeds threshold.
-			daysSinceThreshold := simDay % SimDaysPerYear
-			if mortalityRate*float64(daysSinceThreshold) > float64(a.ID%100)/100.0 {
-				if a.Age > 65 || (a.Age > 55 && a.Health < 0.5) {
-					a.Alive = false
-					a.Health = 0
-					s.Stats.Deaths++
-					s.EmitEvent(Event{
-						Tick:        tick,
-						Description: fmt.Sprintf("%s has died of old age at %d", a.Name, a.Age),
-						Category:    "death",
-						Meta: map[string]any{
-							"agent_id":      a.ID,
-							"agent_name":    a.Name,
-							"settlement_id": a.HomeSettID,
-							"cause":         "age",
-						},
-					})
-					s.inheritWealth(a, tick)
+		// Coherence-scaled mortality: background entropy + age curve.
+		// Replaces the old hard cliff at age 55.
+		mortalityChance := agentDailyMortalityChance(a)
+
+		if mortalityChance > 0 {
+			// Deterministic check: hash agent ID with simDay for stable daily result.
+			hash := (uint64(a.ID)*2654435761 + simDay*40503) % 100000
+			if float64(hash)/100000.0 < mortalityChance {
+				a.Alive = false
+				a.Health = 0
+				s.Stats.Deaths++
+				naturalDeaths++
+
+				cause := "natural"
+				desc := fmt.Sprintf("%s has died at age %d", a.Name, a.Age)
+				if a.Age > 50 {
+					cause = "age"
+					desc = fmt.Sprintf("%s has died of old age at %d", a.Name, a.Age)
 				}
+
+				isLiberated := a.Soul.State == agents.Liberated
+				if isLiberated {
+					liberationDeaths++
+					settName := "the wilderness"
+					if a.HomeSettID != nil {
+						if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+							settName = sett.Name
+						}
+					}
+					desc = fmt.Sprintf("%s, a sage of %s, has passed at age %d. Their light is extinguished.", a.Name, settName, a.Age)
+				}
+
+				s.EmitEvent(Event{
+					Tick:        tick,
+					Description: desc,
+					Category:    "death",
+					Meta: map[string]any{
+						"agent_id":      a.ID,
+						"agent_name":    a.Name,
+						"settlement_id": a.HomeSettID,
+						"cause":         cause,
+						"age":           a.Age,
+						"coherence":     fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
+					},
+				})
+				s.inheritWealth(a, tick)
+
+				// Settlement effects: memories, witness coherence.
+				if a.HomeSettID != nil {
+					s.createSettlementMemories(*a.HomeSettID, tick, desc, 0.6)
+
+					if isLiberated {
+						// Liberation death: the world becomes more scattered
+						// when its wise die. The void outweighs contemplation.
+						for _, witness := range s.SettlementAgents[*a.HomeSettID] {
+							if witness.Alive && witness.ID != a.ID {
+								witness.Soul.AdjustCoherence(-float32(phi.Agnosis * 0.1)) // ~-0.024
+							}
+						}
+					} else {
+						// Ordinary death: via negativa — witnessing death
+						// strips attachment, increasing coherence.
+						for _, witness := range s.SettlementAgents[*a.HomeSettID] {
+							if witness.Alive && witness.ID != a.ID {
+								witness.Soul.AdjustCoherence(float32(phi.Agnosis * 0.05)) // ~+0.012
+							}
+						}
+					}
+				}
+				continue
 			}
 		}
 
 		// Disease: low health agents have a small daily death chance.
 		if a.Health < 0.15 && a.Health > 0 {
-			// Deterministic: die if health has been critical for a while.
 			a.Health -= 0.01
 			if a.Health <= 0 {
 				a.Alive = false
@@ -140,6 +198,68 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 			}
 		}
 	}
+
+	if naturalDeaths > 0 || liberationDeaths > 0 {
+		slog.Info("natural deaths", "count", naturalDeaths, "liberation", liberationDeaths, "tick", tick)
+	}
+}
+
+// agentDailyMortalityChance returns the probability [0,1] that an agent
+// dies today from background entropy + age. Two stacking curves:
+//
+//  1. Background mortality — Agnosis⁴ × scatter (~0.26%/day at c=0.15).
+//     Four-fold entropy of embodied scatter. Floor at Agnosis⁵ (~0.07%/day)
+//     ensures even liberated agents are mortal.
+//
+//  2. Age mortality — Agnosis³ × sigmoid² (~0.04% at age 32, ~0.88% at 70).
+//     Logistic curve from age 50 onward, squared to protect younger adults.
+//
+// Children (age < 16) return 0 — protected by family and community.
+//
+// Expected rates at current population (~494K, avg age 32, avg coherence 0.512):
+//
+//	c=0.5, age 16: bg 0.23% + age ~0.00% = ~0.23%/day
+//	c=0.5, age 32: bg 0.23% + age  0.04% = ~0.27%/day
+//	c=0.5, age 50: bg 0.23% + age  0.33% = ~0.56%/day
+//	c=0.5, age 60: bg 0.23% + age  0.69% = ~0.92%/day
+//	c=0.5, age 70: bg 0.23% + age  0.98% = ~1.21%/day
+//	c=0.1, age 32: bg 0.36% + age  0.04% = ~0.40%/day (scatter vulnerable)
+//	c=0.9, age 32: bg 0.10% + age  0.04% = ~0.14%/day (liberation protective)
+//
+// Initial deaths: ~1,500/day at 494K. Population declines toward 450K
+// (MaxWorldPopulation gates births), then oscillates tightly as births
+// toggle on/off at the cap boundary.
+//
+// Tuning: if too aggressive, reduce background by one Φ power (Agnosis⁵ base).
+// If too slow, increase age scale to Agnosis². Onset (50) and steepness (12)
+// can also be adjusted independently.
+func agentDailyMortalityChance(a *agents.Agent) float64 {
+	// Children are protected by family and community. Background entropy
+	// of autonomous existence begins at adulthood (age 16).
+	if a.Age < 16 {
+		return 0
+	}
+
+	coherence := float64(a.Soul.CittaCoherence)
+
+	// Background: scatter-driven daily death risk.
+	// Base at Agnosis⁴ (~0.00311) — four-fold entropy of embodied scatter.
+	// Floor at Agnosis⁵ (~0.000734) — even liberated agents are mortal.
+	agnosis4 := phi.Agnosis * phi.Agnosis * phi.Agnosis * phi.Agnosis
+	agnosis5 := agnosis4 * phi.Agnosis
+	scatter := 1.0 - coherence
+	background := agnosis5 + agnosis4*scatter
+
+	// Age: logistic sigmoid curve, universal.
+	// Onset at 50, steepness 12 sim-years, scaled by Agnosis³ (~0.01315).
+	// Squared sigmoid protects younger adults while ensuring old agents
+	// face increasing mortality. At age 70: ~0.98%/day.
+	agnosis3 := phi.Agnosis * phi.Agnosis * phi.Agnosis
+	ageOffset := float64(a.Age) - 50.0
+	sigmoid := 1.0 / (1.0 + math.Exp(-ageOffset/12.0))
+	age := agnosis3 * sigmoid * sigmoid
+
+	return background + age
 }
 
 // processBirths creates new agents from families in prosperous settlements.

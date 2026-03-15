@@ -845,6 +845,15 @@ Three new oracle actions with full mechanical effects. Oracles now receive conte
 
 222. **Faction doctrines** — NEW: `applyFactionDoctrines()` in `factions.go` — weekly coherence boost (Agnosis² × 0.1 ≈ 0.00557/week) for faction members fulfilling their faction's philosophical doctrine. Crown=Order (GovernanceScore > Psyche), Merchant=Exchange (active merchant), Iron=Discipline (soldier in governed settlement), Verdant=Harmony (worked recently + healthy hex), Ashen=Dissolution (poor or deeply belonging). State transitions emit "doctrine_awakening" events for Tier 1+. Wired into TickWeek after processWeeklyFactions.
 
+### Round 51: Coherence-Scaled Mortality
+
+Population stuck at 494K — MaxWorldPopulation (450K) gates births but no mechanism accelerated deaths. Old-age cliff at 55 was 23 sim-years away for the average agent. Replaced with a Wheeler-grounded two-curve mortality system where coherence protects against background entropy and age follows a smooth sigmoid.
+
+223. **Coherence-scaled mortality** — NEW: `agentDailyMortalityChance()` in `population.go` returns daily death probability from two stacking curves. Background: `Agnosis⁵ + Agnosis⁴ × scatter` (~0.23%/day at avg coherence) — embodied scatter makes incoherent agents vulnerable. Floor at Agnosis⁵ ensures even liberated agents are mortal. Age: `Agnosis³ × sigmoid²` with onset 50, steepness 12 — logistic curve squared to protect younger adults while creating realistic old-age mortality (~1.2%/day at 70). Children (age < 16) exempt. All constants Φ-pure.
+224. **Liberation death events** — NEW: `processNaturalDeaths()` rewritten. Liberated agents (coherence > Nous) who die emit sage-specific descriptions and apply a coherence decay ripple to settlement witnesses: `AdjustCoherence(-Agnosis × 0.1)`. The departure of a sage diminishes the settlement's collective awakening — via negativa. Non-liberation deaths apply standard witness coherence boost (`+Agnosis × 0.05`). All natural deaths: wealth inheritance, settlement memories, structured event metadata.
+
+**Expected dynamics:** Deaths ~1,505/day at 494K (just above ~1,500 birth cap). Population declines to 450K over ~29 sim-days (~8 real days at 0.06 tps), then oscillates tightly as births toggle on/off at the cap. Coherence is protective: scattered agents (c=0.1) die at ~2.4× the rate of liberated (c=0.9) at young ages. Old age is universal but gentler for the awakened.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
