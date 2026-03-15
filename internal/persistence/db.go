@@ -577,6 +577,26 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		slog.Info("trade routes persisted", "count", len(routes))
 	}
 
+	// Persist trade tracker (weekly trade volume accumulator).
+	// Without this, deploy restarts reset SustainedWeeks on all routes
+	// because processTradeRoutes sees an empty TradeTracker and marks
+	// every route as dormant.
+	if len(sim.TradeTracker) > 0 {
+		type ttEntry struct {
+			A uint64  `json:"a"`
+			B uint64  `json:"b"`
+			V float64 `json:"v"` // volume
+		}
+		entries := make([]ttEntry, 0, len(sim.TradeTracker))
+		for key, vol := range sim.TradeTracker {
+			entries = append(entries, ttEntry{A: key.A, B: key.B, V: vol})
+		}
+		ttJSON, _ := json.Marshal(entries)
+		if err := db.SaveMeta("trade_tracker", string(ttJSON)); err != nil {
+			return fmt.Errorf("save trade_tracker: %w", err)
+		}
+	}
+
 	// Persist diplomatic agreements.
 	if len(sim.Agreements) > 0 {
 		type agreeEntry struct {

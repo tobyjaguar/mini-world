@@ -338,6 +338,24 @@ func main() {
 				slog.Info("trade routes restored", "count", len(routes))
 			}
 		}
+
+		// Restore trade tracker (weekly trade volume accumulator).
+		if ttStr, err := db.GetMeta("trade_tracker"); err == nil {
+			type ttEntry struct {
+				A uint64  `json:"a"`
+				B uint64  `json:"b"`
+				V float64 `json:"v"`
+			}
+			var entries []ttEntry
+			if json.Unmarshal([]byte(ttStr), &entries) == nil && len(entries) > 0 {
+				sim.TradeTracker = make(map[engine.SettRelKey]float64, len(entries))
+				for _, e := range entries {
+					key := engine.SettRelKey{A: e.A, B: e.B}
+					sim.TradeTracker[key] = e.V
+				}
+				slog.Info("trade tracker restored", "pairs", len(entries))
+			}
+		}
 	}
 
 	// Restore diplomatic agreements from database.
