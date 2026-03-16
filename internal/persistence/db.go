@@ -714,7 +714,7 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 	}
 
 	var rows []agentRow
-	if err := db.conn.Select(&rows, "SELECT * FROM agents"); err != nil {
+	if err := db.conn.Select(&rows, "SELECT * FROM agents WHERE alive = 1"); err != nil {
 		return nil, fmt.Errorf("load agents: %w", err)
 	}
 

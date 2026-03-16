@@ -82,6 +82,16 @@ type Simulation struct {
 
 	// Statistics tracked per day.
 	Stats SimStats
+
+	// Per-tick caches (reused across ticks, cleared at start of each tick).
+	tickCoherenceCache map[uint64]float64
+	tickHexCache       map[tickHexKey]*world.Hex
+}
+
+// tickHexKey is a cache key for bestProductionHex: settlement + occupation.
+type tickHexKey struct {
+	settID uint64
+	occ    agents.Occupation
 }
 
 // CurrentTick returns the most recently processed tick number.
@@ -212,8 +222,31 @@ func (s *Simulation) TickMinute(tick uint64) {
 		s.Agents[i], s.Agents[j] = s.Agents[j], s.Agents[i]
 	})
 
+	// Per-tick caches: avoid recomputing per-settlement values for every agent.
+	// coherenceExtractionMod iterates all settlement agents — O(pop) per call.
+	// bestProductionHex scans 7 hexes — same result for same settlement+occupation.
+	// Caches are struct fields (reused across ticks) to avoid GC allocation pressure.
+	if s.tickCoherenceCache == nil {
+		s.tickCoherenceCache = make(map[uint64]float64, len(s.Settlements))
+	} else {
+		clear(s.tickCoherenceCache)
+	}
+	if s.tickHexCache == nil {
+		s.tickHexCache = make(map[tickHexKey]*world.Hex, len(s.Settlements)*6)
+	} else {
+		clear(s.tickHexCache)
+	}
+
 	for _, a := range s.Agents {
 		if !a.Alive {
+			continue
+		}
+
+		// Infants (age < 2) are passive — nursed by family, no independent
+		// decisions, no needs decay, no resource consumption. They still age
+		// (TickSeason), die from overcap mortality (TickDay), and count in
+		// population stats. Skipping them reduces per-tick work by ~80%.
+		if a.Age < 2 {
 			continue
 		}
 
@@ -233,20 +266,43 @@ func (s *Simulation) TickMinute(tick uint64) {
 		// Buy food: agent purchases from settlement market (direct transaction).
 		if action.Kind == agents.ActionBuyFood {
 			s.resolveBuyFood(a)
-		} else {
-			// Resource-producing occupations draw from hex resources.
-			hex := s.bestProductionHex(a)
+		} else if action.Kind == agents.ActionWork {
+			// Work actions need hex resources + settlement modifiers.
+			// Cache hex lookups per settlement+occupation and coherence mod
+			// per settlement to avoid redundant O(pop) scans.
+			var hex *world.Hex
+			if a.HomeSettID != nil {
+				key := tickHexKey{*a.HomeSettID, a.Occupation}
+				var ok bool
+				hex, ok = s.tickHexCache[key]
+				if !ok {
+					hex = s.bestProductionHex(a)
+					s.tickHexCache[key] = hex
+				}
+			} else {
+				hex = s.bestProductionHex(a)
+			}
 			boostMul := 1.0
 			coherenceMod := 1.0
 			conservationMod := 1.0
 			if a.HomeSettID != nil {
 				boostMul = s.GetSettlementBoost(*a.HomeSettID)
-				coherenceMod = s.coherenceExtractionMod(*a.HomeSettID)
+				cm, ok := s.tickCoherenceCache[*a.HomeSettID]
+				if !ok {
+					cm = s.coherenceExtractionMod(*a.HomeSettID)
+					s.tickCoherenceCache[*a.HomeSettID] = cm
+				}
+				coherenceMod = cm
 			}
 			if hex != nil {
 				conservationMod = ConservationDamageFactor(hex.ConservationLevel)
 			}
 			events = ResolveWork(a, action, hex, tick, boostMul, coherenceMod, conservationMod)
+		} else {
+			// Non-work, non-buy actions (eat, forage, rest, socialize, idle,
+			// travel): no hex resources needed. ResolveWork delegates to
+			// ApplyAction immediately for non-work actions anyway.
+			events = agents.ApplyAction(a, action, tick)
 		}
 
 		// Record notable events.
@@ -987,6 +1043,7 @@ func (s *Simulation) AvgCoherence() float64 {
 
 func (s *Simulation) updateStats() {
 	alive := 0
+	active := 0 // Agents participating in the simulation (age >= 2).
 	totalWealth := uint64(0)
 	totalMood := float32(0)
 	totalSatisfaction := float32(0)
@@ -1004,6 +1061,14 @@ func (s *Simulation) updateStats() {
 		if a.Alive {
 			alive++
 			totalWealth += a.Wealth
+
+			// Infants (age < 2) are passive — their needs/mood are frozen
+			// at birth values. Include them in population/wealth but exclude
+			// from satisfaction/mood averages to avoid skewing metrics.
+			if a.Age < 2 {
+				continue
+			}
+			active++
 			totalMood += a.Wellbeing.EffectiveMood
 			totalSatisfaction += a.Wellbeing.Satisfaction
 			totalAlignment += a.Wellbeing.Alignment
@@ -1027,11 +1092,11 @@ func (s *Simulation) updateStats() {
 	s.Stats.TotalWealth = totalWealth
 	// Deaths is now cumulative — incremented in processNaturalDeaths and
 	// DecayNeeds (starvation). Not recomputed here.
-	if alive > 0 {
-		s.Stats.AvgMood = totalMood / float32(alive)
-		s.Stats.AvgSatisfaction = totalSatisfaction / float32(alive)
-		s.Stats.AvgAlignment = totalAlignment / float32(alive)
-		s.Stats.AvgSurvival = totalSurvival / float32(alive)
+	if active > 0 {
+		s.Stats.AvgMood = totalMood / float32(active)
+		s.Stats.AvgSatisfaction = totalSatisfaction / float32(active)
+		s.Stats.AvgAlignment = totalAlignment / float32(active)
+		s.Stats.AvgSurvival = totalSurvival / float32(active)
 	}
 
 	// Compute per-occupation average satisfaction.
