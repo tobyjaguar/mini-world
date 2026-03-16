@@ -83,15 +83,8 @@ type Simulation struct {
 	// Statistics tracked per day.
 	Stats SimStats
 
-	// Per-tick caches (reused across ticks, cleared at start of each tick).
+	// Per-tick cache: coherenceExtractionMod per settlement (reused across ticks).
 	tickCoherenceCache map[uint64]float64
-	tickHexCache       map[tickHexKey]*world.Hex
-}
-
-// tickHexKey is a cache key for bestProductionHex: settlement + occupation.
-type tickHexKey struct {
-	settID uint64
-	occ    agents.Occupation
 }
 
 // CurrentTick returns the most recently processed tick number.
@@ -222,19 +215,13 @@ func (s *Simulation) TickMinute(tick uint64) {
 		s.Agents[i], s.Agents[j] = s.Agents[j], s.Agents[i]
 	})
 
-	// Per-tick caches: avoid recomputing per-settlement values for every agent.
-	// coherenceExtractionMod iterates all settlement agents — O(pop) per call.
-	// bestProductionHex scans 7 hexes — same result for same settlement+occupation.
-	// Caches are struct fields (reused across ticks) to avoid GC allocation pressure.
+	// Per-tick cache: coherenceExtractionMod iterates all settlement agents
+	// (O(pop) per call) but the result is constant within a tick. Cache it
+	// per settlement. Struct field reused across ticks to avoid GC pressure.
 	if s.tickCoherenceCache == nil {
 		s.tickCoherenceCache = make(map[uint64]float64, len(s.Settlements))
 	} else {
 		clear(s.tickCoherenceCache)
-	}
-	if s.tickHexCache == nil {
-		s.tickHexCache = make(map[tickHexKey]*world.Hex, len(s.Settlements)*6)
-	} else {
-		clear(s.tickHexCache)
 	}
 
 	for _, a := range s.Agents {
@@ -268,20 +255,7 @@ func (s *Simulation) TickMinute(tick uint64) {
 			s.resolveBuyFood(a)
 		} else if action.Kind == agents.ActionWork {
 			// Work actions need hex resources + settlement modifiers.
-			// Cache hex lookups per settlement+occupation and coherence mod
-			// per settlement to avoid redundant O(pop) scans.
-			var hex *world.Hex
-			if a.HomeSettID != nil {
-				key := tickHexKey{*a.HomeSettID, a.Occupation}
-				var ok bool
-				hex, ok = s.tickHexCache[key]
-				if !ok {
-					hex = s.bestProductionHex(a)
-					s.tickHexCache[key] = hex
-				}
-			} else {
-				hex = s.bestProductionHex(a)
-			}
+			hex := s.bestProductionHex(a)
 			boostMul := 1.0
 			coherenceMod := 1.0
 			conservationMod := 1.0
