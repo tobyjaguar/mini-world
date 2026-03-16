@@ -85,19 +85,19 @@ func (s *Simulation) ageAgents(tick uint64) {
 }
 
 // processNaturalDeaths checks for death from coherence-scaled mortality,
-// age, and disease. Two stacking mortality curves:
+// age, overcapacity pressure, and disease. Three stacking mortality curves:
 //
 //  1. Background mortality — Agnosis expressing itself in matter. Scatter
-//     (low coherence) amplifies vulnerability. A Torment agent's identity is
-//     diffused across phenomena, pulled in every direction, reactive to every
-//     stimulus. A Liberation agent's stillness is protective — behavioral, not
-//     supernatural. Floor at Agnosis⁵ ensures even liberated agents are mortal.
+//     (low coherence) amplifies vulnerability. Adults only (age >= 16).
 //
 //  2. Age mortality — universal logistic curve from age 50 onward. "That which
 //     has a beginning in time, has an end in time." Liberation is not immortality.
 //
-// Children (age < 16) are protected by family and community — background
-// entropy of autonomous existence begins at adulthood.
+//  3. Over-capacity pressure — when population exceeds MaxWorldPopulation,
+//     all agents face additional mortality proportional to overshoot, graduated
+//     by age: infants (Agnosis), children (Psyche), adults (1.0). The world's
+//     carrying capacity is a force of nature, not a policy — it touches everyone
+//     but shelters the young. Zero when population is at or below cap.
 func (s *Simulation) processNaturalDeaths(tick uint64) {
 	simDay := tick / TicksPerSimDay
 	liberationDeaths := 0
@@ -108,9 +108,8 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 			continue
 		}
 
-		// Coherence-scaled mortality: background entropy + age curve.
-		// Replaces the old hard cliff at age 55.
-		mortalityChance := agentDailyMortalityChance(a)
+		// Coherence-scaled mortality: background entropy + age curve + overcap pressure.
+		mortalityChance := agentDailyMortalityChance(a, s.Stats.TotalPopulation)
 
 		if mortalityChance > 0 {
 			// Deterministic check: hash agent ID with simDay for stable daily result.
@@ -237,33 +236,64 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 // Tuning: if too aggressive, reduce background by one Φ power (Agnosis⁵ base).
 // If too slow, increase age scale to Agnosis². Onset (50) and steepness (12)
 // can also be adjusted independently.
-func agentDailyMortalityChance(a *agents.Agent) float64 {
+func agentDailyMortalityChance(a *agents.Agent, population int) float64 {
+	var chance float64
+
+	// === Normal mortality: coherence-scaled, adults only (age >= 16) ===
 	// Children are protected by family and community. Background entropy
-	// of autonomous existence begins at adulthood (age 16).
-	if a.Age < 16 {
-		return 0
+	// of autonomous existence begins at adulthood.
+	if a.Age >= 16 {
+		coherence := float64(a.Soul.CittaCoherence)
+
+		// Background: scatter-driven daily death risk.
+		// Base at Agnosis⁴ (~0.00311) — four-fold entropy of embodied scatter.
+		// Floor at Agnosis⁵ (~0.000734) — even liberated agents are mortal.
+		agnosis4 := phi.Agnosis * phi.Agnosis * phi.Agnosis * phi.Agnosis
+		agnosis5 := agnosis4 * phi.Agnosis
+		scatter := 1.0 - coherence
+		chance = agnosis5 + agnosis4*scatter
+
+		// Age: logistic sigmoid curve, universal.
+		// Onset at 50, steepness 12 sim-years, scaled by Agnosis³ (~0.01315).
+		// Squared sigmoid protects younger adults while ensuring old agents
+		// face increasing mortality. At age 70: ~0.98%/day.
+		agnosis3 := phi.Agnosis * phi.Agnosis * phi.Agnosis
+		ageOffset := float64(a.Age) - 50.0
+		sigmoid := 1.0 / (1.0 + math.Exp(-ageOffset/12.0))
+		chance += agnosis3 * sigmoid * sigmoid
 	}
 
-	coherence := float64(a.Soul.CittaCoherence)
+	// === Over-capacity pressure: all ages, graduated by life stage ===
+	// When population exceeds MaxWorldPopulation, the world pushes back.
+	// Overpopulation strains resources, land, and social fabric — a force
+	// that touches everyone but shelters the young.
+	//
+	// Pressure = Agnosis² × overshoot_ratio × age_weight
+	//   Age 0-2:  Agnosis  (~24%) — barely touched, sheltered by family
+	//   Age 2-16: Psyche   (~38%) — growing but protected by community
+	//   Age 16+:  1.0      — full participants in the world's burden
+	//
+	// The Φ ladder (Agnosis → Psyche → 1.0) maps each life stage to the
+	// emanation hierarchy. Under the cap this term is zero — normal Wheeler
+	// mortality governs alone.
+	if population > MaxWorldPopulation {
+		overshoot := float64(population)/float64(MaxWorldPopulation) - 1.0
+		pressure := phi.Agnosis * phi.Agnosis * overshoot // Agnosis²
 
-	// Background: scatter-driven daily death risk.
-	// Base at Agnosis⁴ (~0.00311) — four-fold entropy of embodied scatter.
-	// Floor at Agnosis⁵ (~0.000734) — even liberated agents are mortal.
-	agnosis4 := phi.Agnosis * phi.Agnosis * phi.Agnosis * phi.Agnosis
-	agnosis5 := agnosis4 * phi.Agnosis
-	scatter := 1.0 - coherence
-	background := agnosis5 + agnosis4*scatter
+		var weight float64
+		switch {
+		case a.Age < 2:
+			weight = phi.Agnosis // ~0.236
+		case a.Age < 16:
+			weight = phi.Psyche // ~0.382
+		default:
+			weight = 1.0
+		}
 
-	// Age: logistic sigmoid curve, universal.
-	// Onset at 50, steepness 12 sim-years, scaled by Agnosis³ (~0.01315).
-	// Squared sigmoid protects younger adults while ensuring old agents
-	// face increasing mortality. At age 70: ~0.98%/day.
-	agnosis3 := phi.Agnosis * phi.Agnosis * phi.Agnosis
-	ageOffset := float64(a.Age) - 50.0
-	sigmoid := 1.0 / (1.0 + math.Exp(-ageOffset/12.0))
-	age := agnosis3 * sigmoid * sigmoid
+		chance += pressure * weight
+	}
 
-	return background + age
+	return chance
 }
 
 // processBirths creates new agents from families in prosperous settlements.
