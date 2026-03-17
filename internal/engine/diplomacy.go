@@ -141,8 +141,11 @@ func (s *Simulation) processDiplomacy(tick uint64) {
 					s.emitDiplomacyEvent(tick, key, agreement.Type, "downgraded")
 				}
 			} else if agreement.Type == 0 {
-				// Pre-formation tracking that lost momentum.
-				agreement.SustainedWeeks = 0
+				// Pre-formation tracking that lost momentum — gradual decay
+				// instead of hard reset, so one bad week doesn't erase progress.
+				if agreement.SustainedWeeks > 0 {
+					agreement.SustainedWeeks--
+				}
 				if sentiment < phi.Agnosis {
 					delete(s.Agreements, key)
 				}

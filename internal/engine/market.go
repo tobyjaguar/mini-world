@@ -617,6 +617,58 @@ func (s *Simulation) paySettlementWages() {
 	}
 }
 
+// payGarrisonStipends pays soldiers from settlement treasuries for crime deterrence.
+// This addresses two issues simultaneously: treasury hoarding (P2) and soldier
+// satisfaction gap (P3). Soldiers protect the settlement; the settlement pays them.
+// Φ-derived: stipend = perCapitaTreasury × Agnosis × 0.5 per soldier per day.
+func (s *Simulation) payGarrisonStipends() {
+	for _, sett := range s.Settlements {
+		if sett.Treasury == 0 || sett.Population == 0 {
+			continue
+		}
+
+		// Count alive soldiers in this settlement.
+		settAgents := s.SettlementAgents[sett.ID]
+		var soldiers []*agents.Agent
+		for _, a := range settAgents {
+			if a.Alive && a.Occupation == agents.OccupationSoldier {
+				soldiers = append(soldiers, a)
+			}
+		}
+		if len(soldiers) == 0 {
+			continue
+		}
+
+		// Per-soldier stipend: per-capita treasury × Agnosis × 0.5.
+		// At avg ~1,160 treasury per capita: ~137 crowns/soldier/day.
+		perCapita := float64(sett.Treasury) / float64(sett.Population)
+		stipend := uint64(perCapita * phi.Agnosis * 0.5)
+		if stipend < 1 {
+			stipend = 1
+		}
+
+		// Cap total payout at Agnosis fraction (~23.6%) of treasury.
+		maxPayout := uint64(float64(sett.Treasury) * phi.Agnosis)
+		paid := uint64(0)
+
+		for _, a := range soldiers {
+			if paid+stipend > maxPayout {
+				break
+			}
+			if sett.Treasury < stipend {
+				break
+			}
+			sett.Treasury -= stipend
+			a.Wealth += stipend
+			paid += stipend
+
+			// Needs boosts: soldiers feel valued by their community.
+			a.Needs.Safety += 0.003   // Economic security from steady pay
+			a.Needs.Purpose += 0.002  // Service is meaningful when recognized
+		}
+	}
+}
+
 // resolveBuyFood handles an agent's decision to buy food from the settlement market.
 // Direct purchase: agent pays market price, gets 1 food, crowns go to treasury.
 // This engages the economy — agents with wealth buy food instead of foraging.

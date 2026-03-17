@@ -145,7 +145,9 @@ func (s *Simulation) computeSettlementRelations() {
 			distMod := 1.0 / (1.0 + float64(dist)*phi.Agnosis*0.5) // 1.0 at dist 1, ~0.54 at dist 5, ~0.32 at dist 10
 
 			// Blend factors into a weekly sentiment delta.
-			delta := (factionScore + tradeScore + cultureScore) * distMod * phi.Agnosis
+			// Individual scores are already Φ-scaled; Psyche dampener ensures
+			// only genuinely strong pairs reach diplomatic thresholds.
+			delta := (factionScore + tradeScore + cultureScore) * distMod * phi.Psyche
 
 			// Get or create relation.
 			rel, exists := s.Relations[key]

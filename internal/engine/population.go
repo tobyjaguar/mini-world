@@ -160,18 +160,25 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 
 					if isLiberated {
 						// Liberation death: the world becomes more scattered
-						// when its wise die. The void outweighs contemplation.
+						// when its wise die. Scaled by witness coherence —
+						// you must have begun awakening to perceive what was
+						// lost. Embodied agents notice the absence; centered
+						// agents feel the void.
 						for _, witness := range s.SettlementAgents[*a.HomeSettID] {
 							if witness.Alive && witness.ID != a.ID {
-								witness.Soul.AdjustCoherence(-float32(phi.Agnosis * 0.1)) // ~-0.024
+								ripple := -float32(phi.Agnosis*0.1) * witness.Soul.CittaCoherence
+								witness.Soul.AdjustCoherence(ripple)
 							}
 						}
 					} else {
 						// Ordinary death: via negativa — witnessing death
-						// strips attachment, increasing coherence.
+						// strips attachment, increasing coherence. Embodied
+						// agents benefit most; the liberated have already
+						// transcended this lesson.
 						for _, witness := range s.SettlementAgents[*a.HomeSettID] {
 							if witness.Alive && witness.ID != a.ID {
-								witness.Soul.AdjustCoherence(float32(phi.Agnosis * 0.05)) // ~+0.012
+								gain := float32(phi.Agnosis*0.05) * (1 - witness.Soul.CittaCoherence*0.5)
+								witness.Soul.AdjustCoherence(gain)
 							}
 						}
 					}

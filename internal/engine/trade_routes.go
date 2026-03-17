@@ -97,7 +97,9 @@ func (s *Simulation) processTradeRoutes(tick uint64) {
 			route.WeeklyTrade = vol
 			if vol < routeDecayThreshold {
 				route.DormantWeeks++
-				route.SustainedWeeks = 0
+				if route.SustainedWeeks > 0 {
+					route.SustainedWeeks--
+				}
 			} else {
 				// Some trade but below growth threshold — hold steady.
 				route.DormantWeeks = 0
@@ -109,7 +111,9 @@ func (s *Simulation) processTradeRoutes(tick uint64) {
 	for key, route := range s.TradeRoutes {
 		if _, hasTradeThisWeek := s.TradeTracker[key]; !hasTradeThisWeek {
 			route.DormantWeeks++
-			route.SustainedWeeks = 0
+			if route.SustainedWeeks > 0 {
+				route.SustainedWeeks--
+			}
 			route.WeeklyTrade = 0
 		}
 

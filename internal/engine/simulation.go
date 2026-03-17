@@ -371,6 +371,7 @@ func (s *Simulation) TickDay(tick uint64) {
 	s.collectTaxes(tick)
 	s.decayWealth()
 	s.paySettlementWages()
+	s.payGarrisonStipends()
 	s.processPopulation(tick)
 	s.processRelationships(tick)
 	s.processCrime(tick)
@@ -914,7 +915,10 @@ func (s *Simulation) processBaselineCoherence() {
 			continue
 		}
 		satisfaction := a.Needs.OverallSatisfaction()
-		if satisfaction > 0.7 && a.Age > 30 {
+		// Stable life resolves toward coherence. Gate at Matter (~0.618)
+		// satisfaction — most agents above subsistence qualify. Age 20+
+		// reflects that coherence growth requires some life experience.
+		if satisfaction > float32(phi.Matter) && a.Age > 20 {
 			a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.001))
 		}
 	}

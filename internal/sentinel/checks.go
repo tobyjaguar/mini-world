@@ -64,6 +64,16 @@ func RunChecks(snap *WorldSnapshot, state *SentinelState) ([]CheckResult, Health
 		checkLandHealth(hs),
 	}
 
+	// Guard: replace +Inf/-Inf/NaN values that break JSON marshaling.
+	for i := range results {
+		if math.IsInf(results[i].Value, 0) || math.IsNaN(results[i].Value) {
+			results[i].Value = 0
+		}
+	}
+	if math.IsInf(hs.DeathBirthRatio, 0) || math.IsNaN(hs.DeathBirthRatio) {
+		hs.DeathBirthRatio = 0
+	}
+
 	return results, hs
 }
 
@@ -116,6 +126,16 @@ func extractMetrics(snap *WorldSnapshot) HealthSnapshot {
 	return hs
 }
 
+// populationCap is the world population ceiling (MaxWorldPopulation in engine).
+// The sentinel is read-only and doesn't import the engine package, so we
+// define this locally. Kept in sync manually.
+const populationCap = 400_000
+
+// populationNearCap returns true when population is within 1% of the cap.
+func populationNearCap(pop int) bool {
+	return pop >= int(float64(populationCap)*0.99)
+}
+
 // computeDeathBirthRatio calculates the D:B ratio from history deltas.
 // History is sorted by tick DESC, so [0] is newest.
 func computeDeathBirthRatio(history []StatsHistoryRow) float64 {
@@ -138,7 +158,8 @@ func computeDeathBirthRatio(history []StatsHistoryRow) float64 {
 		if deltaBirths > 0 {
 			return float64(deltaDeaths) / float64(deltaBirths)
 		} else if deltaDeaths > 0 {
-			return math.Inf(1)
+			// Births gated — return a sentinel value that won't break JSON.
+			return 0
 		}
 		return 1.0
 	}
@@ -155,10 +176,17 @@ func checkPopulationVitality(snap *WorldSnapshot, hs HealthSnapshot) CheckResult
 		Value: hs.DeathBirthRatio,
 	}
 
-	dbStr := fmt.Sprintf("%.3f", hs.DeathBirthRatio)
-	if math.IsInf(hs.DeathBirthRatio, 1) {
-		dbStr = "INF"
+	// Births gated at population cap — zero births is expected, not a crisis.
+	birthsGated := hs.DeathBirthRatio == 0 && populationNearCap(hs.Population)
+	if birthsGated {
+		cr.Status = LevelHealthy
+		cr.Value = 0
+		cr.Threshold = fmt.Sprintf("Births gated at population cap (%dK)", populationCap/1000)
+		cr.Detail = fmt.Sprintf("Births gated at population cap, population %dK", hs.Population/1000)
+		return cr
 	}
+
+	dbStr := fmt.Sprintf("%.3f", hs.DeathBirthRatio)
 
 	// Check for population decline trend.
 	popDeclining := false
