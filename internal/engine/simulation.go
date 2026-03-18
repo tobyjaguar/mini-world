@@ -75,6 +75,19 @@ type Simulation struct {
 	PeaceTreaties map[SettRelKey]*PeaceTreaty
 	RaidCounts    map[SettRelKey]int
 
+	// Pre-computed settlement neighbor index: settlement ID → neighbors within 10 hexes.
+	// Rebuilt when settlements are added/removed (weekly compaction, founding).
+	// Used by relations (weekly, uses ≤10) and other settlement pair loops.
+	SettlementNeighbors map[uint64][]*social.Settlement
+
+	// Pre-computed merchant trade neighbors: settlement ID → neighbors within 5 hexes
+	// with a market. Built alongside SettlementNeighbors. Used by resolveMerchantTrade()
+	// hourly — avoids re-filtering the 10-hex list every hour for every merchant.
+	SettlementTradeNeighbors map[uint64][]*social.Settlement
+
+	// Per-settlement diplomacy crime bonus cache. Rebuilt weekly after processDiplomacy.
+	diplomacyCrimeBonusCache map[uint64]float64
+
 	// Event streaming support.
 	eventSubMu sync.RWMutex
 	eventSubs  map[int]chan Event
@@ -85,6 +98,13 @@ type Simulation struct {
 
 	// Per-tick cache: coherenceExtractionMod per settlement (reused across ticks).
 	tickCoherenceCache map[uint64]float64
+
+	// Per-hour cache: bestProductionHex per (settlement, occupation).
+	// Hex ranking is stable within 1 sim-hour — resource levels change slowly
+	// relative to the number of agents querying. Rebuilt hourly, reduces
+	// ~152K hex-search calls/tick to ~4K cache builds/hour.
+	prodHexCache     map[prodHexKey]*world.Hex
+	prodHexCacheTick uint64
 }
 
 // CurrentTick returns the most recently processed tick number.
@@ -207,13 +227,17 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 func (s *Simulation) TickMinute(tick uint64) {
 	s.LastTick = tick
 
-	// Shuffle agent processing order so resource access is fair.
-	// Without shuffle, the same agents (first in array) monopolize hex
-	// resources every tick. Seeded by tick for deterministic replay.
-	rng := rand.New(rand.NewSource(int64(tick)))
-	rng.Shuffle(len(s.Agents), func(i, j int) {
-		s.Agents[i], s.Agents[j] = s.Agents[j], s.Agents[i]
-	})
+	// Shuffle agent processing order hourly so resource access is fair.
+	// With fractional extraction (R33), per-tick fairness is no longer
+	// critical — agents take partial amounts proportional to availability.
+	// Hourly shuffle (60× fewer shuffles) still rotates first-access fairly
+	// while eliminating ~400K swap operations on 59 of every 60 ticks.
+	if tick%TicksPerSimHour == 0 {
+		rng := rand.New(rand.NewSource(int64(tick)))
+		rng.Shuffle(len(s.Agents), func(i, j int) {
+			s.Agents[i], s.Agents[j] = s.Agents[j], s.Agents[i]
+		})
+	}
 
 	// Per-tick cache: coherenceExtractionMod iterates all settlement agents
 	// (O(pop) per call) but the result is constant within a tick. Cache it
@@ -222,6 +246,14 @@ func (s *Simulation) TickMinute(tick uint64) {
 		s.tickCoherenceCache = make(map[uint64]float64, len(s.Settlements))
 	} else {
 		clear(s.tickCoherenceCache)
+	}
+
+	// Hourly cache: bestProductionHex per (settlement, occupation).
+	// Hex resource ranking changes slowly — refreshing hourly reduces
+	// ~152K hex-search calls/tick to ~4K cache entries rebuilt per hour.
+	if tick%TicksPerSimHour == 0 || s.prodHexCache == nil {
+		s.prodHexCache = make(map[prodHexKey]*world.Hex, len(s.Settlements)*8)
+		s.prodHexCacheTick = tick
 	}
 
 	for _, a := range s.Agents {
@@ -442,6 +474,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processSettlementOvermass(tick)
 	s.processSettlementAbandonment(tick)
 	s.compactAbandonedSettlements()
+	s.BuildSettlementNeighbors() // Rebuild after abandoned settlements removed.
 	s.processWeeklyTier2Replenishment()
 	s.updateArchetypeTemplates(tick)
 	s.processOracleVisions(tick)
@@ -450,6 +483,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processTradeRoutes(tick)
 	s.computeSettlementRelations()
 	s.processDiplomacy(tick)
+	s.BuildDiplomacyCrimeBonusCache()
 	s.ApplyDiplomacyEffects()
 	s.processPeace(tick)
 	s.processWarfare(tick)
@@ -1145,18 +1179,48 @@ func (s *Simulation) settlementProducerTarget(settID uint64) int {
 	return int(math.Round(ratio * float64(pop)))
 }
 
+// prodHexKey is a cache key for bestProductionHex lookups.
+type prodHexKey struct {
+	settID     uint64
+	occupation agents.Occupation
+}
+
 // bestProductionHex selects the best hex for a resource-producing agent to work.
 // Picks the healthiest hex with available resources from the settlement's
 // neighborhood (home + 6 neighbors), distributing extraction pressure across
 // 7 hexes to match the carrying capacity model.
+//
+// Results are cached per (settlement, occupation) and refreshed hourly.
+// Hex ranking is stable within 1 sim-hour — resource levels change slowly
+// relative to query volume (~152K agents/tick vs ~0.01 depletion/extraction).
 func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
-	resType, needsResource := occupationResource[a.Occupation]
+	_, needsResource := occupationResource[a.Occupation]
 	if !needsResource {
 		return s.WorldMap.Get(a.Position)
 	}
 	if a.HomeSettID == nil {
 		return s.WorldMap.Get(a.Position)
 	}
+
+	// Check hourly cache.
+	key := prodHexKey{settID: *a.HomeSettID, occupation: a.Occupation}
+	if s.prodHexCache != nil {
+		if h, ok := s.prodHexCache[key]; ok {
+			return h
+		}
+	}
+
+	// Cache miss — compute and store.
+	h := s.findBestProductionHex(a)
+	if s.prodHexCache != nil {
+		s.prodHexCache[key] = h
+	}
+	return h
+}
+
+// findBestProductionHex does the actual hex search for bestProductionHex.
+func (s *Simulation) findBestProductionHex(a *agents.Agent) *world.Hex {
+	resType := occupationResource[a.Occupation]
 	sett, ok := s.SettlementIndex[*a.HomeSettID]
 	if !ok {
 		return s.WorldMap.Get(a.Position)
@@ -1188,6 +1252,63 @@ func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
 		return s.WorldMap.Get(sett.Position)
 	}
 	return bestHex
+}
+
+// BuildSettlementNeighbors pre-computes the neighbor list for every settlement.
+// Neighbors are settlements within 10 hexes (the max interaction range used by
+// computeSettlementRelations). Callers needing a shorter range (e.g. merchant
+// trade at 5 hexes) filter the returned slice.
+//
+// Must be called on startup and after any operation that adds or removes
+// settlements (foundSettlement, compactAbandonedSettlements).
+func (s *Simulation) BuildSettlementNeighbors() {
+	neighbors := make(map[uint64][]*social.Settlement, len(s.Settlements))
+	const maxRange = 10
+	for i, a := range s.Settlements {
+		if a.Population == 0 {
+			continue
+		}
+		for j := i + 1; j < len(s.Settlements); j++ {
+			b := s.Settlements[j]
+			if b.Population == 0 {
+				continue
+			}
+			if world.Distance(a.Position, b.Position) <= maxRange {
+				neighbors[a.ID] = append(neighbors[a.ID], b)
+				neighbors[b.ID] = append(neighbors[b.ID], a)
+			}
+		}
+	}
+	s.SettlementNeighbors = neighbors
+
+	// Also build the ≤5 hex trade neighbor index (used hourly by resolveMerchantTrade).
+	tradeNeighbors := make(map[uint64][]*social.Settlement, len(s.Settlements))
+	for id, nbs := range neighbors {
+		for _, nb := range nbs {
+			sett := s.SettlementIndex[id]
+			if sett == nil {
+				continue
+			}
+			if world.Distance(sett.Position, nb.Position) <= 5 && nb.Market != nil {
+				tradeNeighbors[id] = append(tradeNeighbors[id], nb)
+			}
+		}
+	}
+	s.SettlementTradeNeighbors = tradeNeighbors
+
+	slog.Info("settlement neighbors built", "settlements", len(s.Settlements), "pairs_10hex", func() int {
+		n := 0
+		for _, v := range neighbors {
+			n += len(v)
+		}
+		return n / 2
+	}(), "trade_pairs_5hex", func() int {
+		n := 0
+		for _, v := range tradeNeighbors {
+			n += len(v)
+		}
+		return n / 2
+	}())
 }
 
 // rebuildSettlementAgents reconstructs the settlement→agents map from agent HomeSettIDs.

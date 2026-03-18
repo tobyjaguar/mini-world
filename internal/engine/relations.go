@@ -29,6 +29,30 @@ func settRelKey(a, b uint64) SettRelKey {
 	return SettRelKey{A: a, B: b}
 }
 
+// factionRivalryMultiplier returns an extra tension multiplier for philosophically
+// opposed faction pairs. Returns Being (~1.618) for deep rivals, 1.0 for neutral pairs.
+// Rivalries derive from faction philosophies, not arbitrary scripting:
+//   - Crown (order) vs Ashen Path (dissolution): ontological opposites
+//   - Iron Brotherhood (martial discipline) vs Verdant Circle (natural harmony): opposites
+//   - Merchant's Compact (wealth accumulation) vs Ashen Path (detachment): opposites
+func factionRivalryMultiplier(factionA, factionB int) float64 {
+	// Faction IDs: 1=Crown, 2=Merchant, 3=Iron Brotherhood, 4=Verdant Circle, 5=Ashen Path
+	a, b := factionA, factionB
+	if a > b {
+		a, b = b, a
+	}
+	switch {
+	case a == 1 && b == 5: // Crown vs Ashen Path
+		return phi.Being
+	case a == 3 && b == 4: // Iron Brotherhood vs Verdant Circle
+		return phi.Being
+	case a == 2 && b == 5: // Merchant's Compact vs Ashen Path
+		return phi.Being
+	default:
+		return 1.0
+	}
+}
+
 // RecordInterSettlementTrade increments the trade counter between two settlements.
 // Called from merchant cargo sale when a trade completes between settlements.
 func (s *Simulation) RecordInterSettlementTrade(sourceID, destID uint64) {
@@ -87,28 +111,31 @@ func (s *Simulation) computeSettlementRelations() {
 	}
 
 	// Compute relations for settlement pairs within interaction range (10 hexes).
-	// Beyond this, settlements don't meaningfully interact.
-	const maxRange = 10
+	// Uses pre-computed neighbor index to avoid O(n²) all-pairs evaluation.
 	updated := 0
+	seen := make(map[SettRelKey]bool, len(s.Settlements)*20) // dedup: A→B and B→A
 
-	for i, settA := range s.Settlements {
+	for _, settA := range s.Settlements {
 		if settA.Population == 0 {
 			continue
 		}
-		for j := i + 1; j < len(s.Settlements); j++ {
-			settB := s.Settlements[j]
+		for _, settB := range s.SettlementNeighbors[settA.ID] {
 			if settB.Population == 0 {
 				continue
 			}
 
-			dist := world.Distance(settA.Position, settB.Position)
-			if dist > maxRange {
+			key := settRelKey(settA.ID, settB.ID)
+			if seen[key] {
 				continue
 			}
+			seen[key] = true
 
-			key := settRelKey(settA.ID, settB.ID)
+			dist := world.Distance(settA.Position, settB.Position)
 
-			// 1. Faction affinity: shared dominant faction → positive, different → slight negative.
+			// 1. Faction affinity: shared dominant faction → positive, different → rivalry.
+			//    Cooperation uses Being (1.618), rivalry uses Matter (0.618).
+			//    The cooperation:rivalry ratio is Being/Matter = Φ — emergence-preserving asymmetry.
+			//    Philosophically opposed factions get an additional Being multiplier.
 			factionScore := 0.0
 			fA, fB := factionData[settA.ID], factionData[settB.ID]
 			if fA.dominantFaction >= 0 && fB.dominantFaction >= 0 {
@@ -116,8 +143,9 @@ func (s *Simulation) computeSettlementRelations() {
 					// Shared faction: strength of bond = product of dominance strengths.
 					factionScore = fA.factionStrength * fB.factionStrength * phi.Being // Up to ~1.618
 				} else {
-					// Different factions: mild rivalry.
-					factionScore = -fA.factionStrength * fB.factionStrength * phi.Agnosis // Up to ~-0.236
+					// Different factions: rivalry scaled by Matter.
+					rivalryMul := factionRivalryMultiplier(fA.dominantFaction, fB.dominantFaction)
+					factionScore = -fA.factionStrength * fB.factionStrength * phi.Matter * rivalryMul
 				}
 			}
 

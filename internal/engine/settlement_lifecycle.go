@@ -304,6 +304,9 @@ func (s *Simulation) foundSettlement(coord world.HexCoord, founders []*agents.Ag
 		s.SettlementAgents[newID] = append(s.SettlementAgents[newID], a)
 	}
 
+	// Rebuild neighbor index to include the new settlement.
+	s.BuildSettlementNeighbors()
+
 	return newSett
 }
 

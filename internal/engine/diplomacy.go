@@ -322,19 +322,28 @@ func (s *Simulation) ApplyDiplomacyEffects() {
 // GetDiplomacyCrimeBonus returns an additive crime deterrence bonus for a
 // settlement based on its Non-Aggression+ agreements.
 func (s *Simulation) GetDiplomacyCrimeBonus(settID uint64) float64 {
-	if s.Agreements == nil {
-		return 0
+	return s.diplomacyCrimeBonusCache[settID]
+}
+
+// BuildDiplomacyCrimeBonusCache pre-computes per-settlement crime bonuses
+// from agreements. Called weekly after processDiplomacy().
+func (s *Simulation) BuildDiplomacyCrimeBonusCache() {
+	if s.diplomacyCrimeBonusCache == nil {
+		s.diplomacyCrimeBonusCache = make(map[uint64]float64, len(s.Settlements))
+	} else {
+		clear(s.diplomacyCrimeBonusCache)
 	}
-	bonus := 0.0
+	if s.Agreements == nil {
+		return
+	}
 	for key, a := range s.Agreements {
 		if a.Type < AgreementNonAggression {
 			continue
 		}
-		if key.A == settID || key.B == settID {
-			bonus += phi.Agnosis * 0.5 // ~0.118 per non-aggression+ partner
-		}
+		bonus := phi.Agnosis * 0.5 // ~0.118 per non-aggression+ partner
+		s.diplomacyCrimeBonusCache[key.A] += bonus
+		s.diplomacyCrimeBonusCache[key.B] += bonus
 	}
-	return bonus
 }
 
 // GetDiplomacyTradeBonus returns a multiplicative trade sentiment bonus for

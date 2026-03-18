@@ -535,6 +535,11 @@ func main() {
 		}
 	}
 
+	// Pre-compute settlement neighbor index for O(1) proximity lookups.
+	sim.BuildSettlementNeighbors()
+	// Pre-compute diplomacy crime bonus cache from loaded agreements.
+	sim.BuildDiplomacyCrimeBonusCache()
+
 	eng := engine.NewEngine()
 	eng.Tick = startTick
 	eng.Speed = 1

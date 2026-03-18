@@ -733,17 +733,8 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 			continue
 		}
 
-		// Find neighboring settlements within trade range (hex distance <= 5).
-		var neighbors []*social.Settlement
-		for _, other := range s.Settlements {
-			if other.ID == sett.ID {
-				continue
-			}
-			dist := world.Distance(sett.Position, other.Position)
-			if dist <= 5 && other.Market != nil {
-				neighbors = append(neighbors, other)
-			}
-		}
+		// Use pre-computed trade neighbor index (≤5 hex, market != nil).
+		neighbors := s.SettlementTradeNeighbors[sett.ID]
 		if len(neighbors) == 0 {
 			continue
 		}

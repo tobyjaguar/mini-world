@@ -1,7 +1,7 @@
 #!/bin/bash
 # Daily SQLite backup for Crossworlds database.
-# Keeps 3 rolling copies. Uses sqlite3 .backup for consistency
-# (safe even while worldsim is running — uses SQLite's backup API).
+# Keeps 2 rolling copies: latest raw (fast restore), previous gzipped (space-efficient).
+# Uses sqlite3 .backup for consistency (safe while worldsim runs — SQLite backup API).
 #
 # Installed as a systemd timer by deploy.sh.
 # Backups stored in /opt/worldsim/backups/
@@ -10,7 +10,6 @@ set -euo pipefail
 
 DB="/opt/worldsim/data/crossworlds.db"
 BACKUP_DIR="/opt/worldsim/backups"
-MAX_BACKUPS=3
 
 if [ ! -f "$DB" ]; then
     echo "Database not found: $DB"
@@ -43,8 +42,15 @@ fi
 SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 echo "Backup created: $BACKUP_FILE ($SIZE)"
 
-# Remove old backups, keeping only the most recent $MAX_BACKUPS.
+# Compress previous raw backups (skip the one we just created).
 cd "$BACKUP_DIR"
-ls -1t crossworlds-*.db 2>/dev/null | tail -n +$((MAX_BACKUPS + 1)) | xargs -r rm -f
+for old_raw in $(ls -1t crossworlds-*.db 2>/dev/null | tail -n +2); do
+    echo "Compressing previous backup: $old_raw"
+    gzip "$old_raw"
+done
 
-echo "Backups retained: $(ls -1 crossworlds-*.db 2>/dev/null | wc -l)/$MAX_BACKUPS"
+# Remove old gzipped backups, keeping only the most recent one.
+ls -1t crossworlds-*.db.gz 2>/dev/null | tail -n +2 | xargs -r rm -f
+
+TOTAL=$(( $(ls -1 crossworlds-*.db 2>/dev/null | wc -l) + $(ls -1 crossworlds-*.db.gz 2>/dev/null | wc -l) ))
+echo "Backups retained: $TOTAL (1 raw + 1 gzipped)"
