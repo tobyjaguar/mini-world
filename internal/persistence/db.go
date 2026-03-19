@@ -200,7 +200,10 @@ func (db *DB) migrate() error {
 	return nil
 }
 
-// SaveAgents writes all agents to the database (full replace).
+// SaveAgents writes alive agents to the database using upsert (no full table rebuild).
+// Dead agents are marked as dead in-place rather than being deleted and re-inserted.
+// This avoids destroying and rebuilding the entire B-tree + indices on every save,
+// which was taking ~50 minutes under swap pressure on a 2GB server.
 func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -208,7 +211,9 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM agents"); err != nil {
+	// Mark all agents as dead first. Alive agents get upserted below,
+	// so any agent NOT in the alive list stays marked dead.
+	if _, err := tx.Exec("UPDATE agents SET alive = 0"); err != nil {
 		return err
 	}
 
@@ -217,41 +222,54 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 		 occupation, wealth, tier, mood, alive, born_tick, role, faction_id, archetype,
 		 skills_json, needs_json, soul_json, inventory_json, satisfaction, alignment, last_work_tick,
 		 production_progress)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+		 age=excluded.age, health=excluded.health,
+		 pos_q=excluded.pos_q, pos_r=excluded.pos_r,
+		 home_settlement_id=excluded.home_settlement_id,
+		 occupation=excluded.occupation, wealth=excluded.wealth,
+		 tier=excluded.tier, mood=excluded.mood, alive=excluded.alive,
+		 role=excluded.role, faction_id=excluded.faction_id, archetype=excluded.archetype,
+		 skills_json=excluded.skills_json, needs_json=excluded.needs_json,
+		 soul_json=excluded.soul_json, inventory_json=excluded.inventory_json,
+		 satisfaction=excluded.satisfaction, alignment=excluded.alignment,
+		 last_work_tick=excluded.last_work_tick, production_progress=excluded.production_progress`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
+	saved := 0
 	for _, a := range agentList {
+		if !a.Alive {
+			continue // Dead agents stay marked dead from the UPDATE above.
+		}
+
 		skillsJSON, _ := json.Marshal(a.Skills)
 		needsJSON, _ := json.Marshal(a.Needs)
 		soulJSON, _ := json.Marshal(a.Soul)
 		invJSON, _ := json.Marshal(a.Inventory)
 
-		alive := 0
-		if a.Alive {
-			alive = 1
-		}
-
 		_, err := stmt.Exec(
 			a.ID, a.Name, a.Age, a.Sex, a.Health,
 			a.Position.Q, a.Position.R, a.HomeSettID,
 			a.Occupation, a.Wealth, a.Tier, a.Wellbeing.EffectiveMood,
-			alive, a.BornTick, a.Role, a.FactionID, a.Archetype,
+			1, a.BornTick, a.Role, a.FactionID, a.Archetype,
 			string(skillsJSON), string(needsJSON), string(soulJSON), string(invJSON),
 			a.Wellbeing.Satisfaction, a.Wellbeing.Alignment, a.LastWorkTick,
 			a.ProductionProgress,
 		)
 		if err != nil {
-			return fmt.Errorf("insert agent %d: %w", a.ID, err)
+			return fmt.Errorf("upsert agent %d: %w", a.ID, err)
 		}
+		saved++
 	}
 
+	slog.Info("agents saved", "alive", saved, "total_in_memory", len(agentList))
 	return tx.Commit()
 }
 
-// SaveSettlements writes all settlements to the database.
+// SaveSettlements writes all settlements to the database using upsert.
 func (db *DB) SaveSettlements(settlements []*social.Settlement) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -259,40 +277,40 @@ func (db *DB) SaveSettlements(settlements []*social.Settlement) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM settlements"); err != nil {
-		return err
-	}
-
 	for _, s := range settlements {
 		_, err := tx.Exec(`INSERT INTO settlements
 			(id, name, pos_q, pos_r, population, governance, tax_rate, treasury,
 			 governance_score, cultural_memory, culture_tradition, culture_openness,
 			 culture_militarism, wall_level, road_level, market_level)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+			 population=excluded.population, governance=excluded.governance,
+			 tax_rate=excluded.tax_rate, treasury=excluded.treasury,
+			 governance_score=excluded.governance_score, cultural_memory=excluded.cultural_memory,
+			 culture_tradition=excluded.culture_tradition, culture_openness=excluded.culture_openness,
+			 culture_militarism=excluded.culture_militarism,
+			 wall_level=excluded.wall_level, road_level=excluded.road_level,
+			 market_level=excluded.market_level`,
 			s.ID, s.Name, s.Position.Q, s.Position.R, s.Population,
 			s.Governance, s.TaxRate, s.Treasury, s.GovernanceScore,
 			s.CulturalMemory, s.CultureTradition, s.CultureOpenness,
 			s.CultureMilitarism, s.WallLevel, s.RoadLevel, s.MarketLevel,
 		)
 		if err != nil {
-			return fmt.Errorf("insert settlement %d: %w", s.ID, err)
+			return fmt.Errorf("upsert settlement %d: %w", s.ID, err)
 		}
 	}
 
 	return tx.Commit()
 }
 
-// SaveFactions writes all factions to the database (full replace).
+// SaveFactions writes all factions to the database using upsert.
 func (db *DB) SaveFactions(factions []*social.Faction) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-
-	if _, err := tx.Exec("DELETE FROM factions"); err != nil {
-		return err
-	}
 
 	for _, f := range factions {
 		influenceJSON, _ := json.Marshal(f.Influence)
@@ -302,13 +320,18 @@ func (db *DB) SaveFactions(factions []*social.Faction) error {
 			(id, name, kind, leader_id, treasury,
 			 tax_preference, trade_preference, military_preference,
 			 influence_json, relations_json)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+			 leader_id=excluded.leader_id, treasury=excluded.treasury,
+			 tax_preference=excluded.tax_preference, trade_preference=excluded.trade_preference,
+			 military_preference=excluded.military_preference,
+			 influence_json=excluded.influence_json, relations_json=excluded.relations_json`,
 			f.ID, f.Name, f.Kind, f.LeaderID, f.Treasury,
 			f.TaxPreference, f.TradePreference, f.MilitaryPreference,
 			string(influenceJSON), string(relationsJSON),
 		)
 		if err != nil {
-			return fmt.Errorf("insert faction %d: %w", f.ID, err)
+			return fmt.Errorf("upsert faction %d: %w", f.ID, err)
 		}
 	}
 
@@ -816,7 +839,10 @@ func (db *DB) LoadSettlements() ([]*social.Settlement, error) {
 	return result, nil
 }
 
-// SaveMemories writes all agent memories to the database (full replace).
+// SaveMemories writes alive agent memories to the database.
+// Only iterates alive agents (dead agents' memories are preserved from previous saves).
+// Uses DELETE per-agent + INSERT since memories lack a natural primary key and
+// importance values decay over time.
 func (db *DB) SaveMemories(agentList []*agents.Agent) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -824,19 +850,28 @@ func (db *DB) SaveMemories(agentList []*agents.Agent) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM memories"); err != nil {
-		return err
-	}
-
-	stmt, err := tx.Preparex("INSERT INTO memories (agent_id, tick, content, importance) VALUES (?, ?, ?, ?)")
+	delStmt, err := tx.Preparex("DELETE FROM memories WHERE agent_id = ?")
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer delStmt.Close()
+
+	insStmt, err := tx.Preparex("INSERT INTO memories (agent_id, tick, content, importance) VALUES (?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer insStmt.Close()
 
 	for _, a := range agentList {
+		if !a.Alive || len(a.Memories) == 0 {
+			continue
+		}
+		// Delete this agent's old memories and re-insert current set.
+		if _, err := delStmt.Exec(a.ID); err != nil {
+			return fmt.Errorf("delete memories for agent %d: %w", a.ID, err)
+		}
 		for _, m := range a.Memories {
-			if _, err := stmt.Exec(a.ID, m.Tick, m.Content, m.Importance); err != nil {
+			if _, err := insStmt.Exec(a.ID, m.Tick, m.Content, m.Importance); err != nil {
 				return fmt.Errorf("insert memory for agent %d: %w", a.ID, err)
 			}
 		}
@@ -884,7 +919,8 @@ func (db *DB) LoadMemories(agentIndex map[agents.AgentID]*agents.Agent) error {
 	return nil
 }
 
-// SaveRelationships writes all agent relationships to the database (full replace).
+// SaveRelationships writes alive agent relationships to the database.
+// Only iterates alive agents (dead agents' relationships are preserved from previous saves).
 func (db *DB) SaveRelationships(agentList []*agents.Agent) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -892,19 +928,27 @@ func (db *DB) SaveRelationships(agentList []*agents.Agent) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM relationships"); err != nil {
-		return err
-	}
-
-	stmt, err := tx.Preparex("INSERT INTO relationships (agent_id, target_id, sentiment, trust) VALUES (?, ?, ?, ?)")
+	delStmt, err := tx.Preparex("DELETE FROM relationships WHERE agent_id = ?")
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer delStmt.Close()
+
+	insStmt, err := tx.Preparex("INSERT INTO relationships (agent_id, target_id, sentiment, trust) VALUES (?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer insStmt.Close()
 
 	for _, a := range agentList {
+		if !a.Alive || len(a.Relationships) == 0 {
+			continue
+		}
+		if _, err := delStmt.Exec(a.ID); err != nil {
+			return fmt.Errorf("delete relationships for agent %d: %w", a.ID, err)
+		}
 		for _, r := range a.Relationships {
-			if _, err := stmt.Exec(a.ID, r.TargetID, r.Sentiment, r.Trust); err != nil {
+			if _, err := insStmt.Exec(a.ID, r.TargetID, r.Sentiment, r.Trust); err != nil {
 				return fmt.Errorf("insert relationship for agent %d: %w", a.ID, err)
 			}
 		}

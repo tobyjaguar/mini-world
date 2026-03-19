@@ -885,6 +885,20 @@ Five fixes addressing P0 (TPS regression) and P1 (no negative sentiment) from th
 
 **Expected impact:** TPS should recover from 0.25 toward 0.40-0.50 (shuffle 60× + hex cache + trade neighbors + O(n²) elimination). Negative sentiment should emerge between IB↔VC and Crown↔Ashen pairs with divergent culture and no trade within 2-4 TickWeeks. First warfare event possible within 4-6 TickWeeks if hostility deepens. Non-rival pairs remain positive (correct behavior). The Φ-derived asymmetry ensures warfare is rare and meaningful.
 
+### Database Save Optimization (R55, 2026-03-19)
+
+**Daily save took ~50 minutes** — the entire TPS bottleneck. The tick engine ran at ~1.0 TPS between saves, but `SaveWorldState()` blocked for ~50 min per sim-day under swap pressure (279 MB swapped, 100% iowait). Effective TPS was 0.31 because 65% of wall-clock time was spent saving.
+
+**Root cause:** Every save function used `DELETE FROM <table>` + individual `INSERT` for all rows. For agents, this meant deleting 400K+ rows (destroying the B-tree and all indices), then reinserting 400K rows (rebuilding everything from scratch). On a 2GB server with 1.26 GB RSS and heavy swap, the I/O thrashing was catastrophic.
+
+238. **SaveAgents: DELETE+INSERT → UPSERT** — FIXED: Replaced `DELETE FROM agents` + 400K `INSERT` with `UPDATE agents SET alive = 0` (fast bulk mark) + `INSERT ... ON CONFLICT(id) DO UPDATE` for alive agents only. SQLite updates rows in-place via B-tree instead of destroying and rebuilding. Dead agents skipped (stay marked dead from previous saves). Expected: 50 min → 5-10 min save time.
+239. **SaveSettlements: DELETE+INSERT → UPSERT** — FIXED: Replaced `DELETE FROM settlements` + `INSERT` with `INSERT ... ON CONFLICT(id) DO UPDATE`. No table destruction.
+240. **SaveFactions: DELETE+INSERT → UPSERT** — FIXED: Same upsert pattern. 5 rows — negligible but consistent.
+241. **SaveMemories: full table DELETE → per-agent alive only** — FIXED: Replaced `DELETE FROM memories` (all memories for all agents) + iterate all 400K agents with per-agent delete+reinsert for alive agents with memories only. Dead agents' memories preserved from previous saves.
+242. **SaveRelationships: full table DELETE → per-agent alive only** — FIXED: Same per-agent pattern as memories. Only iterates alive agents with relationships.
+
+**Key insight:** The TPS regression from 1.05 to 0.31 was NOT caused by diplomacy code scaling (8K agreements, 28K relation pairs). All diplomacy hot paths were already optimized in R54. The bottleneck was the daily SQLite save doing full table rebuilds under swap pressure. The tick engine was running at ~1.0 TPS the whole time — 65% of wall-clock time was just waiting for I/O.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
