@@ -465,7 +465,10 @@ func (db *DB) GetMeta(key string) (string, error) {
 	return value, err
 }
 
-// SaveWorldState performs a full save of all world state.
+// SaveWorldState performs a fast daily save: agents, settlements, factions,
+// events, and world_meta. Skips memories and relationships to avoid I/O
+// thrashing on memory-constrained servers (~5 min instead of 50+ min).
+// Use SaveWorldStateFull for shutdown saves that include everything.
 func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	slog.Info("saving world state", "agents", len(sim.Agents), "settlements", len(sim.Settlements))
 
@@ -477,12 +480,6 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	}
 	if err := db.SaveFactions(sim.Factions); err != nil {
 		return fmt.Errorf("save factions: %w", err)
-	}
-	if err := db.SaveMemories(sim.Agents); err != nil {
-		return fmt.Errorf("save memories: %w", err)
-	}
-	if err := db.SaveRelationships(sim.Agents); err != nil {
-		return fmt.Errorf("save relationships: %w", err)
 	}
 	if err := db.SaveEvents(sim.Events); err != nil {
 		return fmt.Errorf("save events: %w", err)
@@ -695,6 +692,23 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 	}
 
 	slog.Info("world state saved")
+	return nil
+}
+
+// SaveWorldStateFull saves everything including memories and relationships.
+// Use for shutdown saves where completeness matters more than speed.
+func (db *DB) SaveWorldStateFull(sim *engine.Simulation) error {
+	if err := db.SaveWorldState(sim); err != nil {
+		return err
+	}
+	slog.Info("saving memories and relationships (full save)...")
+	if err := db.SaveMemories(sim.Agents); err != nil {
+		return fmt.Errorf("save memories: %w", err)
+	}
+	if err := db.SaveRelationships(sim.Agents); err != nil {
+		return fmt.Errorf("save relationships: %w", err)
+	}
+	slog.Info("full save complete")
 	return nil
 }
 

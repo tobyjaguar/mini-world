@@ -2021,7 +2021,7 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.DB.SaveWorldState(s.Sim); err != nil {
+	if err := s.DB.SaveWorldStateFull(s.Sim); err != nil {
 		slog.Error("snapshot save failed", "error", err)
 		http.Error(w, "snapshot failed", http.StatusInternalServerError)
 		return

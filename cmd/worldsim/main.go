@@ -530,7 +530,7 @@ func main() {
 
 	// Save on fresh generation only (loaded worlds are already saved).
 	if startTick == 0 {
-		if err := db.SaveWorldState(sim); err != nil {
+		if err := db.SaveWorldStateFull(sim); err != nil {
 			slog.Error("initial save failed", "error", err)
 		}
 	}
@@ -685,9 +685,9 @@ func main() {
 
 	eng.Run()
 
-	// Final save on shutdown.
-	slog.Info("final save...")
-	if err := db.SaveWorldState(sim); err != nil {
+	// Final save on shutdown — full save including memories and relationships.
+	slog.Info("final save (full)...")
+	if err := db.SaveWorldStateFull(sim); err != nil {
 		slog.Error("final save failed", "error", err)
 	}
 
