@@ -28,6 +28,23 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 
+	// Performance pragmas for write-heavy workload on memory-constrained server.
+	// synchronous=NORMAL is safe with WAL mode (data survives process crash,
+	// only OS crash could lose the last transaction — acceptable for a sim).
+	// cache_size=-64000 = 64MB page cache (reduces disk reads during saves).
+	// temp_store=MEMORY avoids temp file I/O for large transactions.
+	// wal_autocheckpoint=1000 checkpoints more frequently to prevent WAL bloat.
+	pragmas := []string{
+		"PRAGMA synchronous = NORMAL",
+		"PRAGMA cache_size = -64000",
+		"PRAGMA temp_store = MEMORY",
+		"PRAGMA wal_autocheckpoint = 1000",
+		"PRAGMA mmap_size = 268435456",
+	}
+	for _, p := range pragmas {
+		conn.Exec(p)
+	}
+
 	db := &DB{conn: conn}
 	if err := db.migrate(); err != nil {
 		conn.Close()
@@ -200,10 +217,10 @@ func (db *DB) migrate() error {
 	return nil
 }
 
-// SaveAgents writes alive agents to the database using upsert (no full table rebuild).
-// Dead agents are marked as dead in-place rather than being deleted and re-inserted.
-// This avoids destroying and rebuilding the entire B-tree + indices on every save,
-// which was taking ~50 minutes under swap pressure on a 2GB server.
+// SaveAgents writes alive agents to the database.
+// Only saves alive agents — dead agents (those that died since last load) are
+// not written. On load, WHERE alive = 1 filters them out anyway.
+// The old approach wrote ALL agents (alive + dead) which was wasteful.
 func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -211,9 +228,7 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	}
 	defer tx.Rollback()
 
-	// Mark all agents as dead first. Alive agents get upserted below,
-	// so any agent NOT in the alive list stays marked dead.
-	if _, err := tx.Exec("UPDATE agents SET alive = 0"); err != nil {
+	if _, err := tx.Exec("DELETE FROM agents"); err != nil {
 		return err
 	}
 
@@ -222,18 +237,7 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 		 occupation, wealth, tier, mood, alive, born_tick, role, faction_id, archetype,
 		 skills_json, needs_json, soul_json, inventory_json, satisfaction, alignment, last_work_tick,
 		 production_progress)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-		 age=excluded.age, health=excluded.health,
-		 pos_q=excluded.pos_q, pos_r=excluded.pos_r,
-		 home_settlement_id=excluded.home_settlement_id,
-		 occupation=excluded.occupation, wealth=excluded.wealth,
-		 tier=excluded.tier, mood=excluded.mood, alive=excluded.alive,
-		 role=excluded.role, faction_id=excluded.faction_id, archetype=excluded.archetype,
-		 skills_json=excluded.skills_json, needs_json=excluded.needs_json,
-		 soul_json=excluded.soul_json, inventory_json=excluded.inventory_json,
-		 satisfaction=excluded.satisfaction, alignment=excluded.alignment,
-		 last_work_tick=excluded.last_work_tick, production_progress=excluded.production_progress`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -242,7 +246,7 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	saved := 0
 	for _, a := range agentList {
 		if !a.Alive {
-			continue // Dead agents stay marked dead from the UPDATE above.
+			continue
 		}
 
 		skillsJSON, _ := json.Marshal(a.Skills)
@@ -260,7 +264,7 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 			a.ProductionProgress,
 		)
 		if err != nil {
-			return fmt.Errorf("upsert agent %d: %w", a.ID, err)
+			return fmt.Errorf("insert agent %d: %w", a.ID, err)
 		}
 		saved++
 	}
@@ -269,7 +273,7 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	return tx.Commit()
 }
 
-// SaveSettlements writes all settlements to the database using upsert.
+// SaveSettlements writes all settlements to the database.
 func (db *DB) SaveSettlements(settlements []*social.Settlement) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -277,40 +281,40 @@ func (db *DB) SaveSettlements(settlements []*social.Settlement) error {
 	}
 	defer tx.Rollback()
 
+	if _, err := tx.Exec("DELETE FROM settlements"); err != nil {
+		return err
+	}
+
 	for _, s := range settlements {
 		_, err := tx.Exec(`INSERT INTO settlements
 			(id, name, pos_q, pos_r, population, governance, tax_rate, treasury,
 			 governance_score, cultural_memory, culture_tradition, culture_openness,
 			 culture_militarism, wall_level, road_level, market_level)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET
-			 population=excluded.population, governance=excluded.governance,
-			 tax_rate=excluded.tax_rate, treasury=excluded.treasury,
-			 governance_score=excluded.governance_score, cultural_memory=excluded.cultural_memory,
-			 culture_tradition=excluded.culture_tradition, culture_openness=excluded.culture_openness,
-			 culture_militarism=excluded.culture_militarism,
-			 wall_level=excluded.wall_level, road_level=excluded.road_level,
-			 market_level=excluded.market_level`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.ID, s.Name, s.Position.Q, s.Position.R, s.Population,
 			s.Governance, s.TaxRate, s.Treasury, s.GovernanceScore,
 			s.CulturalMemory, s.CultureTradition, s.CultureOpenness,
 			s.CultureMilitarism, s.WallLevel, s.RoadLevel, s.MarketLevel,
 		)
 		if err != nil {
-			return fmt.Errorf("upsert settlement %d: %w", s.ID, err)
+			return fmt.Errorf("insert settlement %d: %w", s.ID, err)
 		}
 	}
 
 	return tx.Commit()
 }
 
-// SaveFactions writes all factions to the database using upsert.
+// SaveFactions writes all factions to the database.
 func (db *DB) SaveFactions(factions []*social.Faction) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM factions"); err != nil {
+		return err
+	}
 
 	for _, f := range factions {
 		influenceJSON, _ := json.Marshal(f.Influence)
@@ -320,18 +324,13 @@ func (db *DB) SaveFactions(factions []*social.Faction) error {
 			(id, name, kind, leader_id, treasury,
 			 tax_preference, trade_preference, military_preference,
 			 influence_json, relations_json)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET
-			 leader_id=excluded.leader_id, treasury=excluded.treasury,
-			 tax_preference=excluded.tax_preference, trade_preference=excluded.trade_preference,
-			 military_preference=excluded.military_preference,
-			 influence_json=excluded.influence_json, relations_json=excluded.relations_json`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			f.ID, f.Name, f.Kind, f.LeaderID, f.Treasury,
 			f.TaxPreference, f.TradePreference, f.MilitaryPreference,
 			string(influenceJSON), string(relationsJSON),
 		)
 		if err != nil {
-			return fmt.Errorf("upsert faction %d: %w", f.ID, err)
+			return fmt.Errorf("insert faction %d: %w", f.ID, err)
 		}
 	}
 
