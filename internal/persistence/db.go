@@ -839,9 +839,7 @@ func (db *DB) LoadSettlements() ([]*social.Settlement, error) {
 }
 
 // SaveMemories writes alive agent memories to the database.
-// Only iterates alive agents (dead agents' memories are preserved from previous saves).
-// Uses DELETE per-agent + INSERT since memories lack a natural primary key and
-// importance values decay over time.
+// Bulk DELETE + INSERT only for alive agents with memories.
 func (db *DB) SaveMemories(agentList []*agents.Agent) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -849,28 +847,22 @@ func (db *DB) SaveMemories(agentList []*agents.Agent) error {
 	}
 	defer tx.Rollback()
 
-	delStmt, err := tx.Preparex("DELETE FROM memories WHERE agent_id = ?")
-	if err != nil {
+	if _, err := tx.Exec("DELETE FROM memories"); err != nil {
 		return err
 	}
-	defer delStmt.Close()
 
-	insStmt, err := tx.Preparex("INSERT INTO memories (agent_id, tick, content, importance) VALUES (?, ?, ?, ?)")
+	stmt, err := tx.Preparex("INSERT INTO memories (agent_id, tick, content, importance) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
-	defer insStmt.Close()
+	defer stmt.Close()
 
 	for _, a := range agentList {
 		if !a.Alive || len(a.Memories) == 0 {
 			continue
 		}
-		// Delete this agent's old memories and re-insert current set.
-		if _, err := delStmt.Exec(a.ID); err != nil {
-			return fmt.Errorf("delete memories for agent %d: %w", a.ID, err)
-		}
 		for _, m := range a.Memories {
-			if _, err := insStmt.Exec(a.ID, m.Tick, m.Content, m.Importance); err != nil {
+			if _, err := stmt.Exec(a.ID, m.Tick, m.Content, m.Importance); err != nil {
 				return fmt.Errorf("insert memory for agent %d: %w", a.ID, err)
 			}
 		}
@@ -919,7 +911,7 @@ func (db *DB) LoadMemories(agentIndex map[agents.AgentID]*agents.Agent) error {
 }
 
 // SaveRelationships writes alive agent relationships to the database.
-// Only iterates alive agents (dead agents' relationships are preserved from previous saves).
+// Bulk DELETE + INSERT only for alive agents with relationships.
 func (db *DB) SaveRelationships(agentList []*agents.Agent) error {
 	tx, err := db.conn.Beginx()
 	if err != nil {
@@ -927,27 +919,22 @@ func (db *DB) SaveRelationships(agentList []*agents.Agent) error {
 	}
 	defer tx.Rollback()
 
-	delStmt, err := tx.Preparex("DELETE FROM relationships WHERE agent_id = ?")
-	if err != nil {
+	if _, err := tx.Exec("DELETE FROM relationships"); err != nil {
 		return err
 	}
-	defer delStmt.Close()
 
-	insStmt, err := tx.Preparex("INSERT INTO relationships (agent_id, target_id, sentiment, trust) VALUES (?, ?, ?, ?)")
+	stmt, err := tx.Preparex("INSERT INTO relationships (agent_id, target_id, sentiment, trust) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
-	defer insStmt.Close()
+	defer stmt.Close()
 
 	for _, a := range agentList {
 		if !a.Alive || len(a.Relationships) == 0 {
 			continue
 		}
-		if _, err := delStmt.Exec(a.ID); err != nil {
-			return fmt.Errorf("delete relationships for agent %d: %w", a.ID, err)
-		}
 		for _, r := range a.Relationships {
-			if _, err := insStmt.Exec(a.ID, r.TargetID, r.Sentiment, r.Trust); err != nil {
+			if _, err := stmt.Exec(a.ID, r.TargetID, r.Sentiment, r.Trust); err != nil {
 				return fmt.Errorf("insert relationship for agent %d: %w", a.ID, err)
 			}
 		}
