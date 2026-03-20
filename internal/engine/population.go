@@ -166,7 +166,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 						// agents feel the void.
 						for _, witness := range s.SettlementAgents[*a.HomeSettID] {
 							if witness.Alive && witness.ID != a.ID {
-								ripple := -float32(phi.Agnosis*0.1) * witness.Soul.CittaCoherence
+								ripple := -float32(phi.Agnosis*0.05) * witness.Soul.CittaCoherence
 								witness.Soul.AdjustCoherence(ripple)
 							}
 						}

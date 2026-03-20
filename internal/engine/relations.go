@@ -79,7 +79,11 @@ func (s *Simulation) computeSettlementRelations() {
 		s.Relations = make(map[SettRelKey]*SettlementRelation)
 	}
 
-	// Pre-compute dominant faction per settlement.
+	// Pre-compute dominant faction per settlement using faction INFLUENCE
+	// (not raw member count). Influence accounts for IB soldier Being-weighting,
+	// so IB is dominant in its strongholds even though VC has more raw members
+	// globally (~40%). Using raw counts made VC dominant everywhere, creating
+	// a universal positive floor that prevented any negative sentiment.
 	type factionInfo struct {
 		dominantFaction int // -1 if none
 		factionStrength float64
@@ -90,22 +94,19 @@ func (s *Simulation) computeSettlementRelations() {
 			continue
 		}
 		bestFaction := -1
-		bestCount := 0
-		factionCounts := make(map[int]int)
-		for _, a := range s.SettlementAgents[sett.ID] {
-			if a.Alive && a.FactionID != nil {
-				factionCounts[int(*a.FactionID)]++
-			}
-		}
-		for fid, count := range factionCounts {
-			if count > bestCount {
-				bestCount = count
-				bestFaction = fid
+		bestInfluence := 0.0
+		totalInfluence := 0.0
+		for _, f := range s.Factions {
+			inf := f.Influence[sett.ID]
+			totalInfluence += inf
+			if inf > bestInfluence {
+				bestInfluence = inf
+				bestFaction = int(f.ID)
 			}
 		}
 		strength := 0.0
-		if sett.Population > 0 {
-			strength = float64(bestCount) / float64(sett.Population)
+		if totalInfluence > 0 {
+			strength = bestInfluence / totalInfluence
 		}
 		factionData[sett.ID] = factionInfo{dominantFaction: bestFaction, factionStrength: strength}
 	}
