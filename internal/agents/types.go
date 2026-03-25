@@ -61,8 +61,9 @@ type Agent struct {
 	Name string  `json:"name"`
 
 	// Demographics
-	Age    uint16  `json:"age"`    // Sim-years
-	Sex    Sex     `json:"sex"`
+	Age       uint16 `json:"age"`        // Sim-years (complete years)
+	AgeMonths uint8  `json:"age_months"` // Sub-year month counter (0-11)
+	Sex       Sex    `json:"sex"`
 	Health float32 `json:"health"` // 0.0–1.0
 
 	// Location

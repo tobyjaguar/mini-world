@@ -207,6 +207,7 @@ func (db *DB) migrate() error {
 		"ALTER TABLE stats_history ADD COLUMN occupation_json TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE events ADD COLUMN agent_id INTEGER",
 		"ALTER TABLE events ADD COLUMN settlement_id INTEGER",
+		"ALTER TABLE agents ADD COLUMN age_months INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, m := range migrations {
 		db.conn.Exec(m) // Ignore errors — column may already exist.
@@ -233,11 +234,11 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 	}
 
 	stmt, err := tx.Preparex(`INSERT INTO agents
-		(id, name, age, sex, health, pos_q, pos_r, home_settlement_id,
+		(id, name, age, age_months, sex, health, pos_q, pos_r, home_settlement_id,
 		 occupation, wealth, tier, mood, alive, born_tick, role, faction_id, archetype,
 		 skills_json, needs_json, soul_json, inventory_json, satisfaction, alignment, last_work_tick,
 		 production_progress)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -255,7 +256,7 @@ func (db *DB) SaveAgents(agentList []*agents.Agent) error {
 		invJSON, _ := json.Marshal(a.Inventory)
 
 		_, err := stmt.Exec(
-			a.ID, a.Name, a.Age, a.Sex, a.Health,
+			a.ID, a.Name, a.Age, a.AgeMonths, a.Sex, a.Health,
 			a.Position.Q, a.Position.R, a.HomeSettID,
 			a.Occupation, a.Wealth, a.Tier, a.Wellbeing.EffectiveMood,
 			1, a.BornTick, a.Role, a.FactionID, a.Archetype,
@@ -725,6 +726,7 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 		ID               uint64  `db:"id"`
 		Name             string  `db:"name"`
 		Age              uint16  `db:"age"`
+		AgeMonths        uint8   `db:"age_months"`
 		Sex              uint8   `db:"sex"`
 		Health           float32 `db:"health"`
 		PosQ             int     `db:"pos_q"`
@@ -766,6 +768,7 @@ func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 			ID:         agents.AgentID(r.ID),
 			Name:       r.Name,
 			Age:        r.Age,
+			AgeMonths:  r.AgeMonths,
 			Sex:        agents.Sex(r.Sex),
 			Health:     r.Health,
 			Position:   world.HexCoord{Q: r.PosQ, R: r.PosR},

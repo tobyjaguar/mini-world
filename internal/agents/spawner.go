@@ -84,6 +84,7 @@ func (s *Spawner) spawnOne(position world.HexCoord, settlementID uint64, terrain
 		ID:         id,
 		Name:       s.generateName(sex),
 		Age:        age,
+		AgeMonths:  uint8(s.rng.Intn(12)), // Random month offset to spread aging
 		Sex:        sex,
 		Health:     0.8 + s.rng.Float32()*0.2,
 		Position:   position,

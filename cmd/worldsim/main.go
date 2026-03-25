@@ -97,6 +97,23 @@ func main() {
 			os.Exit(1)
 		}
 
+		// One-time migration: spread existing agents across age months.
+		// Without this, all agents have AgeMonths=0 and would age together
+		// on the first monthly tick (same cliff as yearly aging).
+		// Newborns (Age=0, AgeMonths=0) are excluded — their month counter
+		// starts at 0 and increments naturally from birth.
+		// This block can be removed after one successful deploy.
+		seeded := 0
+		for _, a := range allAgents {
+			if a.AgeMonths == 0 && a.Age > 0 {
+				a.AgeMonths = uint8(a.ID % 12)
+				seeded++
+			}
+		}
+		if seeded > 0 {
+			slog.Info("seeded age months for existing agents", "count", seeded)
+		}
+
 		// Restore tick and season from metadata.
 		if tickStr, err := db.GetMeta("last_tick"); err == nil {
 			if t, err := strconv.ParseUint(tickStr, 10, 64); err == nil {

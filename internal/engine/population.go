@@ -16,6 +16,11 @@ import (
 // SimDaysPerYear is the number of sim-days in one sim-year (4 seasons × 90 days).
 const SimDaysPerYear = 360
 
+// SimDaysPerMonth is the number of sim-days in one sim-month (30 days).
+// Aging happens monthly to spread cohort transitions across 12 smaller batches
+// instead of one massive year-boundary cliff.
+const SimDaysPerMonth = SimDaysPerYear / 12
+
 // MaxWorldPopulation caps births to keep the world within the 2 GB server budget.
 // Per-agent cost is ~3.2 KB (struct + relationships + indexes + GC overhead).
 // 400K ≈ 1.28 GB agent heap → ~1.58 GB total → comfortably in-RAM on 2 GB.
@@ -29,9 +34,11 @@ const MaxWorldPopulation = 400_000
 func (s *Simulation) processPopulation(tick uint64) {
 	simDay := tick / TicksPerSimDay
 
-	// Aging: increment age every sim-year (360 sim-days).
-	if simDay > 0 && simDay%SimDaysPerYear == 0 {
-		s.ageAgents(tick)
+	// Aging: increment age month every 30 sim-days.
+	// Spreads cohort transitions across 12 smaller batches per year
+	// instead of one massive cliff at the year boundary.
+	if simDay > 0 && simDay%SimDaysPerMonth == 0 {
+		s.ageAgentsMonthly(tick)
 	}
 
 	// Daily: natural death checks and birth checks.
@@ -40,15 +47,24 @@ func (s *Simulation) processPopulation(tick uint64) {
 	s.processAntiCollapse(tick)
 }
 
-// ageAgents increments the age of all living agents by 1 year.
-// Emits coming-of-age events when agents turn 16 (adulthood threshold).
-func (s *Simulation) ageAgents(tick uint64) {
+// ageAgentsMonthly increments the month counter for all living agents.
+// When an agent's month counter wraps past 11, their age increments by 1 year.
+// Coming-of-age events fire when agents turn 16.
+func (s *Simulation) ageAgentsMonthly(tick uint64) {
 	comingOfAge := 0
+	yearBirthdays := 0
 	for _, a := range s.Agents {
 		if !a.Alive {
 			continue
 		}
+		a.AgeMonths++
+		if a.AgeMonths < 12 {
+			continue
+		}
+		// Month counter wrapped — agent ages one year.
+		a.AgeMonths = 0
 		a.Age++
+		yearBirthdays++
 
 		// Coming-of-age at 16: agent becomes an adult, eligible for governance,
 		// work, and family formation. Belonging boost from community recognition.
@@ -81,7 +97,7 @@ func (s *Simulation) ageAgents(tick uint64) {
 			}
 		}
 	}
-	slog.Info("agents aged", "tick", tick, "time", SimTime(tick), "coming_of_age", comingOfAge)
+	slog.Info("agents aged", "tick", tick, "time", SimTime(tick), "year_birthdays", yearBirthdays, "coming_of_age", comingOfAge)
 }
 
 // processNaturalDeaths checks for death from coherence-scaled mortality,
