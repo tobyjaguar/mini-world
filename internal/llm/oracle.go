@@ -70,7 +70,7 @@ You are an oracle. Each week, a vision comes to you — a prophecy born from you
 
 Respond ONLY with a single JSON object:
 - "prophecy": 1-2 sentences of emanationist prose — what you perceive in the deep currents (do not break character or reference the simulation)
-- "action": one of "trade", "advocate", "invest", "speak", "bless", "guide_migration", "restore_land", "bless_route", "invoke_peace"
+- "action": one of "trade", "advocate", "invest", "speak", "bless", "guide_migration", "restore_land", "bless_route", "invoke_peace", "advocate_land"
 - "target": who or what the action targets (a name, topic, settlement, or good)
 - "reasoning": one sentence explaining why
 
@@ -82,7 +82,9 @@ The "restore_land" action: channel your coherence into the land, restoring healt
 
 The "bless_route" action: bless a trade route connecting your settlement to another (target = partner settlement name). Your blessing accelerates the route's growth. Use when you perceive the flow of goods sustains the people.
 
-The "invoke_peace" action: call for peace between your settlement and a warring neighbor (target = enemy settlement name). Your spiritual authority can halt hostilities. Use when you perceive the futility of violence.`,
+The "invoke_peace" action: call for peace between your settlement and a warring neighbor (target = enemy settlement name). Your spiritual authority can halt hostilities. Use when you perceive the futility of violence.
+
+The "advocate_land" action: advocate for land investment in your settlement — irrigation or conservation on the most degraded hex. Bypasses normal governance requirements. Use when you perceive the land crying out for care.`,
 		ctx.Name, ctx.Coherence, ctx.Element, ctx.Occupation, ctx.Age, ctx.Settlement,
 	)
 }
@@ -165,6 +167,7 @@ func parseOracleResponse(response string) (*OracleVision, error) {
 		"trade": true, "advocate": true, "invest": true,
 		"speak": true, "bless": true, "guide_migration": true,
 		"restore_land": true, "bless_route": true, "invoke_peace": true,
+		"advocate_land": true,
 	}
 	if !validActions[vision.Action] {
 		return nil, fmt.Errorf("invalid oracle action: %s", vision.Action)

@@ -36,6 +36,27 @@ func SeasonName(season uint8) string {
 	}
 }
 
+// SeasonalProductionMod returns a production multiplier for the current season.
+// Spring is the growing season (boost), summer is peak, autumn declines, winter
+// is harsh. Creates annual economic cycles — surplus in spring/summer, scarcity
+// in winter. Merchant arbitrage across seasons becomes valuable.
+// All multipliers are Φ-derived: Spring = 1 + Agnosis (~1.236), Summer = 1.0,
+// Autumn = 1 - Agnosis*0.5 (~0.882), Winter = Agnosis + Psyche (~0.618 = Matter).
+func SeasonalProductionMod(season uint8) float64 {
+	switch season {
+	case SeasonSpring:
+		return 1.0 + phi.Agnosis // ~1.236 — growing season, land awakening
+	case SeasonSummer:
+		return 1.0 // Baseline — full productive capacity
+	case SeasonAutumn:
+		return 1.0 - phi.Agnosis*0.5 // ~0.882 — harvest winding down
+	case SeasonWinter:
+		return phi.Matter // ~0.618 — frozen ground, short days
+	default:
+		return 1.0
+	}
+}
+
 // SeasonalMarketMod returns a price modifier for goods based on the current season.
 func SeasonalMarketMod(season uint8, good uint8) float64 {
 	// Food is expensive in winter, cheap after harvest (autumn).
@@ -364,6 +385,178 @@ func (s *Simulation) autumnHarvest(tick uint64) {
 				"count": harvestCount,
 			},
 		})
+	}
+}
+
+// checkCropFailure tracks sustained heat and triggers crop failure in vulnerable settlements.
+// When TempModifier exceeds Agnosis (~0.236) for 72+ consecutive sim-hours (3 sim-days),
+// settlements with low irrigation lose a fraction of stored grain. Rewards irrigation
+// investment (R42) and creates demand spikes that reward merchant arbitrage.
+func (s *Simulation) checkCropFailure(tick uint64) {
+	if s.CurrentWeather.TempModifier > float32(phi.Agnosis) {
+		s.HeatStreakHours++
+	} else {
+		s.HeatStreakHours = 0
+		return
+	}
+
+	// Fire crop failure at 72 sim-hours (3 sim-days of sustained heat).
+	// Then reset to 48 so subsequent failures fire every 24 hours of continued heat.
+	if s.HeatStreakHours < 72 {
+		return
+	}
+	s.HeatStreakHours = 48
+
+	affected := 0
+	for _, sett := range s.Settlements {
+		if sett.Population == 0 {
+			continue
+		}
+
+		// Well-irrigated settlements resist crop failure.
+		// Average irrigation across the 7-hex neighborhood.
+		avgIrrigation := float64(0)
+		hexCount := 0
+		neighbors := sett.Position.Neighbors()
+		coords := append(neighbors[:], sett.Position)
+		for _, c := range coords {
+			if h := s.WorldMap.Get(c); h != nil && h.Terrain != world.TerrainOcean {
+				avgIrrigation += float64(h.IrrigationLevel)
+				hexCount++
+			}
+		}
+		if hexCount > 0 {
+			avgIrrigation /= float64(hexCount)
+		}
+
+		// Irrigation >= 3 fully protects against crop failure.
+		// At 0: full damage. At 1: ~67% damage. At 2: ~33%.
+		if avgIrrigation >= 3 {
+			continue
+		}
+		protection := avgIrrigation / 3.0
+
+		// Spoil Agnosis fraction of each farmer's grain, scaled by vulnerability.
+		spoilRate := phi.Agnosis * (1.0 - protection) // ~0.236 at zero irrigation
+		settAgents := s.SettlementAgents[sett.ID]
+		for _, a := range settAgents {
+			if !a.Alive {
+				continue
+			}
+			grain := a.Inventory[agents.GoodGrain]
+			if grain > 0 {
+				lost := int(float64(grain) * spoilRate)
+				if lost < 1 {
+					lost = 1
+				}
+				a.Inventory[agents.GoodGrain] -= lost
+				if a.Inventory[agents.GoodGrain] < 0 {
+					a.Inventory[agents.GoodGrain] = 0
+				}
+			}
+		}
+		affected++
+	}
+
+	if affected > 0 {
+		slog.Info("crop failure from heat wave", "tick", tick, "settlements_affected", affected)
+		s.EmitEvent(Event{
+			Tick:        tick,
+			Description: fmt.Sprintf("Sustained heat wave causes crop failure in %d settlements — stored grain spoils", affected),
+			Category:    "disaster",
+			Meta: map[string]any{
+				"event_type":          "crop_failure",
+				"settlements_affected": affected,
+			},
+		})
+	}
+}
+
+// checkStormDamage degrades settlement infrastructure during severe weather.
+// Storms (TravelPenalty >= 2.0) have an Agnosis² chance (~5.6%) per settlement per
+// sim-hour of degrading one infrastructure level. Well-governed settlements resist
+// damage (governance score reduces probability). Creates maintenance pressure and
+// rewards treasury investment — settlements that don't reinvest slowly decay.
+func (s *Simulation) checkStormDamage(tick uint64) {
+	if s.CurrentWeather.TravelPenalty < 2.0 {
+		return // Not a storm
+	}
+
+	damaged := 0
+	for _, sett := range s.Settlements {
+		if sett.Population == 0 {
+			continue
+		}
+
+		// Base damage chance: Agnosis² (~5.6%) per sim-hour during storms.
+		// Governance reduces chance: multiply by (1 - GovernanceScore * 0.5).
+		// At governance 0.8: chance = 5.6% × 0.6 = 3.4%.
+		chance := phi.Agnosis * phi.Agnosis * (1.0 - sett.GovernanceScore*0.5)
+
+		// Deterministic check from settlement ID + tick.
+		hash := (sett.ID*2654435761 + tick*40503) % 100000
+		if float64(hash)/100000.0 >= chance {
+			continue
+		}
+
+		// Pick a random infrastructure to damage (weighted by current level).
+		// Higher-level infrastructure is more exposed to storm damage.
+		total := int(sett.RoadLevel) + int(sett.WallLevel) + int(sett.MarketLevel)
+		if total == 0 {
+			continue // Nothing to damage
+		}
+
+		pick := int((sett.ID*31 + tick*17) % uint64(total))
+		if pick < int(sett.RoadLevel) && sett.RoadLevel > 0 {
+			sett.RoadLevel--
+			s.EmitEvent(Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("Storm damages roads in %s (level %d)", sett.Name, sett.RoadLevel),
+				Category:    "disaster",
+				Meta: map[string]any{
+					"event_type":      "storm_damage",
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"infrastructure":  "roads",
+					"level":           sett.RoadLevel,
+				},
+			})
+			damaged++
+		} else if pick < int(sett.RoadLevel)+int(sett.WallLevel) && sett.WallLevel > 0 {
+			sett.WallLevel--
+			s.EmitEvent(Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("Storm damages walls in %s (level %d)", sett.Name, sett.WallLevel),
+				Category:    "disaster",
+				Meta: map[string]any{
+					"event_type":      "storm_damage",
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"infrastructure":  "walls",
+					"level":           sett.WallLevel,
+				},
+			})
+			damaged++
+		} else if sett.MarketLevel > 0 {
+			sett.MarketLevel--
+			s.EmitEvent(Event{
+				Tick:        tick,
+				Description: fmt.Sprintf("Storm damages market in %s (level %d)", sett.Name, sett.MarketLevel),
+				Category:    "disaster",
+				Meta: map[string]any{
+					"event_type":      "storm_damage",
+					"settlement_id":   sett.ID,
+					"settlement_name": sett.Name,
+					"infrastructure":  "market",
+					"level":           sett.MarketLevel,
+				},
+			})
+			damaged++
+		}
+	}
+
+	if damaged > 0 {
+		slog.Info("storm damage to infrastructure", "tick", tick, "settlements_damaged", damaged)
 	}
 }
 

@@ -812,6 +812,62 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 				}
 			}
 		}
+
+	case "advocate_land":
+		// Oracle advocates for land investment — triggers irrigation or conservation
+		// in the settlement's most degraded claimed hex, bypassing the normal
+		// governance quality gate. The oracle's coherence IS the governance.
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				// Find the claimed hex most in need.
+				var bestHex *world.Hex
+				bestHealth := 2.0 // Higher than max
+				for _, hex := range s.WorldMap.Hexes {
+					if hex.ClaimedBy == nil || *hex.ClaimedBy != sett.ID {
+						continue
+					}
+					if hex.Terrain == world.TerrainOcean {
+						continue
+					}
+					if hex.Health < bestHealth {
+						bestHealth = hex.Health
+						bestHex = hex
+					}
+				}
+				if bestHex != nil {
+					// Low health → conservation. Moderate+ → irrigation.
+					if bestHex.Health < phi.Matter && bestHex.ConservationLevel < 5 {
+						bestHex.ConservationLevel++
+						s.EmitEvent(Event{
+							Tick:        tick,
+							Description: fmt.Sprintf("Oracle %s advocates for conservation in %s — the land is protected (level %d)", a.Name, sett.Name, bestHex.ConservationLevel),
+							Category:    "oracle",
+							Meta: map[string]any{
+								"agent_id":        a.ID,
+								"settlement_name": sett.Name,
+								"event_type":      "advocate_land",
+								"upgrade":         "conservation",
+								"level":           bestHex.ConservationLevel,
+							},
+						})
+					} else if bestHex.IrrigationLevel < 5 {
+						bestHex.IrrigationLevel++
+						s.EmitEvent(Event{
+							Tick:        tick,
+							Description: fmt.Sprintf("Oracle %s advocates for irrigation in %s — the land flourishes (level %d)", a.Name, sett.Name, bestHex.IrrigationLevel),
+							Category:    "oracle",
+							Meta: map[string]any{
+								"agent_id":        a.ID,
+								"settlement_name": sett.Name,
+								"event_type":      "advocate_land",
+								"upgrade":         "irrigation",
+								"level":           bestHex.IrrigationLevel,
+							},
+						})
+					}
+				}
+			}
+		}
 	}
 
 	// Log the oracle's action.

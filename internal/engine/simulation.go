@@ -61,6 +61,10 @@ type Simulation struct {
 	// Active production boosts from gardener "cultivate" interventions.
 	ActiveBoosts []ProductionBoost
 
+	// Heat streak counter: consecutive sim-hours with TempModifier > 0.3.
+	// When it reaches 72 (3 sim-days), crop failure events fire.
+	HeatStreakHours int
+
 	// Inter-settlement relations: sentiment scores between settlement pairs.
 	Relations    map[SettRelKey]*SettlementRelation
 	TradeTracker map[SettRelKey]float64 // Weekly trade volume accumulator, reset each week.
@@ -288,11 +292,11 @@ func (s *Simulation) TickMinute(tick uint64) {
 		} else if action.Kind == agents.ActionWork {
 			// Work actions need hex resources + settlement modifiers.
 			hex := s.bestProductionHex(a)
-			boostMul := 1.0
+			boostMul := SeasonalProductionMod(s.CurrentSeason) // Seasonal cycle
 			coherenceMod := 1.0
 			conservationMod := 1.0
 			if a.HomeSettID != nil {
-				boostMul = s.GetSettlementBoost(*a.HomeSettID)
+				boostMul *= s.GetSettlementBoost(*a.HomeSettID)
 				cm, ok := s.tickCoherenceCache[*a.HomeSettID]
 				if !ok {
 					cm = s.coherenceExtractionMod(*a.HomeSettID)
@@ -359,13 +363,15 @@ func (s *Simulation) handleAgentDeath(a *agents.Agent, tick uint64, cause string
 	}
 }
 
-// TickHour runs every sim-hour: market updates, weather checks, resource regen.
+// TickHour runs every sim-hour: market updates, weather checks, resource regen, crop failure, storm damage.
 func (s *Simulation) TickHour(tick uint64) {
 	s.resolveMarkets(tick)
 	s.resolveMerchantTrade(tick)
 	s.decayInventories()
 	s.updateWeather()
 	s.hourlyResourceRegen()
+	s.checkCropFailure(tick)
+	s.checkStormDamage(tick)
 }
 
 // updateWeather fetches real weather and maps it to simulation modifiers.
