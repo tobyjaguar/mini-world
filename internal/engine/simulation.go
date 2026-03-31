@@ -103,11 +103,11 @@ type Simulation struct {
 	// Per-tick cache: coherenceExtractionMod per settlement (reused across ticks).
 	tickCoherenceCache map[uint64]float64
 
-	// Per-hour cache: bestProductionHex per (settlement, occupation).
-	// Hex ranking is stable within 1 sim-hour — resource levels change slowly
-	// relative to the number of agents querying. Rebuilt hourly, reduces
-	// ~152K hex-search calls/tick to ~4K cache builds/hour.
-	prodHexCache     map[prodHexKey]*world.Hex
+	// Per-hour cache: production hex distribution per (settlement, occupation).
+	// Distributes producers across the 7-hex neighborhood weighted by
+	// resource capacity × hex health. Rebuilt hourly. Each agent picks a
+	// stable hex assignment via ID % totalWeight.
+	prodHexCache     map[prodHexKey]*hexDist
 	prodHexCacheTick uint64
 }
 
@@ -252,11 +252,10 @@ func (s *Simulation) TickMinute(tick uint64) {
 		clear(s.tickCoherenceCache)
 	}
 
-	// Hourly cache: bestProductionHex per (settlement, occupation).
-	// Hex resource ranking changes slowly — refreshing hourly reduces
-	// ~152K hex-search calls/tick to ~4K cache entries rebuilt per hour.
+	// Hourly cache: production hex distribution per (settlement, occupation).
+	// Distributes producers across 7-hex neighborhood weighted by capacity × health.
 	if tick%TicksPerSimHour == 0 || s.prodHexCache == nil {
-		s.prodHexCache = make(map[prodHexKey]*world.Hex, len(s.Settlements)*8)
+		s.prodHexCache = make(map[prodHexKey]*hexDist, len(s.Settlements)*8)
 		s.prodHexCacheTick = tick
 	}
 
@@ -1185,20 +1184,33 @@ func (s *Simulation) settlementProducerTarget(settID uint64) int {
 	return int(math.Round(ratio * float64(pop)))
 }
 
-// prodHexKey is a cache key for bestProductionHex lookups.
+// prodHexKey is a cache key for production hex distribution lookups.
 type prodHexKey struct {
 	settID     uint64
 	occupation agents.Occupation
 }
 
-// bestProductionHex selects the best hex for a resource-producing agent to work.
-// Picks the healthiest hex with available resources from the settlement's
-// neighborhood (home + 6 neighbors), distributing extraction pressure across
-// 7 hexes to match the carrying capacity model.
+// hexDistEntry is one hex in a settlement's production distribution.
+type hexDistEntry struct {
+	hex   *world.Hex
+	cumWt int // cumulative weight including this entry
+}
+
+// hexDist distributes producers across a settlement's hex neighborhood,
+// weighted by resource capacity × hex health. Healthier hexes with higher
+// resource caps attract more producers. Self-balancing: depleted hexes get
+// lower weight at next hourly rebalance, recovering hexes attract producers back.
+type hexDist struct {
+	entries []hexDistEntry
+	totalWt int
+}
+
+// bestProductionHex selects a production hex for this agent from the settlement's
+// 7-hex neighborhood. Producers are distributed across viable hexes weighted by
+// resource capacity × health, so different agents work different hexes.
 //
 // Results are cached per (settlement, occupation) and refreshed hourly.
-// Hex ranking is stable within 1 sim-hour — resource levels change slowly
-// relative to query volume (~152K agents/tick vs ~0.01 depletion/extraction).
+// Each agent gets a stable hex assignment via ID % totalWeight.
 func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
 	_, needsResource := occupationResource[a.Occupation]
 	if !needsResource {
@@ -1210,54 +1222,69 @@ func (s *Simulation) bestProductionHex(a *agents.Agent) *world.Hex {
 
 	// Check hourly cache.
 	key := prodHexKey{settID: *a.HomeSettID, occupation: a.Occupation}
-	if s.prodHexCache != nil {
-		if h, ok := s.prodHexCache[key]; ok {
-			return h
+	dist := s.prodHexCache[key]
+	if dist == nil {
+		dist = s.computeHexDistribution(a)
+		s.prodHexCache[key] = dist
+	}
+
+	if dist.totalWt == 0 {
+		// No viable hex — fallback to settlement hex.
+		if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+			return s.WorldMap.Get(sett.Position)
 		}
-	}
-
-	// Cache miss — compute and store.
-	h := s.findBestProductionHex(a)
-	if s.prodHexCache != nil {
-		s.prodHexCache[key] = h
-	}
-	return h
-}
-
-// findBestProductionHex does the actual hex search for bestProductionHex.
-func (s *Simulation) findBestProductionHex(a *agents.Agent) *world.Hex {
-	resType := occupationResource[a.Occupation]
-	sett, ok := s.SettlementIndex[*a.HomeSettID]
-	if !ok {
 		return s.WorldMap.Get(a.Position)
 	}
 
-	var bestHex *world.Hex
-	bestHealth := -1.0
+	// Agent picks hex based on ID — stable for the hour, different per agent.
+	slot := int(uint64(a.ID) % uint64(dist.totalWt))
+	for _, e := range dist.entries {
+		if slot < e.cumWt {
+			return e.hex
+		}
+	}
+	return dist.entries[len(dist.entries)-1].hex
+}
 
-	checkHex := func(coord world.HexCoord) {
+// computeHexDistribution builds a weighted distribution of viable hexes for
+// a (settlement, occupation) pair. Weight = ResourceCap × Health (min 1).
+// Healthier hexes with higher resource caps attract proportionally more producers.
+func (s *Simulation) computeHexDistribution(a *agents.Agent) *hexDist {
+	resType := occupationResource[a.Occupation]
+	sett, ok := s.SettlementIndex[*a.HomeSettID]
+	if !ok {
+		return &hexDist{}
+	}
+
+	var entries []hexDistEntry
+	cumWt := 0
+
+	addHex := func(coord world.HexCoord) {
 		h := s.WorldMap.Get(coord)
 		if h == nil || h.Terrain == world.TerrainOcean {
 			return
 		}
-		if h.Resources[resType] < 0.01 {
+		cap := ResourceCap(h.Terrain, resType)
+		if cap <= 0 {
 			return
 		}
-		if h.Health > bestHealth {
-			bestHealth = h.Health
-			bestHex = h
-		}
+		// Weight by potential: resource capacity × health.
+		// High-cap hexes (terrain-matched) naturally dominate the distribution.
+		// E.g., Plains grain (cap 100) at health 0.236 → weight 24,
+		// while Coast grain (default cap 10) → weight 2. The 100-cap hex
+		// gets 12× more producers, matching its 10× higher regen rate.
+		// Minimum weight 1 so even depleted hexes stay in rotation.
+		wt := int(math.Max(1, math.Round(cap*h.Health)))
+		cumWt += wt
+		entries = append(entries, hexDistEntry{hex: h, cumWt: cumWt})
 	}
 
-	checkHex(sett.Position)
+	addHex(sett.Position)
 	for _, nc := range sett.Position.Neighbors() {
-		checkHex(nc)
+		addHex(nc)
 	}
 
-	if bestHex == nil {
-		return s.WorldMap.Get(sett.Position)
-	}
-	return bestHex
+	return &hexDist{entries: entries, totalWt: cumWt}
 }
 
 // BuildSettlementNeighbors pre-computes the neighbor list for every settlement.
