@@ -899,6 +899,19 @@ Five fixes addressing P0 (TPS regression) and P1 (no negative sentiment) from th
 
 **Key insight:** The TPS regression from 1.05 to 0.31 was NOT caused by diplomacy code scaling (8K agreements, 28K relation pairs). All diplomacy hot paths were already optimized in R54. The bottleneck was the daily SQLite save doing full table rebuilds under swap pressure. The tick engine was running at ~1.0 TPS the whole time — 65% of wall-clock time was just waiting for I/O.
 
+### Round 60: Production Pipeline & Wealth Tracking
+
+Deep investigation (April 6, 2026) of Gini "reversal" (0.638→0.649) revealed the drift is secular (+0.0026/year), not a crisis. The economy has strong anti-wealth mechanisms (progressive wealth decay, progressive welfare, Ashen Path anti-wealth patronage) that nearly offset the market's zero-sum transfer bias. However, the investigation uncovered three real structural pipeline breaks:
+
+1. **90% of miners permanently idle** — only 17 Mountain hexes for 5,364 miners (most had no mountain in their 7-hex neighborhood)
+2. **17 zero-treasury settlements** (50K agents) couldn't receive merchant imports — `sellMerchantCargo()` required `sett.Treasury >= unitPrice`
+3. **Massive goods surpluses** (Furs 45K, Stone 32K) rotting in place — no mechanism pushed surplus goods outward to merchants
+
+243. **Mountain hex expansion** — FIXED: `MountainLvl` lowered from 0.60 to 0.56 in `DefaultGenConfig()` (`generation.go`). With seed 42, this produces 53 Mountain hexes (3.5% of land, was 17 at 1.1%). Miners can now find mountains within resource-seeking migration range. Map regenerates deterministically on restart.
+244. **Agent direct purchase from merchants** — FIXED: `sellMerchantCargo()` in `market.go` now falls back to direct agent purchase when `sett.Treasury < unitPrice`. New `findDirectBuyer()` helper searches settlement for an agent who needs the good and can afford it (capped at Agnosis fraction of their wealth). Medieval market model — merchants sell to people when the city can't pay. **Immediate effect: 17→8 zero-treasury settlements within minutes of deploy.**
+245. **Surplus price decay** — FIXED: `resolveSettlementMarket()` in `market.go` now decays prices by `Agnosis × 0.01` per hour when supply exceeds `population × Being`. Creates outward pressure — surplus goods become increasingly attractive for merchants to carry elsewhere.
+246. **Wealth distribution tracking** — NEW: `WealthDistribution()` method on `Simulation` (`simulation.go`) computes bottom 50% and top 10% wealth shares. `bottom_50_share` and `top_10_share` fields added to `StatsRow` and `stats_history` table (`db.go`). Enables trend analysis — previously only two ad-hoc data points existed for this critical metric.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
