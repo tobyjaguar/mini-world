@@ -581,6 +581,7 @@ func main() {
 		occJSON, _ := json.Marshal(occData)
 
 		// Save daily stats snapshot.
+		bottom50, top10 := sim.WealthDistribution()
 		statsRow := persistence.StatsRow{
 			Tick:            tick,
 			Population:      sim.Stats.TotalPopulation,
@@ -596,6 +597,8 @@ func main() {
 			AvgSatisfaction: float64(sim.Stats.AvgSatisfaction),
 			AvgAlignment:    float64(sim.Stats.AvgAlignment),
 			OccupationJSON:  string(occJSON),
+			Bottom50Share:   bottom50,
+			Top10Share:      top10,
 		}
 		if err := db.SaveStatsSnapshot(statsRow); err != nil {
 			slog.Error("stats snapshot failed", "error", err)

@@ -1042,6 +1042,41 @@ func (s *Simulation) GiniCoefficient() float64 {
 	return (2.0*float64(weightedSum))/(float64(n)*float64(totalWealth)) - float64(n+1)/float64(n)
 }
 
+// WealthDistribution computes bottom 50% and top 10% wealth shares.
+// Reuses the sorted wealth array from GiniCoefficient — call separately
+// to avoid double-sorting. Returns (bottom50share, top10share).
+func (s *Simulation) WealthDistribution() (float64, float64) {
+	var wealths []uint64
+	for _, a := range s.Agents {
+		if a.Alive {
+			wealths = append(wealths, a.Wealth)
+		}
+	}
+	n := len(wealths)
+	if n < 2 {
+		return 0, 0
+	}
+	sort.Slice(wealths, func(i, j int) bool { return wealths[i] < wealths[j] })
+	totalWealth := uint64(0)
+	for _, w := range wealths {
+		totalWealth += w
+	}
+	if totalWealth == 0 {
+		return 0, 0
+	}
+	mid := n / 2
+	top := n - n/10
+	poorSum := uint64(0)
+	for _, w := range wealths[:mid] {
+		poorSum += w
+	}
+	richSum := uint64(0)
+	for _, w := range wealths[top:] {
+		richSum += w
+	}
+	return float64(poorSum) / float64(totalWealth), float64(richSum) / float64(totalWealth)
+}
+
 // AvgCoherence computes average citta coherence of living agents.
 func (s *Simulation) AvgCoherence() float64 {
 	total := float64(0)

@@ -253,6 +253,23 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 			market.MostTradedGood = good
 		}
 	}
+
+	// Surplus price decay: when supply vastly exceeds population needs
+	// (supply > pop × Being), gradually decay price toward the floor.
+	// This creates outward pressure — surplus goods become increasingly
+	// attractive for merchants to carry elsewhere.
+	popThreshold := float64(sett.Population) * phi.Being
+	for _, entry := range market.Entries {
+		if entry.Supply > popThreshold && entry.Supply > 100 {
+			floor := entry.BasePrice * phi.Agnosis
+			if entry.Price > floor {
+				entry.Price -= entry.Price * phi.Agnosis * 0.01 // ~0.24% per hour
+				if entry.Price < floor {
+					entry.Price = floor
+				}
+			}
+		}
+	}
 }
 
 // surplusThreshold returns how many of a good an agent wants to keep before selling.
@@ -1010,6 +1027,8 @@ func roadAdjustedCost(baseCost int, roadLevel uint8) int {
 
 // sellMerchantCargo sells a merchant's cargo at the destination settlement.
 // Closed transfer: the settlement treasury pays the merchant per unit.
+// When treasury is depleted, agents in the settlement can buy directly from
+// the merchant (medieval market model — merchants sell to people, not governments).
 // After sale, Tier 2 merchants at the destination earn a commission (guild fee).
 func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Settlement, sim *Simulation) {
 	var totalRevenue uint64
@@ -1024,12 +1043,22 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 			if unitPrice < 1 {
 				unitPrice = 1
 			}
-			if sett.Treasury < unitPrice {
-				break // Treasury can't afford more.
+			if sett.Treasury >= unitPrice {
+				// Treasury can pay — standard path.
+				sett.Treasury -= unitPrice
+				a.Wealth += unitPrice
+				totalRevenue += unitPrice
+			} else {
+				// Treasury depleted — try direct agent purchase.
+				// Find an agent who needs this good and can afford it.
+				buyer := findDirectBuyer(good, unitPrice, sett.ID, sim)
+				if buyer == nil {
+					break // No one can buy — stop selling this good.
+				}
+				buyer.Wealth -= unitPrice
+				a.Wealth += unitPrice
+				totalRevenue += unitPrice
 			}
-			sett.Treasury -= unitPrice
-			a.Wealth += unitPrice
-			totalRevenue += unitPrice
 		}
 	}
 
@@ -1065,6 +1094,38 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 	if totalRevenue > 0 {
 		tier2Commission(a, sett, totalRevenue, sim)
 	}
+}
+
+// findDirectBuyer finds an agent in the settlement who needs the good and can
+// afford it. Used when settlement treasury is depleted — merchants sell directly
+// to individuals (medieval market model). Returns nil if no buyer found.
+func findDirectBuyer(good agents.GoodType, price uint64, settID uint64, sim *Simulation) *agents.Agent {
+	settAgents := sim.SettlementAgents[settID]
+	if len(settAgents) == 0 {
+		return nil
+	}
+
+	// Cap per-purchase at Agnosis fraction of buyer's wealth to avoid bankrupting agents.
+	isFood := good == agents.GoodGrain || good == agents.GoodFish
+	for _, buyer := range settAgents {
+		if !buyer.Alive || buyer.Wealth < price {
+			continue
+		}
+		// Buyer must be able to afford this without spending more than Agnosis of wealth.
+		maxSpend := uint64(float64(buyer.Wealth) * phi.Agnosis)
+		if price > maxSpend {
+			continue
+		}
+		// Buyer must actually need the good.
+		if isFood && float64(buyer.Needs.Survival) > phi.Matter {
+			continue // Well-fed, doesn't need food.
+		}
+		if !isFood && buyer.Inventory[good] >= 2 {
+			continue // Already has enough of this good.
+		}
+		return buyer
+	}
+	return nil
 }
 
 // tier2Commission distributes a fraction of trade revenue to Tier 2 merchants

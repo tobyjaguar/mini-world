@@ -25,7 +25,7 @@ func DefaultGenConfig() GenConfig {
 		Radius:      22,
 		Seed:        0,
 		SeaLevel:    0.25,
-		MountainLvl: 0.60, // Was 0.72 — unreachable after edge falloff (max elev ~0.66)
+		MountainLvl: 0.56, // Was 0.60 (17 hexes) — ~53 mountains (3.5%) to support mining economy
 	}
 }
 

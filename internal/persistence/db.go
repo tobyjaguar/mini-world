@@ -208,6 +208,8 @@ func (db *DB) migrate() error {
 		"ALTER TABLE events ADD COLUMN agent_id INTEGER",
 		"ALTER TABLE events ADD COLUMN settlement_id INTEGER",
 		"ALTER TABLE agents ADD COLUMN age_months INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE stats_history ADD COLUMN bottom_50_share REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE stats_history ADD COLUMN top_10_share REAL NOT NULL DEFAULT 0",
 	}
 	for _, m := range migrations {
 		db.conn.Exec(m) // Ignore errors — column may already exist.
@@ -1027,6 +1029,8 @@ type StatsRow struct {
 	AvgSatisfaction float64 `json:"avg_satisfaction" db:"avg_satisfaction"`
 	AvgAlignment    float64 `json:"avg_alignment" db:"avg_alignment"`
 	OccupationJSON  string  `json:"occupation_json,omitempty" db:"occupation_json"`
+	Bottom50Share   float64 `json:"bottom_50_share" db:"bottom_50_share"`
+	Top10Share      float64 `json:"top_10_share" db:"top_10_share"`
 }
 
 // SaveStatsSnapshot records a daily statistics snapshot.
@@ -1035,12 +1039,12 @@ func (db *DB) SaveStatsSnapshot(row StatsRow) error {
 		`INSERT OR REPLACE INTO stats_history
 		(tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
 		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment,
-		 occupation_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 occupation_json, bottom_50_share, top_10_share)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Tick, row.Population, row.TotalWealth, row.AvgMood, row.AvgSurvival,
 		row.Births, row.Deaths, row.TradeVolume, row.AvgCoherence,
 		row.SettlementCount, row.Gini, row.AvgSatisfaction, row.AvgAlignment,
-		row.OccupationJSON,
+		row.OccupationJSON, row.Bottom50Share, row.Top10Share,
 	)
 	return err
 }
@@ -1054,7 +1058,7 @@ func (db *DB) LoadStatsHistory(fromTick, toTick uint64, limit int) ([]StatsRow, 
 	err := db.conn.Select(&rows,
 		`SELECT tick, population, total_wealth, avg_mood, avg_survival, births, deaths,
 		 trade_volume, avg_coherence, settlement_count, gini, avg_satisfaction, avg_alignment,
-		 occupation_json
+		 occupation_json, bottom_50_share, top_10_share
 		 FROM stats_history WHERE tick >= ? AND tick <= ?
 		 ORDER BY tick DESC LIMIT ?`,
 		fromTick, toTick, limit,
