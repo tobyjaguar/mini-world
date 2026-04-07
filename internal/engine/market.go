@@ -1055,9 +1055,17 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 				if buyer == nil {
 					break // No one can buy — stop selling this good.
 				}
+				// Market fee: settlement takes a cut of direct sales,
+				// like a medieval market lord. Without this, zero-treasury
+				// settlements never accumulate from inbound trade.
+				fee := uint64(float64(unitPrice) * phi.Agnosis * 0.1)
+				if fee < 1 {
+					fee = 1
+				}
 				buyer.Wealth -= unitPrice
-				a.Wealth += unitPrice
-				totalRevenue += unitPrice
+				a.Wealth += unitPrice - fee
+				sett.Treasury += fee
+				totalRevenue += unitPrice - fee
 			}
 		}
 	}

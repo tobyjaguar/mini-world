@@ -474,6 +474,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processResourceMigration(tick)
 	s.processCrafterRecovery(tick)
 	s.processCareerTransition(tick)
+	s.processFoodRetraining(tick)
 	s.processViabilityCheck(tick)
 	s.processInfrastructureGrowth(tick)
 	s.processSettlementOvermass(tick)

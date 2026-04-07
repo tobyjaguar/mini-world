@@ -807,3 +807,91 @@ func skillAdjacentOccupation(occ agents.Occupation) agents.Occupation {
 		return occ // No skill-adjacent option.
 	}
 }
+
+// processFoodRetraining handles settlements where one food type is chronically
+// expensive because the farmer/fisher ratio doesn't match the terrain. When grain
+// is expensive and the settlement has Coast hexes, some farmers retrain as fishers
+// (and vice versa). Cap: Agnosis fraction (~24%) of the surplus occupation per week.
+func (s *Simulation) processFoodRetraining(tick uint64) {
+	for settID, settAgents := range s.SettlementAgents {
+		sett, ok := s.SettlementIndex[settID]
+		if !ok || sett.Market == nil || sett.Population < 50 {
+			continue
+		}
+
+		grainEntry := sett.Market.Entries[agents.GoodGrain]
+		fishEntry := sett.Market.Entries[agents.GoodFish]
+		if grainEntry == nil || fishEntry == nil {
+			continue
+		}
+
+		// Only act when one food is expensive (>2x base) and the other is normal (<1.5x).
+		grainExpensive := grainEntry.Price > grainEntry.BasePrice*2
+		fishExpensive := fishEntry.Price > fishEntry.BasePrice*2
+		grainNormal := grainEntry.Price < grainEntry.BasePrice*1.5
+		fishNormal := fishEntry.Price < fishEntry.BasePrice*1.5
+
+		var fromOcc, toOcc agents.Occupation
+		var needTerrain world.Terrain
+		switch {
+		case grainExpensive && fishNormal:
+			// Need more farmers — retrain fishers if Plains available.
+			fromOcc = agents.OccupationFisher
+			toOcc = agents.OccupationFarmer
+			needTerrain = world.TerrainPlains
+		case fishExpensive && grainNormal:
+			// Need more fishers — retrain farmers if Coast available.
+			fromOcc = agents.OccupationFarmer
+			toOcc = agents.OccupationFisher
+			needTerrain = world.TerrainCoast
+		default:
+			continue // Both expensive or both normal — no clear retraining signal.
+		}
+
+		// Check that the settlement actually has the needed terrain in its 7-hex neighborhood.
+		hasTerrain := false
+		hex := s.WorldMap.Get(sett.Position)
+		if hex != nil && hex.Terrain == needTerrain {
+			hasTerrain = true
+		}
+		if !hasTerrain {
+			for _, coord := range sett.Position.Neighbors() {
+				if nh := s.WorldMap.Get(coord); nh != nil && nh.Terrain == needTerrain {
+					hasTerrain = true
+					break
+				}
+			}
+		}
+		if !hasTerrain {
+			continue
+		}
+
+		// Count candidates and cap retraining.
+		var candidates []*agents.Agent
+		for _, a := range settAgents {
+			if a.Alive && a.Occupation == fromOcc {
+				candidates = append(candidates, a)
+			}
+		}
+		if len(candidates) == 0 {
+			continue
+		}
+
+		maxRetrain := int(math.Max(1, float64(len(candidates))*phi.Agnosis*0.1))
+		retrained := 0
+		for _, a := range candidates {
+			if retrained >= maxRetrain {
+				break
+			}
+			a.Occupation = toOcc
+			retrained++
+		}
+		if retrained > 0 {
+			slog.Info("food retraining",
+				"settlement", sett.Name,
+				"from", fromOcc, "to", toOcc,
+				"count", retrained,
+			)
+		}
+	}
+}
