@@ -844,8 +844,42 @@ func (s *Simulation) processFoodRetraining(tick uint64) {
 			fromOcc = agents.OccupationFarmer
 			toOcc = agents.OccupationFisher
 			needTerrain = world.TerrainCoast
+		case grainExpensive && fishExpensive:
+			// Both foods expensive — retrain toward whichever has more terrain.
+			plainsCount := 0
+			coastCount := 0
+			homeHex := s.WorldMap.Get(sett.Position)
+			if homeHex != nil {
+				if homeHex.Terrain == world.TerrainPlains {
+					plainsCount++
+				} else if homeHex.Terrain == world.TerrainCoast {
+					coastCount++
+				}
+			}
+			for _, coord := range sett.Position.Neighbors() {
+				if nh := s.WorldMap.Get(coord); nh != nil {
+					if nh.Terrain == world.TerrainPlains {
+						plainsCount++
+					} else if nh.Terrain == world.TerrainCoast {
+						coastCount++
+					}
+				}
+			}
+			if plainsCount > coastCount && plainsCount > 0 {
+				// More Plains — retrain fishers to farmers.
+				fromOcc = agents.OccupationFisher
+				toOcc = agents.OccupationFarmer
+				needTerrain = world.TerrainPlains
+			} else if coastCount > 0 {
+				// More Coast (or tied) — retrain farmers to fishers.
+				fromOcc = agents.OccupationFarmer
+				toOcc = agents.OccupationFisher
+				needTerrain = world.TerrainCoast
+			} else {
+				continue // No food terrain at all (mountain food desert).
+			}
 		default:
-			continue // Both expensive or both normal — no clear retraining signal.
+			continue // Both normal — no retraining needed.
 		}
 
 		// Check that the settlement actually has the needed terrain in its 7-hex neighborhood.

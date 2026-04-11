@@ -58,6 +58,15 @@ type Simulation struct {
 	// After 4 weeks, refugee spawning is disabled so the settlement can naturally decline.
 	NonViableWeeks map[uint64]int
 
+	// Faction doctrine failure tracking (agent ID → consecutive weeks failing doctrine).
+	// Transient — resets on restart, rebuilds within 4 TickWeeks.
+	DoctrineFailWeeks map[agents.AgentID]uint8
+
+	// Defection cooldown: agents who defected this week are protected from
+	// the weekly faction assignment sweep for one week, giving influence-based
+	// recruitment a chance to place them in a different faction.
+	DefectionCooldown map[agents.AgentID]bool
+
 	// Active production boosts from gardener "cultivate" interventions.
 	ActiveBoosts []ProductionBoost
 
@@ -219,8 +228,10 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 		Settlements:      setts,
 		SettlementIndex:  settIndex,
 		SettlementAgents: settAgents,
-		AbandonedWeeks:   make(map[uint64]int),
-		NonViableWeeks:   make(map[uint64]int),
+		AbandonedWeeks:    make(map[uint64]int),
+		NonViableWeeks:    make(map[uint64]int),
+		DoctrineFailWeeks: make(map[agents.AgentID]uint8),
+		DefectionCooldown: make(map[agents.AgentID]bool),
 	}
 	sim.initSettlementClaims()
 	sim.updateStats()
@@ -466,8 +477,14 @@ func (s *Simulation) TickDay(tick uint64) {
 // TickWeek runs every sim-week: faction updates, diplomatic cycles, LLM updates.
 func (s *Simulation) TickWeek(tick uint64) {
 	s.compactDeadAgents()
+	// Clear last week's defection cooldowns before the faction sweep.
+	for id := range s.DefectionCooldown {
+		delete(s.DefectionCooldown, id)
+	}
 	s.processWeeklyFactions(tick)
 	s.applyFactionDoctrines(tick)
+	s.processFactionDefection(tick)
+	s.processFactionRecruitmentByInfluence(tick)
 	s.processAntiStagnation(tick)
 	s.weeklyResourceRegen()
 	s.processSeasonalMigration(tick)

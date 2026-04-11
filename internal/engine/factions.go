@@ -112,7 +112,10 @@ func factionForAgent(a *agents.Agent, govType social.GovernanceType) social.Fact
 				return 1 // Crown
 			}
 			// Devout high-coherence farmers/crafters → Verdant Circle.
-			if a.Soul.CittaCoherence > 0.35 {
+			// Psyche threshold (~0.382): only genuinely awakening Devotionalists join.
+			// Lower thresholds created a self-reinforcing loop where VC's easy doctrine
+			// boosted coherence → more agents crossed threshold → VC grew unboundedly.
+			if float64(a.Soul.CittaCoherence) > phi.Psyche {
 				return 4 // Verdant Circle
 			}
 			return 0 // Unaffiliated
@@ -226,6 +229,11 @@ func (s *Simulation) processWeeklyFactions(tick uint64) {
 	assigned := 0
 	for _, a := range s.Agents {
 		if !a.Alive || a.FactionID != nil {
+			continue
+		}
+		// Skip agents on defection cooldown — they recently left a faction
+		// and should be available for influence-based recruitment first.
+		if s.DefectionCooldown[a.ID] {
 			continue
 		}
 		govType := social.GovCommune
@@ -482,7 +490,9 @@ func factionPreferredGov(factionID social.FactionID) social.GovernanceType {
 		return social.GovMerchantRepublic
 	case 4: // Verdant Circle → Council (already dominant, neutral)
 		return social.GovCouncil
-	default: // Iron Brotherhood, Ashen Path: no preference
+	case 3: // Iron Brotherhood → Council (military fraternity, structured governance)
+		return social.GovCouncil
+	default: // Ashen Path: no preference (corruption doctrine erodes governance directly)
 		return 0
 	}
 }
@@ -682,36 +692,7 @@ func (s *Simulation) applyFactionDoctrines(tick uint64) {
 			sett = s.SettlementIndex[*a.HomeSettID]
 		}
 
-		qualifies := false
-		fid := social.FactionID(*a.FactionID)
-
-		switch fid {
-		case 1: // Crown — Order: well-governed settlement
-			if sett != nil && sett.GovernanceScore > phi.Psyche {
-				qualifies = true
-			}
-		case 2: // Merchant's Compact — Exchange: active merchant
-			if a.Occupation == agents.OccupationMerchant && tick-a.LastWorkTick < TicksPerSimDay*7 {
-				qualifies = true
-			}
-		case 3: // Iron Brotherhood — Discipline: soldier in governed settlement
-			if a.Occupation == agents.OccupationSoldier && sett != nil && sett.GovernanceScore > phi.Agnosis {
-				qualifies = true
-			}
-		case 4: // Verdant Circle — Harmony: worked recently + healthy home hex
-			if tick-a.LastWorkTick < TicksPerSimDay*7 && sett != nil {
-				hex := s.WorldMap.Get(sett.Position)
-				if hex != nil && hex.Health > phi.Psyche {
-					qualifies = true
-				}
-			}
-		case 5: // Ashen Path — Dissolution: poor or deeply belonging
-			if a.Wealth < 30 || a.Needs.Belonging > float32(phi.Matter) {
-				qualifies = true
-			}
-		}
-
-		if !qualifies {
+		if !s.agentFulfillsDoctrine(a, social.FactionID(*a.FactionID), sett, tick) {
 			continue
 		}
 
@@ -741,6 +722,213 @@ func (s *Simulation) applyFactionDoctrines(tick uint64) {
 
 	if awakenings > 0 {
 		slog.Info("doctrine awakenings", "count", awakenings)
+	}
+}
+
+// agentFulfillsDoctrine checks whether an agent meets their faction's doctrine.
+// Used by both applyFactionDoctrines (coherence boosts) and processFactionDefection
+// (defection tracking). Each faction has a philosophical criterion:
+//
+//	Crown (Order): settlement GovernanceScore > Psyche
+//	Merchant (Exchange): active merchant (worked within 7 sim-days)
+//	Iron Brotherhood (Discipline): soldier in governed settlement
+//	Verdant Circle (Harmony): worked recently + home hex health > Psyche
+//	Ashen Path (Dissolution): poor or deeply belonging
+func (s *Simulation) agentFulfillsDoctrine(a *agents.Agent, fid social.FactionID, sett *social.Settlement, tick uint64) bool {
+	switch fid {
+	case 1: // Crown — Order
+		return sett != nil && sett.GovernanceScore > phi.Psyche
+	case 2: // Merchant's Compact — Exchange
+		return a.Occupation == agents.OccupationMerchant && tick-a.LastWorkTick < TicksPerSimDay*7
+	case 3: // Iron Brotherhood — Discipline
+		return a.Occupation == agents.OccupationSoldier && sett != nil && sett.GovernanceScore > phi.Agnosis
+	case 4: // Verdant Circle — Harmony
+		if tick-a.LastWorkTick >= TicksPerSimDay*7 || sett == nil {
+			return false
+		}
+		hex := s.WorldMap.Get(sett.Position)
+		return hex != nil && hex.Health > phi.Psyche
+	case 5: // Ashen Path — Dissolution
+		return a.Wealth < 30 || a.Needs.Belonging > float32(phi.Matter)
+	default:
+		return false
+	}
+}
+
+// processFactionDefection checks all faction members for consecutive doctrine
+// failure. After 4+ weeks, agents have an Agnosis (~23.6%) chance per week
+// to leave their faction (become unaffiliated). Creates natural faction churn —
+// factions that don't serve their members shrink.
+func (s *Simulation) processFactionDefection(tick uint64) {
+	defections := 0
+
+	for _, a := range s.Agents {
+		if !a.Alive || a.FactionID == nil {
+			delete(s.DoctrineFailWeeks, a.ID)
+			continue
+		}
+
+		var sett *social.Settlement
+		if a.HomeSettID != nil {
+			sett = s.SettlementIndex[*a.HomeSettID]
+		}
+
+		fid := social.FactionID(*a.FactionID)
+		if s.agentFulfillsDoctrine(a, fid, sett, tick) {
+			delete(s.DoctrineFailWeeks, a.ID)
+			continue
+		}
+
+		// Increment failure counter.
+		s.DoctrineFailWeeks[a.ID]++
+		failWeeks := s.DoctrineFailWeeks[a.ID]
+
+		if failWeeks < 4 {
+			continue
+		}
+
+		// Defection check: Agnosis probability per week.
+		// Deterministic hash matches existing mortality pattern.
+		hash := (uint64(a.ID)*2654435761 + tick*40503) % 100000
+		if float64(hash)/100000.0 >= phi.Agnosis {
+			continue
+		}
+
+		// Defect — get faction name before clearing.
+		factionName := s.factionNameByID(*a.FactionID)
+		a.FactionID = nil
+		delete(s.DoctrineFailWeeks, a.ID)
+		s.DefectionCooldown[a.ID] = true
+		defections++
+
+		if a.Tier >= 1 {
+			s.EmitEvent(Event{
+				Tick: tick,
+				Description: fmt.Sprintf("%s left %s after failing to fulfill its doctrine",
+					a.Name, factionName),
+				Category: "political",
+				Meta: map[string]any{
+					"event_type":   "faction_defection",
+					"agent_id":     a.ID,
+					"agent_name":   a.Name,
+					"faction_name": factionName,
+				},
+			})
+		}
+	}
+
+	if defections > 0 {
+		slog.Info("faction defection", "defections", defections)
+	}
+}
+
+// processFactionRecruitmentByInfluence lets factions compete for unaffiliated
+// agents in settlements where they have influence. Agents are more likely to
+// join factions matching their natural affinity (from factionForAgent).
+// Complements existing relationship-based recruitment in processFactionRecruitment.
+// Capped at Agnosis fraction of unaffiliated agents per settlement per week.
+func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
+	recruited := 0
+
+	for _, sett := range s.Settlements {
+		settAgents := s.SettlementAgents[sett.ID]
+
+		// Collect unaffiliated alive adults.
+		var unaffiliated []*agents.Agent
+		for _, a := range settAgents {
+			if a.Alive && a.FactionID == nil && a.Age >= 16 {
+				unaffiliated = append(unaffiliated, a)
+			}
+		}
+		if len(unaffiliated) == 0 {
+			continue
+		}
+
+		// Recruitment cap: Agnosis fraction, min 1.
+		cap := int(math.Max(1, float64(len(unaffiliated))*phi.Agnosis))
+
+		// Collect factions with local influence.
+		type factionScore struct {
+			fid       social.FactionID
+			influence float64
+		}
+		var active []factionScore
+		totalInfluence := 0.0
+		for _, f := range s.Factions {
+			if inf, ok := f.Influence[sett.ID]; ok && inf > 0 {
+				active = append(active, factionScore{f.ID, inf})
+				totalInfluence += inf
+			}
+		}
+		if len(active) == 0 || totalInfluence == 0 {
+			continue
+		}
+
+		settRecruited := 0
+		for _, a := range unaffiliated {
+			if settRecruited >= cap {
+				break
+			}
+
+			// Determine natural affinity via the same logic used at birth.
+			affinityFID := factionForAgent(a, sett.Governance)
+
+			// Each faction's score = influence × affinity bonus.
+			// Being bonus for matching natural affinity, Monad otherwise.
+			bestScore := 0.0
+			var bestFID social.FactionID
+			for _, fs := range active {
+				score := fs.influence
+				if fs.fid == affinityFID {
+					score *= phi.Being
+				}
+				if score > bestScore {
+					bestScore = score
+					bestFID = fs.fid
+				}
+			}
+
+			if bestFID == 0 {
+				continue
+			}
+
+			// Recruitment probability: normalized so a fully-dominated settlement
+			// with affinity match recruits at ~Psyche rate (~38.2%).
+			prob := bestScore / (totalInfluence * phi.Being) * phi.Psyche
+
+			// Deterministic check.
+			hash := (uint64(a.ID)*2654435761 + tick*40503 + sett.ID*7) % 100000
+			if float64(hash)/100000.0 >= prob {
+				continue
+			}
+
+			// Recruit.
+			factionID := uint64(bestFID)
+			a.FactionID = &factionID
+			settRecruited++
+			recruited++
+
+			if a.Tier >= 1 {
+				factionName := s.factionNameByID(factionID)
+				s.EmitEvent(Event{
+					Tick: tick,
+					Description: fmt.Sprintf("%s joined %s through local influence in %s",
+						a.Name, factionName, sett.Name),
+					Category: "political",
+					Meta: map[string]any{
+						"event_type":      "faction_recruitment",
+						"agent_id":        a.ID,
+						"agent_name":      a.Name,
+						"faction_name":    factionName,
+						"settlement_name": sett.Name,
+					},
+				})
+			}
+		}
+	}
+
+	if recruited > 0 {
+		slog.Info("influence-based recruitment", "recruited", recruited)
 	}
 }
 

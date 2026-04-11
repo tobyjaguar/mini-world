@@ -912,6 +912,30 @@ Deep investigation (April 6, 2026) of Gini "reversal" (0.638→0.649) revealed t
 245. **Surplus price decay** — FIXED: `resolveSettlementMarket()` in `market.go` now decays prices by `Agnosis × 0.01` per hour when supply exceeds `population × Being`. Creates outward pressure — surplus goods become increasingly attractive for merchants to carry elsewhere.
 246. **Wealth distribution tracking** — NEW: `WealthDistribution()` method on `Simulation` (`simulation.go`) computes bottom 50% and top 10% wealth shares. `bottom_50_share` and `top_10_share` fields added to `StatsRow` and `stats_history` table (`db.go`). Enables trend analysis — previously only two ad-hoc data points existed for this critical metric.
 
+### Round 61: Faction Dynamics — IB Governance + Food Retraining + VC Threshold
+
+Investigation (April 10, 2026) revealed three faction/food issues: (1) IB revolution was half-wired — revolution code mapped IB→Council but `factionPreferredGov()` returned 0, (2) food retraining deadlocked when both Grain and Fish were expensive, (3) VC dominance (44%) was a self-reinforcing loop from a low coherence threshold (0.35).
+
+247. **IB governance preference** — FIXED: `factionPreferredGov()` in `factions.go` now returns `GovCouncil` for Iron Brotherhood (case 3). Completes the mismatch pressure wiring for IB in non-Council settlements. Council is thematically correct — military fraternity values structured governance (IB doctrine requires `GovernanceScore > Agnosis`).
+248. **Food retraining "both expensive" deadlock** — FIXED: `processFoodRetraining()` in `perpetuation.go` now handles the case where both Grain and Fish exceed 2x base price. Counts Plains vs Coast hexes in the settlement's 7-hex neighborhood and retrains toward whichever food has more terrain. Mountain food deserts (zero Plains, zero Coast) are correctly skipped. Unblocks Frostcliff (1,964 agents, both foods at ceiling).
+249. **VC Devotionalist coherence threshold** — FIXED: `factionForAgent()` in `factions.go` Devotionalist→VC threshold raised from 0.35 to `phi.Psyche` (~0.382). Only genuinely awakening Devotionalists join. The lower threshold created a self-reinforcing loop: VC doctrine (easiest to fulfill) boosted coherence → more agents crossed 0.35 → joined VC → got more doctrine boosts. Psyche is Φ-derived and represents "the threshold of meaningful connection."
+
+### Round 62: Faction Defection — Doctrine-Based Churn
+
+Faction membership was permanent — once assigned at birth, agents never changed factions. This prevented natural faction diversity because `factionForAgent()` is a deterministic lookup table. VC captured 44% of agents with no feedback mechanism to shrink overgrown factions.
+
+250. **Faction defection** — NEW: `processFactionDefection()` in `factions.go` tracks consecutive weeks each agent fails their faction's doctrine via `DoctrineFailWeeks` map on Simulation (transient, resets on restart). After 4+ consecutive failure weeks, agents have `Agnosis` (~23.6%) chance per week to leave their faction (become unaffiliated). `DefectionCooldown` map protects defectors from immediate re-assignment by the weekly faction sweep, giving influence-based recruitment (R63) one week to place them in a different faction. Events emitted for Tier 1+ ("faction_defection", category "political"). Extracted shared `agentFulfillsDoctrine()` helper used by both doctrine boosts and defection tracking.
+
+**Expected impact:** VC loses members fastest (Harmony doctrine requires worked recently + hex health > Psyche — ~55% of producers are idle and many hexes are degraded). Crown/IB/Ashen Path are resilient (easier doctrines). VC share should decline from 44% toward 25-30% over sim-months.
+
+### Round 63: Faction Recruitment by Influence
+
+Complementing the deterministic `factionForAgent()` lookup table and relationship-based recruitment with an influence-weighted recruitment path. Factions with strong local presence actively attract unaffiliated agents, creating geographic faction clustering.
+
+251. **Influence-based recruitment** — NEW: `processFactionRecruitmentByInfluence()` in `factions.go`. Each week, for each settlement, evaluates unaffiliated adults (cap: `Agnosis` fraction per settlement, min 1). For each agent, calls `factionForAgent()` to determine natural affinity, then computes each faction's recruitment score as `influence × affinityBonus` (Being for natural match, Monad otherwise). Highest-scoring faction wins with probability `bestScore / (totalInfluence × Being) × Psyche`. In a fully-dominated settlement with affinity match: ~38.2% recruitment rate. Events emitted for Tier 1+ ("faction_recruitment", category "political").
+
+**Expected impact:** Mining towns attract IB (soldier natural affinity + IB influence). Farming towns attract VC. Poor settlements attract Ashen Path (easy doctrine). Trading settlements attract Merchant's Compact. Creates the geographic faction diversity needed for inter-settlement warfare.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.
