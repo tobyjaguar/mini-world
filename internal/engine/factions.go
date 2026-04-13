@@ -839,7 +839,17 @@ func (s *Simulation) processFactionDefection(tick uint64) {
 func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 	recruited := 0
 
+	// Diagnostic counters to understand recruitment behavior.
+	settsTotal := 0
+	settsWithUnaff := 0
+	settsSkippedNoInflu := 0
+	totalUnaffSeen := 0
+	totalCapSum := 0
+	hashPassed := 0
+	hashFailed := 0
+
 	for _, sett := range s.Settlements {
+		settsTotal++
 		settAgents := s.SettlementAgents[sett.ID]
 
 		// Collect unaffiliated alive adults.
@@ -852,6 +862,8 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 		if len(unaffiliated) == 0 {
 			continue
 		}
+		settsWithUnaff++
+		totalUnaffSeen += len(unaffiliated)
 
 		// Recruitment cap: Agnosis fraction, min 1.
 		cap := int(math.Max(1, float64(len(unaffiliated))*phi.Agnosis))
@@ -870,8 +882,10 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 			}
 		}
 		if len(active) == 0 || totalInfluence == 0 {
+			settsSkippedNoInflu++
 			continue
 		}
+		totalCapSum += cap
 
 		settRecruited := 0
 		for _, a := range unaffiliated {
@@ -911,8 +925,10 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 			// Deterministic check.
 			hash := (uint64(a.ID)*2654435761 + tick*40503 + sett.ID*7) % 100000
 			if float64(hash)/100000.0 >= prob {
+				hashFailed++
 				continue
 			}
+			hashPassed++
 
 			// Recruit.
 			factionID := uint64(bestFID)
@@ -938,6 +954,18 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 			}
 		}
 	}
+
+	// Diagnostic log: always emitted so we can see what's happening even when recruited=0.
+	slog.Info("recruitment stats",
+		"recruited", recruited,
+		"setts_total", settsTotal,
+		"setts_with_unaff", settsWithUnaff,
+		"setts_no_influ", settsSkippedNoInflu,
+		"total_unaff_seen", totalUnaffSeen,
+		"cap_sum", totalCapSum,
+		"hash_passed", hashPassed,
+		"hash_failed", hashFailed,
+	)
 
 	if recruited > 0 {
 		slog.Info("influence-based recruitment", "recruited", recruited)
