@@ -932,9 +932,22 @@ Faction membership was permanent — once assigned at birth, agents never change
 
 Complementing the deterministic `factionForAgent()` lookup table and relationship-based recruitment with an influence-weighted recruitment path. Factions with strong local presence actively attract unaffiliated agents, creating geographic faction clustering.
 
-251. **Influence-based recruitment** — NEW: `processFactionRecruitmentByInfluence()` in `factions.go`. Each week, for each settlement, evaluates unaffiliated adults (cap: `Agnosis` fraction per settlement, min 1). For each agent, calls `factionForAgent()` to determine natural affinity, then computes each faction's recruitment score as `influence × affinityBonus` (Being for natural match, Monad otherwise). Highest-scoring faction wins with probability `bestScore / (totalInfluence × Being) × Psyche`. In a fully-dominated settlement with affinity match: ~38.2% recruitment rate. Events emitted for Tier 1+ ("faction_recruitment", category "political").
+251. **Influence-based recruitment** — NEW: `processFactionRecruitmentByInfluence()` in `factions.go`. Each week, for each settlement, evaluates unaffiliated adults (cap: `Agnosis` fraction per settlement, min 1). For each agent, calls `factionForAgent()` to determine natural affinity, then computes each faction's recruitment score as `influence × affinityBonus` (Being for natural match, Monad otherwise). Highest-scoring faction wins with probability `bestScore / totalInfluence × Psyche`. Events emitted for Tier 1+ ("faction_recruitment", category "political").
 
 **Expected impact:** Mining towns attract IB (soldier natural affinity + IB influence). Farming towns attract VC. Poor settlements attract Ashen Path (easy doctrine). Trading settlements attract Merchant's Compact. Creates the geographic faction diversity needed for inter-settlement warfare.
+
+### Round 64: Faction Dynamics Reorder — Recruitment as Primary Pathway
+
+Two days after R62/R63 deployed, observation (Apr 13, 2026) revealed a severe imbalance: ~22K defections per TickWeek but only ~10-20 recruitments. Root cause: the unaffiliated sweep in `processWeeklyFactions()` ran BEFORE recruitment each week, re-assigning defectors via `factionForAgent()` before influence-based recruitment could see them. The `DefectionCooldown` was meant to prevent this but was architecturally broken (cleared at week start, before sweep, so never protected anything).
+
+**The structural fix:** Reorder the weekly faction phase so recruitment runs BEFORE the deterministic assignment sweep. This makes influence-based competition the PRIMARY pathway and the deterministic lookup the fallback — matching design intent (emergence over scripting).
+
+252. **Split `processWeeklyFactions()`** — REFACTORED: Split into `processFactionMaintenance()` (influence recomputation, dues, patronage, policies, tensions, relations drift) and new `processFactionAssignmentFallback()` (the sweep, now a true safety net).
+253. **Reordered TickWeek faction phase** — CHANGED in `simulation.go`: New order is Maintenance → Doctrines → Defection → Recruitment → Assignment Fallback. Defected agents get a real chance at influence-based recruitment before the deterministic lookup catches them.
+254. **Tuned recruitment probability** — CHANGED: Formula simplified from `bestScore / (totalInfluence × Being) × Psyche` (max 38%) to `bestScore / totalInfluence × Psyche` (max Being×Psyche ≈ Matter, 62%). Typical settlement with affinity match: ~25-30% (was ~15%). Brings rate into a meaningful range without sacrificing emergence.
+255. **Removed `DefectionCooldown`** — CLEANUP: Unused state. Cooldown was cleared at week start (before sweep) so it never protected anything. Safe removal simplifies code.
+
+**Expected impact:** Recruitment rate should jump from ~0.05% to ~20-30% of defectors per week. VC decline should accelerate (better matching/churn), unaffiliated pool should stabilize or shrink (influence-based recruitment absorbs them into locally-appropriate factions), faction geography should become more varied over sim-months.
 
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.

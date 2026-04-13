@@ -62,11 +62,6 @@ type Simulation struct {
 	// Transient — resets on restart, rebuilds within 4 TickWeeks.
 	DoctrineFailWeeks map[agents.AgentID]uint8
 
-	// Defection cooldown: agents who defected this week are protected from
-	// the weekly faction assignment sweep for one week, giving influence-based
-	// recruitment a chance to place them in a different faction.
-	DefectionCooldown map[agents.AgentID]bool
-
 	// Active production boosts from gardener "cultivate" interventions.
 	ActiveBoosts []ProductionBoost
 
@@ -231,7 +226,6 @@ func NewSimulation(m *world.Map, ag []*agents.Agent, setts []*social.Settlement)
 		AbandonedWeeks:    make(map[uint64]int),
 		NonViableWeeks:    make(map[uint64]int),
 		DoctrineFailWeeks: make(map[agents.AgentID]uint8),
-		DefectionCooldown: make(map[agents.AgentID]bool),
 	}
 	sim.initSettlementClaims()
 	sim.updateStats()
@@ -477,14 +471,20 @@ func (s *Simulation) TickDay(tick uint64) {
 // TickWeek runs every sim-week: faction updates, diplomatic cycles, LLM updates.
 func (s *Simulation) TickWeek(tick uint64) {
 	s.compactDeadAgents()
-	// Clear last week's defection cooldowns before the faction sweep.
-	for id := range s.DefectionCooldown {
-		delete(s.DefectionCooldown, id)
-	}
-	s.processWeeklyFactions(tick)
+	// Faction dynamics — run in order so emergence flows correctly:
+	//   1. Maintenance: recompute influence, collect dues, distribute patronage
+	//   2. Doctrines: coherence boosts for doctrine-fulfilling members
+	//   3. Defection: agents who chronically fail doctrine leave their faction
+	//   4. Recruitment (influence-based): factions compete for unaffiliated agents
+	//   5. Assignment fallback: factionForAgent() catches anyone recruitment missed
+	// This ordering makes influence-based recruitment the PRIMARY pathway and
+	// the deterministic lookup the fallback — reversing earlier ordering where
+	// the sweep would re-grab defectors before recruitment could see them.
+	s.processFactionMaintenance(tick)
 	s.applyFactionDoctrines(tick)
 	s.processFactionDefection(tick)
 	s.processFactionRecruitmentByInfluence(tick)
+	s.processFactionAssignmentFallback(tick)
 	s.processAntiStagnation(tick)
 	s.weeklyResourceRegen()
 	s.processSeasonalMigration(tick)

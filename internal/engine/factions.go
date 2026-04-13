@@ -224,34 +224,12 @@ func (s *Simulation) updateFactionInfluence() {
 
 // processWeeklyFactions runs weekly faction updates: influence shifts, relations drift,
 // policy advocacy, faction dues, and inter-faction tension.
-func (s *Simulation) processWeeklyFactions(tick uint64) {
-	// Assign factions to unaffiliated agents (catches agents born before the addAgent fix).
-	assigned := 0
-	for _, a := range s.Agents {
-		if !a.Alive || a.FactionID != nil {
-			continue
-		}
-		// Skip agents on defection cooldown — they recently left a faction
-		// and should be available for influence-based recruitment first.
-		if s.DefectionCooldown[a.ID] {
-			continue
-		}
-		govType := social.GovCommune
-		if a.HomeSettID != nil {
-			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
-				govType = sett.Governance
-			}
-		}
-		if fid := factionForAgent(a, govType); fid > 0 {
-			factionID := uint64(fid)
-			a.FactionID = &factionID
-			assigned++
-		}
-	}
-	if assigned > 0 {
-		slog.Info("faction assignment sweep", "assigned", assigned)
-	}
-
+// processFactionMaintenance runs weekly faction updates: influence recomputation,
+// dues collection, patronage distribution, policy effects, tension checks, and
+// inter-faction relations drift. Does NOT perform the unaffiliated assignment
+// sweep — that happens in processFactionAssignmentFallback after defection and
+// recruitment have had their turn.
+func (s *Simulation) processFactionMaintenance(tick uint64) {
 	s.updateFactionInfluence()
 	s.collectFactionDues(tick)
 	s.distributeFactionPatronage(tick)
@@ -277,6 +255,38 @@ func (s *Simulation) processWeeklyFactions(tick uint64) {
 			"total_influence", int(totalInfluence),
 			"treasury", f.Treasury,
 		)
+	}
+}
+
+// processFactionAssignmentFallback is the final safety net for unaffiliated
+// agents. Runs after defection and influence-based recruitment, so it only
+// catches agents that recruitment couldn't place. This is the emergent pathway:
+// influence competition decides faction membership first; this lookup handles
+// edge cases (newborns missed by addAgent, defectors in factionless territory).
+//
+// Agents whose factionForAgent() returns 0 (no natural affinity) remain
+// unaffiliated — that is a valid state representing agents who don't fit any
+// faction's identity.
+func (s *Simulation) processFactionAssignmentFallback(tick uint64) {
+	assigned := 0
+	for _, a := range s.Agents {
+		if !a.Alive || a.FactionID != nil {
+			continue
+		}
+		govType := social.GovCommune
+		if a.HomeSettID != nil {
+			if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+				govType = sett.Governance
+			}
+		}
+		if fid := factionForAgent(a, govType); fid > 0 {
+			factionID := uint64(fid)
+			a.FactionID = &factionID
+			assigned++
+		}
+	}
+	if assigned > 0 {
+		slog.Info("faction assignment fallback", "assigned", assigned)
 	}
 }
 
@@ -798,7 +808,6 @@ func (s *Simulation) processFactionDefection(tick uint64) {
 		factionName := s.factionNameByID(*a.FactionID)
 		a.FactionID = nil
 		delete(s.DoctrineFailWeeks, a.ID)
-		s.DefectionCooldown[a.ID] = true
 		defections++
 
 		if a.Tier >= 1 {
@@ -892,9 +901,12 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 				continue
 			}
 
-			// Recruitment probability: normalized so a fully-dominated settlement
-			// with affinity match recruits at ~Psyche rate (~38.2%).
-			prob := bestScore / (totalInfluence * phi.Being) * phi.Psyche
+			// Recruitment probability scales with faction's share of local influence.
+			// Fully-dominated settlement + affinity match: prob = Being × Psyche ≈ Matter (62%).
+			// Fully-dominated + no affinity: prob = Psyche (38%).
+			// Typical (50% share + affinity): ~31%.
+			// Typical (50% share + no affinity): ~19%.
+			prob := bestScore / totalInfluence * phi.Psyche
 
 			// Deterministic check.
 			hash := (uint64(a.ID)*2654435761 + tick*40503 + sett.ID*7) % 100000
