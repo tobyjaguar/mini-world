@@ -838,20 +838,13 @@ func (s *Simulation) processFactionDefection(tick uint64) {
 // Capped at Agnosis fraction of unaffiliated agents per settlement per week.
 func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 	recruited := 0
-
-	// Diagnostic counters to understand recruitment behavior.
-	settsTotal := 0
-	settsWithUnaff := 0
-	settsSkippedNoInflu := 0
-	totalUnaffSeen := 0
-	totalCapSum := 0
-	hashPassed := 0
-	hashFailed := 0
-	orphanedAgents := 0
+	orphanedAgents := 0 // Sanity counter: agents with HomeSettID pointing to a non-existent settlement.
 
 	// Build unaffiliated pool by iterating s.Agents directly (not SettlementAgents).
-	// This ensures we catch all unaffiliated agents regardless of whether their
-	// HomeSettID points to a currently-active settlement in s.Settlements.
+	// This ensures we catch all unaffiliated adult agents regardless of whether their
+	// HomeSettID points to a currently-active settlement in s.Settlements. Children
+	// (age < 16) are deliberately excluded — they get assigned via the fallback
+	// when they reach adulthood and gain an occupation.
 	unaffBySett := make(map[uint64][]*agents.Agent)
 	for _, a := range s.Agents {
 		if !a.Alive || a.FactionID != nil || a.Age < 16 || a.HomeSettID == nil {
@@ -866,13 +859,10 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 	}
 
 	for _, sett := range s.Settlements {
-		settsTotal++
 		unaffiliated := unaffBySett[sett.ID]
 		if len(unaffiliated) == 0 {
 			continue
 		}
-		settsWithUnaff++
-		totalUnaffSeen += len(unaffiliated)
 
 		// Recruitment cap: Agnosis fraction, min 1.
 		cap := int(math.Max(1, float64(len(unaffiliated))*phi.Agnosis))
@@ -891,10 +881,8 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 			}
 		}
 		if len(active) == 0 || totalInfluence == 0 {
-			settsSkippedNoInflu++
 			continue
 		}
-		totalCapSum += cap
 
 		settRecruited := 0
 		for _, a := range unaffiliated {
@@ -934,10 +922,8 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 			// Deterministic check.
 			hash := (uint64(a.ID)*2654435761 + tick*40503 + sett.ID*7) % 100000
 			if float64(hash)/100000.0 >= prob {
-				hashFailed++
 				continue
 			}
-			hashPassed++
 
 			// Recruit.
 			factionID := uint64(bestFID)
@@ -964,18 +950,13 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 		}
 	}
 
-	// Diagnostic log: always emitted so we can see what's happening even when recruited=0.
-	slog.Info("recruitment stats",
-		"recruited", recruited,
-		"setts_total", settsTotal,
-		"setts_with_unaff", settsWithUnaff,
-		"setts_no_influ", settsSkippedNoInflu,
-		"total_unaff_seen", totalUnaffSeen,
-		"orphaned_agents", orphanedAgents,
-		"cap_sum", totalCapSum,
-		"hash_passed", hashPassed,
-		"hash_failed", hashFailed,
-	)
+	// Log orphaned agents if any exist (should always be 0 — sanity check for HomeSettID integrity).
+	if orphanedAgents > 0 {
+		slog.Warn("recruitment: orphaned agents detected",
+			"count", orphanedAgents,
+			"detail", "agents with HomeSettID pointing to non-existent settlement",
+		)
+	}
 
 	if recruited > 0 {
 		slog.Info("influence-based recruitment", "recruited", recruited)
