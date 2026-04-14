@@ -847,18 +847,27 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 	totalCapSum := 0
 	hashPassed := 0
 	hashFailed := 0
+	orphanedAgents := 0
+
+	// Build unaffiliated pool by iterating s.Agents directly (not SettlementAgents).
+	// This ensures we catch all unaffiliated agents regardless of whether their
+	// HomeSettID points to a currently-active settlement in s.Settlements.
+	unaffBySett := make(map[uint64][]*agents.Agent)
+	for _, a := range s.Agents {
+		if !a.Alive || a.FactionID != nil || a.Age < 16 || a.HomeSettID == nil {
+			continue
+		}
+		sett, ok := s.SettlementIndex[*a.HomeSettID]
+		if !ok || sett == nil {
+			orphanedAgents++
+			continue
+		}
+		unaffBySett[sett.ID] = append(unaffBySett[sett.ID], a)
+	}
 
 	for _, sett := range s.Settlements {
 		settsTotal++
-		settAgents := s.SettlementAgents[sett.ID]
-
-		// Collect unaffiliated alive adults.
-		var unaffiliated []*agents.Agent
-		for _, a := range settAgents {
-			if a.Alive && a.FactionID == nil && a.Age >= 16 {
-				unaffiliated = append(unaffiliated, a)
-			}
-		}
+		unaffiliated := unaffBySett[sett.ID]
 		if len(unaffiliated) == 0 {
 			continue
 		}
@@ -962,6 +971,7 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 		"setts_with_unaff", settsWithUnaff,
 		"setts_no_influ", settsSkippedNoInflu,
 		"total_unaff_seen", totalUnaffSeen,
+		"orphaned_agents", orphanedAgents,
 		"cap_sum", totalCapSum,
 		"hash_passed", hashPassed,
 		"hash_failed", hashFailed,
