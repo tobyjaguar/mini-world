@@ -949,6 +949,41 @@ Two days after R62/R63 deployed, observation (Apr 13, 2026) revealed a severe im
 
 **Expected impact:** Recruitment rate should jump from ~0.05% to ~20-30% of defectors per week. VC decline should accelerate (better matching/churn), unaffiliated pool should stabilize or shrink (influence-based recruitment absorbs them into locally-appropriate factions), faction geography should become more varied over sim-months.
 
+### Round 65: Hex-Capacity-Aware Overmass + Pressure-Aware Migration + Observability
+
+**Deep investigation (April 15, 2026)** triggered by two concurrent signals: trade route attrition (548→463 routes in 2 sim-days, mid-tier dying while Legendary holds) and a user-flagged Stonemarsh anomaly. Both investigations converged on a single architectural gap.
+
+**Root cause.** The simulation maintains two carrying capacities but only wires them to separate mechanisms:
+- `IsOvermassed()` uses **infrastructure capacity** (`100 + ML*50 + RL*25 + WL*25, scaled by governance × Totality`). This models organizational capacity.
+- `SettlementCarryingCapacity()` computes **hex carrying capacity** (health-weighted resource caps over 7-hex neighborhood). This models terrain-supported population.
+
+Overmass/diaspora checks only the first. A settlement with high infrastructure can grow far beyond what its land feeds, as long as imports cover the gap. Enumeration found **68 settlements (12.8% of the world) in this "Stonemarsh class"**: `pp > 1.5 AND occupation_hhi > 0.5`. 96% were Plains Farmer-monocultures. 63/68 depended on ≤1 active trade route. Wellbeing was currently fine (satisfaction 0.689 ≈ world avg 0.690) because imports held food prices at base — which also meant R61 retraining never fired (price-triggered). Silent fragility: one route loss away from food crisis, with the silent failure mode masked by the import buffer.
+
+Compounding this, `population_pressure` was computed and exposed but wired to only **one** mechanism — R36 hourly regen scaling (`1 + Agnosis × log₂(1 + pp)`), which *rewards* over-capacity settlements with up to +47% regen bonus. Combined with prosperity-driven births and prosperity-targeting migration, the system had only positive feedback on pressure and no negative feedback.
+
+The trade route "attrition" investigation (P1) independently refuted an earlier surplus-decay hypothesis: 36% zero-trade rate on surplus-touching routes vs 23% on others is too small a gap (n=11 surplus routes). The dominant pattern is tier-wide — 54% of Flourishing and 69% of Established routes dormant vs 4% of Legendary. This is a **Matthew effect** from merchant per-tick best-margin selection with route-level bonuses (+3.5% margin, ~7% travel discount at Legendary). Once a route is Legendary at a settlement, it consistently wins merchant selection, starving mid-tier alternatives. Trade volume is rising (215M→220M) despite route count falling — healthy market consolidation, not pathology. **No change to trade route code needed.**
+
+**The architectural fix** wires hex carrying capacity into the overmass check so the existing diaspora mechanism handles terrain-bound overshoot. This is the minimal structural change that routes the Stonemarsh-class population through infrastructure that already exists (weekly overmass check → golden-angle diaspora → daughter settlement founding).
+
+256. **`IsOvermassed(hexCap)` uses tighter of infra/hex** — CHANGED: `settlement.go` IsOvermassed now takes hexCap as argument. `effectiveCap = infraCap` unless `0 < hexCap < infraCap`, in which case `effectiveCap = hexCap`. Threshold unchanged (`> effectiveCap × Being`). Edge case `hexCap <= 0` falls back to infra-only, preserving prior behavior for degenerate cases. `settlement_lifecycle.go` caller now computes `hexCap, _ := s.SettlementCarryingCapacity(sett.ID)` before the check. Routes Plains Farmer-monoculture overshoot through the existing diaspora mechanism → daughter settlements found on varied terrain (Plains, Forest, Coast, River, Mountain) via the existing golden-angle search, gradually relieving Plains saturation.
+257. **Migration target scoring respects pressure** — CHANGED: `processSeasonalMigration()` in `perpetuation.go` target selection changed from `prosperity := treasury / aliveCount+1` to `score := prosperity / max(1, pp)`. A destination needs both treasury per capita AND room to grow. Dissatisfied-agent migration stream + scattered diaspora emigrants now prefer under-capacity settlements. `max(1, pp)` floor prevents under-capacity (`pp < 1`) from being rewarded beyond parity.
+258. **Adult/child unaffiliated split in `/api/v1/status`** — NEW: `unaffiliated_adults` and `unaffiliated_children` fields added to status endpoint. Closes the R64 observability gap where `population - sum(members)` conflated children under 16 (awaiting age-gate assignment) with true unaffiliated adults. Removes a recurring source of diagnostic confusion.
+259. **Settlement observability: `population_pressure`, `carrying_capacity`, `occupation_hhi`** — NEW: All three fields added to `/api/v1/settlements` list endpoint. Previously only on detail endpoint (per-settlement calls). Enables sentinel and external observers to enumerate the Stonemarsh class (`pp > 1.5 AND hhi > 0.5`) without 532 detail fetches.
+
+**Expected dynamics.**
+- Week 1: ~50–60 Stonemarsh-class settlements cross the new hex-capped overmass threshold and fire diaspora. ~12–15K emigrants. Some found daughter settlements on fresh terrain (Coast/Forest/Mountain favored by golden-angle search); others scatter and become migrants.
+- Week 2–4: Scattered migrants flow toward low-pp destinations (R65c-2). Daughter settlements seed new economic geography.
+- Month 1+: Stonemarsh class shrinks from 68 toward a steady state as pp distribution tightens around 1.0. Trade network thinning becomes less consequential because fewer settlements depend on mid-tier import routes.
+- Long-term: Plains saturation relieves as population redistributes to underutilized terrain. Occupational diversity emerges naturally from terrain-occupation fit.
+
+**What R65 deliberately does NOT do.**
+- No trade route code changes. Mid-tier attrition is emergent market consolidation; volume is rising, market health is excellent. Let it happen.
+- No preemptive Farmer→Crafter retraining. R24 career transition and R61 Farmer↔Fisher already cover the retraining space. The root cause is population overshoot, not retraining triggers.
+- No change to R36 regen scaling. Modeling denser settlements extracting more intensively is legitimate; the problem was absence of *negative* feedback, now added.
+- No birth-rate dampening. Held in reserve — if R65c-1+2 prove insufficient after 1-2 sim-weeks, add `birthChance *= 1/max(1, pp)` as R65c-3.
+
+**Φ alignment.** All new math uses existing constants (Being, Totality, Matter) with no new magic numbers. `math.Min(infraCap, hexCap)` honors both constraints without introducing tuning parameters. The `max(1, pp)` floor in migration is idiomatic (saturate the denominator at parity).
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

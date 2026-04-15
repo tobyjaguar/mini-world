@@ -265,53 +265,102 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Unaffiliated breakdown: distinguish adults (true orphans) from children
+	// who simply haven't reached the age-16 faction assignment gate yet.
+	// The API previously exposed only population - sum(members), which
+	// conflated both and made observations confusing.
+	unaffAdults := 0
+	unaffChildren := 0
+	for _, a := range s.Sim.Agents {
+		if !a.Alive || a.FactionID != nil {
+			continue
+		}
+		if a.Age < 16 {
+			unaffChildren++
+		} else {
+			unaffAdults++
+		}
+	}
+
 	status := map[string]any{
-		"name":             "Crossworlds",
-		"tick":             s.Sim.CurrentTick(),
-		"sim_time":         engine.SimTime(s.Sim.CurrentTick()),
-		"season":           engine.SeasonName(s.Sim.CurrentSeason),
-		"speed":            s.Eng.Speed,
-		"running":          s.Eng.Running,
-		"population":       s.Sim.Stats.TotalPopulation,
-		"deaths":           s.Sim.Stats.Deaths,
-		"births":           s.Sim.Stats.Births,
-		"settlements":      len(s.Sim.Settlements),
-		"factions":         len(s.Sim.Factions),
-		"avg_mood":         s.Sim.Stats.AvgMood,
-		"avg_satisfaction":  s.Sim.Stats.AvgSatisfaction,
-		"avg_alignment":    s.Sim.Stats.AvgAlignment,
-		"total_wealth":     s.Sim.Stats.TotalWealth,
-		"weather":          weatherInfo,
-		"occupations":      occupations,
+		"name":                  "Crossworlds",
+		"tick":                  s.Sim.CurrentTick(),
+		"sim_time":              engine.SimTime(s.Sim.CurrentTick()),
+		"season":                engine.SeasonName(s.Sim.CurrentSeason),
+		"speed":                 s.Eng.Speed,
+		"running":               s.Eng.Running,
+		"population":            s.Sim.Stats.TotalPopulation,
+		"deaths":                s.Sim.Stats.Deaths,
+		"births":                s.Sim.Stats.Births,
+		"settlements":           len(s.Sim.Settlements),
+		"factions":              len(s.Sim.Factions),
+		"avg_mood":              s.Sim.Stats.AvgMood,
+		"avg_satisfaction":      s.Sim.Stats.AvgSatisfaction,
+		"avg_alignment":         s.Sim.Stats.AvgAlignment,
+		"total_wealth":          s.Sim.Stats.TotalWealth,
+		"weather":               weatherInfo,
+		"occupations":           occupations,
+		"unaffiliated_adults":   unaffAdults,
+		"unaffiliated_children": unaffChildren,
 	}
 	writeJSON(w, status)
 }
 
 func (s *Server) handleSettlements(w http.ResponseWriter, r *http.Request) {
 	type settlementSummary struct {
-		ID         uint64  `json:"id"`
-		Name       string  `json:"name"`
-		Q          int     `json:"q"`
-		R          int     `json:"r"`
-		Population uint32  `json:"population"`
-		Governance string  `json:"governance"`
-		Treasury   uint64  `json:"treasury"`
-		Health     float64 `json:"health"`
+		ID                 uint64  `json:"id"`
+		Name               string  `json:"name"`
+		Q                  int     `json:"q"`
+		R                  int     `json:"r"`
+		Population         uint32  `json:"population"`
+		Governance         string  `json:"governance"`
+		Treasury           uint64  `json:"treasury"`
+		Health             float64 `json:"health"`
+		CarryingCapacity   float64 `json:"carrying_capacity"`
+		PopulationPressure float64 `json:"population_pressure"`
+		OccupationHHI      float64 `json:"occupation_hhi"`
 	}
 
 	govNames := map[uint8]string{0: "Monarchy", 1: "Council", 2: "Merchant Republic", 3: "Commune"}
 
 	var result []settlementSummary
 	for _, st := range s.Sim.Settlements {
+		cc, pp := s.Sim.SettlementCarryingCapacity(st.ID)
+
+		// Compute occupation HHI from SettlementAgents map. HHI measures
+		// occupational concentration; combined with population_pressure it
+		// identifies the "silent import-dependent" settlement class.
+		var counts [10]int
+		total := 0
+		for _, a := range s.Sim.SettlementAgents[st.ID] {
+			if !a.Alive {
+				continue
+			}
+			if int(a.Occupation) < len(counts) {
+				counts[a.Occupation]++
+				total++
+			}
+		}
+		hhi := 0.0
+		if total > 0 {
+			for _, c := range counts {
+				share := float64(c) / float64(total)
+				hhi += share * share
+			}
+		}
+
 		result = append(result, settlementSummary{
-			ID:         st.ID,
-			Name:       st.Name,
-			Q:          st.Position.Q,
-			R:          st.Position.R,
-			Population: st.Population,
-			Governance: govNames[uint8(st.Governance)],
-			Treasury:   st.Treasury,
-			Health:     st.Health(),
+			ID:                 st.ID,
+			Name:               st.Name,
+			Q:                  st.Position.Q,
+			R:                  st.Position.R,
+			Population:         st.Population,
+			Governance:         govNames[uint8(st.Governance)],
+			Treasury:           st.Treasury,
+			Health:             st.Health(),
+			CarryingCapacity:   cc,
+			PopulationPressure: pp,
+			OccupationHHI:      hhi,
 		})
 	}
 	writeJSON(w, result)

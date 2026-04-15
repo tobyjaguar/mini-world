@@ -99,9 +99,17 @@ func (s *Simulation) updateSettlementPopulations() {
 // processSeasonalMigration moves desperate agents toward prosperous settlements.
 // For tiny settlements (pop < 25), the mood threshold is relaxed to accelerate absorption.
 func (s *Simulation) processSeasonalMigration(tick uint64) {
-	// Find the most prosperous settlement (global fallback target).
+	// Find the best settlement as global fallback target.
+	//
+	// Scoring: prosperity / max(1, population_pressure).
+	// A settlement is attractive if it has treasury per capita AND room to grow.
+	// Previously, pure prosperity caused migration into already over-capacity
+	// settlements (prosperous BECAUSE they had many agents producing wealth),
+	// reinforcing the Stonemarsh-class overshoot pattern. Dividing by pressure
+	// directs the dissatisfied-agent stream toward under-capacity settlements.
+	// Under-capacity (pp < 1) uses max(1, pp) so it's not rewarded above parity.
 	var bestSettID uint64
-	bestProsperity := 0.0
+	bestScore := 0.0
 
 	// Cache alive counts per settlement for reuse.
 	settAliveCounts := make(map[uint64]int, len(s.Settlements))
@@ -118,8 +126,14 @@ func (s *Simulation) processSeasonalMigration(tick uint64) {
 			continue
 		}
 		prosperity := float64(sett.Treasury) / float64(aliveCount+1)
-		if prosperity > bestProsperity {
-			bestProsperity = prosperity
+		_, pp := s.SettlementCarryingCapacity(sett.ID)
+		pressureDivisor := pp
+		if pressureDivisor < 1.0 {
+			pressureDivisor = 1.0
+		}
+		score := prosperity / pressureDivisor
+		if score > bestScore {
+			bestScore = score
 			bestSettID = sett.ID
 		}
 	}

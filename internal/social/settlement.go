@@ -72,15 +72,32 @@ func (s *Settlement) Health() float64 {
 	return phi.HealthRatio(s)
 }
 
-// IsOvermassed checks if the settlement has exceeded its governance capacity.
+// IsOvermassed checks if the settlement has exceeded its effective capacity.
 // See design doc Section 16.5.3 (M> barrier).
-// Base capacity scales with infrastructure so that small settlements aren't
-// permanently overmassed. A new settlement (ML=1, GS=0.5) can hold ~513 people.
-func (s *Settlement) IsOvermassed() bool {
+//
+// Effective capacity is the tighter of two constraints:
+//   - Infrastructure capacity: how many people the settlement can organize
+//     (scales with market/road/wall levels and governance).
+//   - Hex carrying capacity: how many the surrounding land can feed
+//     (summed health-weighted resource caps over the 7-hex neighborhood).
+//
+// Infrastructure can organize more people than land supports only via imports,
+// which create silent fragility when trade networks contract. Honoring the
+// tighter constraint routes that overshoot through the existing diaspora
+// mechanism, which distributes population toward fresh terrain.
+//
+// hexCap <= 0 (edge case, e.g., unresolved hex data or ocean-only neighborhood)
+// falls back to infra-only, preserving prior behavior for degenerate cases.
+func (s *Settlement) IsOvermassed(hexCap float64) bool {
 	baseCap := 100.0 + float64(s.MarketLevel)*50 + float64(s.RoadLevel)*25 + float64(s.WallLevel)*25
-	capacity := baseCap * s.GovernanceScore * phi.Totality
-	load := float64(s.Population)
-	return load > capacity*phi.Being
+	infraCap := baseCap * s.GovernanceScore * phi.Totality
+
+	effectiveCap := infraCap
+	if hexCap > 0 && hexCap < infraCap {
+		effectiveCap = hexCap
+	}
+
+	return float64(s.Population) > effectiveCap*phi.Being
 }
 
 // CorruptionScore returns the settlement's corruption level.

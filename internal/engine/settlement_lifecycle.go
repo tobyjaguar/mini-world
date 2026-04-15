@@ -25,7 +25,8 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 	}
 
 	for _, sett := range s.Settlements {
-		if !sett.IsOvermassed() {
+		hexCap, _ := s.SettlementCarryingCapacity(sett.ID)
+		if !sett.IsOvermassed(hexCap) {
 			continue
 		}
 
