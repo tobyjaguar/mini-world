@@ -305,10 +305,53 @@ func (s *Simulation) foundSettlement(coord world.HexCoord, founders []*agents.Ag
 		s.SettlementAgents[newID] = append(s.SettlementAgents[newID], a)
 	}
 
+	// R66 P1a: rebalance producer founders whose resource is absent from
+	// the new 7-hex neighborhood. One-time exception to R24's occupation
+	// persistence — founders are already uprooted, and leaving them idle
+	// for 2 weeks (resource-seeking migration threshold) drags work rate.
+	s.rebalanceDaughterFounders(newSett)
+
 	// Rebuild neighbor index to include the new settlement.
 	s.BuildSettlementNeighbors()
 
 	return newSett
+}
+
+// rebalanceDaughterFounders reassigns producer founders whose required
+// resource is absent from the new settlement's 7-hex neighborhood to an
+// occupation whose resource IS present. Non-producers (Crafter, Merchant,
+// Soldier, Scholar) keep their occupation. Called once at daughter founding.
+func (s *Simulation) rebalanceDaughterFounders(sett *social.Settlement) {
+	hex := s.WorldMap.Get(sett.Position)
+	if hex == nil {
+		return
+	}
+	reassigned := 0
+	for _, a := range s.SettlementAgents[sett.ID] {
+		if !a.Alive {
+			continue
+		}
+		resType, isProducer := occupationResource[a.Occupation]
+		if !isProducer {
+			continue
+		}
+		if s.settlementHasResource(sett, resType) {
+			continue
+		}
+		newOcc := bestOccupationForHex(hex)
+		if newOcc == a.Occupation {
+			continue
+		}
+		a.Occupation = newOcc
+		reassigned++
+	}
+	if reassigned > 0 {
+		slog.Info("daughter founder rebalance",
+			"settlement", sett.Name,
+			"reassigned", reassigned,
+			"founders", len(s.SettlementAgents[sett.ID]),
+		)
+	}
 }
 
 // generateSettlementName creates a unique settlement name.
