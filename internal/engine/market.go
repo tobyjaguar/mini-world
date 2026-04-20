@@ -1098,11 +1098,16 @@ func sellMerchantCargo(a *agents.Agent, market *economy.Market, sett *social.Set
 
 	// Successful trade gives merchant a sense of accomplishment.
 	// Matches producer successful-work boosts from ResolveWork.
+	// R68: Survival boost on trade completion — R67 observability revealed
+	// merchants are the lowest-Survival occupation (0.36 vs world 0.39)
+	// because they travel and can't self-produce food. Completing a sale
+	// is the "I can eat now" moment — closes the gap that travel decay opens.
 	if totalRevenue > 0 {
 		a.Needs.Safety += 0.008
 		a.Needs.Esteem += 0.012
 		a.Needs.Belonging += 0.004
 		a.Needs.Purpose += 0.004
+		a.Needs.Survival += float32(phi.Agnosis * 0.05) // ~0.012
 	}
 
 	// Tier 2 merchants remember trade outcomes.
