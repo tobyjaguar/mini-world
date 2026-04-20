@@ -188,10 +188,16 @@ type SimStats struct {
 	TradeVolume     uint64  `json:"trade_volume"` // Merchant trade completions
 
 	// Per-occupation breakdown (full population, not sampled).
-	OccupationCounts [10]int      `json:"occupation_counts"`
-	OccupationSat    [10]float32  `json:"occupation_sat"`
-	ProducersWorking int          `json:"producers_working"` // LastWorkTick > 0
-	ProducersIdle    int          `json:"producers_idle"`    // LastWorkTick == 0
+	OccupationCounts [10]int     `json:"occupation_counts"`
+	OccupationSat    [10]float32 `json:"occupation_sat"`
+	// Average Maslow needs per occupation (R67 observability).
+	OccupationSurvival  [10]float32 `json:"occupation_survival"`
+	OccupationSafety    [10]float32 `json:"occupation_safety"`
+	OccupationBelonging [10]float32 `json:"occupation_belonging"`
+	OccupationPurpose   [10]float32 `json:"occupation_purpose"`
+	OccupationEsteem    [10]float32 `json:"occupation_esteem"`
+	ProducersWorking    int         `json:"producers_working"` // LastWorkTick > 0
+	ProducersIdle       int         `json:"producers_idle"`    // LastWorkTick == 0
 }
 
 // NewSimulation creates a Simulation from generated components.
@@ -1123,9 +1129,15 @@ func (s *Simulation) updateStats() {
 	// Zero per-occupation counters (arrays need explicit zeroing).
 	s.Stats.OccupationCounts = [10]int{}
 	s.Stats.OccupationSat = [10]float32{}
+	s.Stats.OccupationSurvival = [10]float32{}
+	s.Stats.OccupationSafety = [10]float32{}
+	s.Stats.OccupationBelonging = [10]float32{}
+	s.Stats.OccupationPurpose = [10]float32{}
+	s.Stats.OccupationEsteem = [10]float32{}
 	s.Stats.ProducersWorking = 0
 	s.Stats.ProducersIdle = 0
 	var occSatTotals [10]float32
+	var occSurvival, occSafety, occBelonging, occPurpose, occEsteem [10]float32
 
 	for _, a := range s.Agents {
 		if a.Alive {
@@ -1147,6 +1159,11 @@ func (s *Simulation) updateStats() {
 			if int(a.Occupation) < 10 {
 				s.Stats.OccupationCounts[a.Occupation]++
 				occSatTotals[a.Occupation] += a.Wellbeing.Satisfaction
+				occSurvival[a.Occupation] += a.Needs.Survival
+				occSafety[a.Occupation] += a.Needs.Safety
+				occBelonging[a.Occupation] += a.Needs.Belonging
+				occPurpose[a.Occupation] += a.Needs.Purpose
+				occEsteem[a.Occupation] += a.Needs.Esteem
 			}
 			if isHexProducer(a.Occupation) {
 				if s.LastTick > 0 && a.LastWorkTick > 0 && s.LastTick-a.LastWorkTick <= uint64(TicksPerSimDay*7) {
@@ -1169,10 +1186,16 @@ func (s *Simulation) updateStats() {
 		s.Stats.AvgSurvival = totalSurvival / float32(active)
 	}
 
-	// Compute per-occupation average satisfaction.
+	// Compute per-occupation average satisfaction + needs.
 	for i := 0; i < 10; i++ {
 		if s.Stats.OccupationCounts[i] > 0 {
-			s.Stats.OccupationSat[i] = occSatTotals[i] / float32(s.Stats.OccupationCounts[i])
+			n := float32(s.Stats.OccupationCounts[i])
+			s.Stats.OccupationSat[i] = occSatTotals[i] / n
+			s.Stats.OccupationSurvival[i] = occSurvival[i] / n
+			s.Stats.OccupationSafety[i] = occSafety[i] / n
+			s.Stats.OccupationBelonging[i] = occBelonging[i] / n
+			s.Stats.OccupationPurpose[i] = occPurpose[i] / n
+			s.Stats.OccupationEsteem[i] = occEsteem[i] / n
 		}
 	}
 }

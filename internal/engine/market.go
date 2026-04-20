@@ -752,6 +752,32 @@ func (s *Simulation) resolveMerchantTrade(tick uint64) {
 
 		// Use pre-computed trade neighbor index (≤5 hex, market != nil).
 		neighbors := s.SettlementTradeNeighbors[sett.ID]
+
+		// R67 P1b: if this settlement has any surplus good (supply > pop×Being),
+		// extend merchant scouting to the 10-hex neighbor index. Surplus-stuck
+		// settlements often sit in terrain clusters where 5-hex neighbors also
+		// have surplus — longer range lets merchants find distant buyers and
+		// unstick goods pinned at the Agnosis floor.
+		popThreshold := float64(sett.Population) * phi.Being
+		hasSurplus := false
+		for _, entry := range sett.Market.Entries {
+			if entry.Supply > popThreshold && entry.Supply > 100 {
+				hasSurplus = true
+				break
+			}
+		}
+		if hasSurplus {
+			wideNeighbors := s.SettlementNeighbors[sett.ID]
+			// Filter wide neighbors to those with a market (same guarantee as TradeNeighbors).
+			filtered := make([]*social.Settlement, 0, len(wideNeighbors))
+			for _, n := range wideNeighbors {
+				if n.Market != nil {
+					filtered = append(filtered, n)
+				}
+			}
+			neighbors = filtered
+		}
+
 		if len(neighbors) == 0 {
 			continue
 		}

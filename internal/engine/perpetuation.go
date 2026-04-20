@@ -925,7 +925,10 @@ func (s *Simulation) processFoodRetraining(tick uint64) {
 			continue
 		}
 
-		maxRetrain := int(math.Max(1, float64(len(candidates))*phi.Agnosis*0.1))
+		// R67 P2b: cap bumped from Agnosis*0.1 (2.4%/wk) to Agnosis*0.5 (11.8%/wk).
+		// Prior rate was too slow — logs showed most retraining events moving only
+		// 1 agent/wk, which couldn't meaningfully shift settlements with 500+ farmers.
+		maxRetrain := int(math.Max(1, float64(len(candidates))*phi.Agnosis*0.5))
 		retrained := 0
 		for _, a := range candidates {
 			if retrained >= maxRetrain {

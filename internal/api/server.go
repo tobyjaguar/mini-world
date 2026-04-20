@@ -262,6 +262,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		occupations[occNames[i]] = map[string]any{
 			"count":            s.Sim.Stats.OccupationCounts[i],
 			"avg_satisfaction": s.Sim.Stats.OccupationSat[i],
+			"avg_survival":     s.Sim.Stats.OccupationSurvival[i],
+			"avg_safety":       s.Sim.Stats.OccupationSafety[i],
+			"avg_belonging":    s.Sim.Stats.OccupationBelonging[i],
+			"avg_purpose":      s.Sim.Stats.OccupationPurpose[i],
+			"avg_esteem":       s.Sim.Stats.OccupationEsteem[i],
 		}
 	}
 
