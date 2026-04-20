@@ -332,4 +332,54 @@ And then blends them: "Given the agent's level of coherence, how much do materia
 
 At low coherence, you are your body's suffering. At high coherence, you are not. The body still hurts. But *you* — the citta, the signal, the point-source — are at peace. The fisherman catches few fish, earns little, owns nothing. And is free.
 
+---
+
+## 9. Direct Satisfaction Pushes (R67 observability reveal — documented 2026-04-20)
+
+The R10 core design (EMA toward needs-target) is implemented at `behavior.go:439`:
+
+```go
+satisfaction := a.Needs.OverallSatisfaction()
+satTarget := satisfaction*2 - 1
+a.Wellbeing.Satisfaction += (satTarget - a.Wellbeing.Satisfaction) * 0.01
+```
+
+This was treated as the whole story for a long time. It is not. Over many tuning rounds, additional **direct writes to `Wellbeing.Satisfaction`** accumulated across the codebase. These bypass the EMA and are load-bearing for the observed per-occupation satisfaction spread.
+
+The R67 observability round (per-occupation needs in `/api/v1/status`) revealed that all non-Survival needs clamp at 1.0 for every occupation, so the EMA alone predicts nearly-identical Satisfaction across occupations. The observed spread (Crafter 0.696 vs Soldier 0.672) comes entirely from these direct pushes.
+
+### Positive direct pushes
+
+| Source | File:line | Amount | Triggered by |
+|---|---|---|---|
+| `applyEat` | `behavior.go:160` | +0.05 | Agent eats food from inventory (needs Survival<0.3 to trigger and food on-hand) |
+| `applyRest` | `behavior.go:353` | +0.03 | Agent rests (needs Health<0.3 to trigger) |
+| `applySocialize` | `behavior.go:363` | +0.02 | Agent socializes (needs Belonging<0.3 to trigger, or wealth>30 + Belonging<0.4) |
+| `payGarrisonStipends` (R69) | `market.go` (near :685) | +0.01 | Daily soldier stipend payout |
+| `sellMerchantCargo` | `market.go` (near :1100) | — | R68 adds Survival bump; Satisfaction push may be added later if R68/R69 aren't sufficient |
+
+### Negative direct pushes
+
+| Source | File:line | Amount | Triggered by |
+|---|---|---|---|
+| `processCrime` (caught) | `crime.go:126` | −0.2 | Agent caught committing theft |
+| Disaster damage | `simulation.go:648` | −0.2 × intensity | Regional disaster affecting settlement |
+| War casualty witness | `simulation.go:732` | −0.5 × severity | Settlement war events |
+| War settlement penalty | `simulation.go:750` | −0.25 × severity | Mild war impact |
+| Rivalry (trade competition) | `relationships.go:266` | −0.02 | Agent has a trade rival with wealth >100 |
+| Seasonal (heat stress) | `seasons.go:573` | −0.1 | Specific weather-triggered event |
+
+### Why this matters for R10's design intent
+
+R10's intent was that Satisfaction tracks material conditions and Alignment tracks coherence — the dual register. The direct pushes preserve that (all push in the "material conditions" direction — success/failure events, not coherence shifts), but they introduce a **behavioral pathway** into Satisfaction that isn't pure needs-math:
+
+- **Occupations with natural action-triggers** (Farmer with inventory → eats reliably; wealthy Belonging-poor agent → socializes) accumulate the +0.05/+0.03/+0.02 bumps and sit at higher Satisfaction equilibrium.
+- **Occupations with needs auto-filled by per-tick work boosts** (Soldier's Belonging pinned at 1.0 via applyWork) never hit the Priority() gates that trigger those actions, and sit at lower Satisfaction equilibrium — even though their OverallSatisfaction formula output is identical.
+
+The R69 Soldier stipend push (+0.01) closes this gap for soldiers. The R68 merchant Survival bump addresses the adjacent but distinct problem of merchant travel-decay outpacing eating opportunities.
+
+### Design principle going forward
+
+**When adding per-occupation reward pushes, audit whether they target the needs-math (OverallSatisfaction) path or the direct (Wellbeing.Satisfaction) path.** Needs-math pushes equilibrate via the EMA; direct pushes stack with the EMA and have larger steady-state effect. For occupations whose natural behavior-gated actions are suppressed by their work-boosts, the direct path is the appropriate fix.
+
 *"Just as there is nothing which a diamond cannot cut, be it stone or gem; so too is one with a diamond-mind who has destroyed the taints and has both a liberated citta and is liberated by wisdom."* — AN 1.124

@@ -682,6 +682,13 @@ func (s *Simulation) payGarrisonStipends() {
 			// Needs boosts: soldiers feel valued by their community.
 			a.Needs.Safety += 0.003   // Economic security from steady pay
 			a.Needs.Purpose += 0.002  // Service is meaningful when recognized
+			// R69: direct Satisfaction bump — "payday feels good". INV-1 found
+			// that soldiers' per-tick applyWork boosts pin Belonging/Esteem at 1.0,
+			// so they never hit the Priority() gates that trigger applyEat/rest/
+			// socialize and miss those natural +0.05/+0.03/+0.02 Sat bumps. The
+			// stipend is the moment soldiers feel honored by the community they
+			// protect — appropriate home for the direct Sat push.
+			a.Wellbeing.Satisfaction += 0.01
 		}
 	}
 }
