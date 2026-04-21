@@ -317,11 +317,13 @@ func applyTravel(a *Agent) []string {
 			a.Needs.Survival += 0.2
 			a.Needs.Belonging += 0.001
 			a.Needs.Safety += 0.003
+			a.Wellbeing.Satisfaction += 0.05
 		} else if a.Inventory[GoodGrain] > 0 {
 			a.Inventory[GoodGrain]--
 			a.Needs.Survival += 0.2
 			a.Needs.Belonging += 0.001
 			a.Needs.Safety += 0.003
+			a.Wellbeing.Satisfaction += 0.05
 		}
 	}
 

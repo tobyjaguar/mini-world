@@ -353,10 +353,11 @@ The R67 observability round (per-occupation needs in `/api/v1/status`) revealed 
 | Source | File:line | Amount | Triggered by |
 |---|---|---|---|
 | `applyEat` | `behavior.go:160` | +0.05 | Agent eats food from inventory (needs Survival<0.3 to trigger and food on-hand) |
+| `applyTravel` (eat path, R70) | `behavior.go:~320` | +0.05 | Traveling agent eats provisions (Survival<0.5 while travelling — symmetry with `applyEat`) |
 | `applyRest` | `behavior.go:353` | +0.03 | Agent rests (needs Health<0.3 to trigger) |
 | `applySocialize` | `behavior.go:363` | +0.02 | Agent socializes (needs Belonging<0.3 to trigger, or wealth>30 + Belonging<0.4) |
-| `payGarrisonStipends` (R69) | `market.go` (near :685) | +0.01 | Daily soldier stipend payout |
-| `sellMerchantCargo` | `market.go` (near :1100) | — | R68 adds Survival bump; Satisfaction push may be added later if R68/R69 aren't sufficient |
+| `payGarrisonStipends` (R69/R70) | `market.go` (near :685) | +0.08 | Daily soldier stipend payout (R69 originally +0.01; R70 raised ×8 after T+~37hr plateau diagnosis) |
+| `sellMerchantCargo` | `market.go` (near :1100) | — | R68 adds Survival bump (+0.012); no direct Satisfaction push — R70 closes the Sat gap via the `applyTravel` eat symmetry above |
 
 ### Negative direct pushes
 
@@ -376,7 +377,7 @@ R10's intent was that Satisfaction tracks material conditions and Alignment trac
 - **Occupations with natural action-triggers** (Farmer with inventory → eats reliably; wealthy Belonging-poor agent → socializes) accumulate the +0.05/+0.03/+0.02 bumps and sit at higher Satisfaction equilibrium.
 - **Occupations with needs auto-filled by per-tick work boosts** (Soldier's Belonging pinned at 1.0 via applyWork) never hit the Priority() gates that trigger those actions, and sit at lower Satisfaction equilibrium — even though their OverallSatisfaction formula output is identical.
 
-The R69 Soldier stipend push (+0.01) closes this gap for soldiers. The R68 merchant Survival bump addresses the adjacent but distinct problem of merchant travel-decay outpacing eating opportunities.
+The R69 Soldier stipend push (originally +0.01, raised to +0.08 in R70 after the first bump proved 8× too small) closes this gap for soldiers. The R68 merchant Survival bump addresses the adjacent problem of merchant travel-decay outpacing eating opportunities; R70 additionally restores the +0.05 Satisfaction bump on the `applyTravel` eat path — closing an INV-2 asymmetry where traveling merchants who ate from inventory silently lost the direct Sat boost that home agents get from `applyEat`.
 
 ### Design principle going forward
 

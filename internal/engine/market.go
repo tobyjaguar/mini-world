@@ -688,7 +688,7 @@ func (s *Simulation) payGarrisonStipends() {
 			// socialize and miss those natural +0.05/+0.03/+0.02 Sat bumps. The
 			// stipend is the moment soldiers feel honored by the community they
 			// protect — appropriate home for the direct Sat push.
-			a.Wellbeing.Satisfaction += 0.01
+			a.Wellbeing.Satisfaction += 0.08
 		}
 	}
 }
