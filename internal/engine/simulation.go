@@ -382,6 +382,7 @@ func (s *Simulation) TickHour(tick uint64) {
 	s.hourlyResourceRegen()
 	s.checkCropFailure(tick)
 	s.checkStormDamage(tick)
+	s.applyWeatherHexDamage(tick)
 }
 
 // updateWeather fetches real weather and maps it to simulation modifiers.

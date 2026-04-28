@@ -359,6 +359,104 @@ func (s *Simulation) hourlyResourceRegen() {
 	}
 }
 
+// applyWeatherHexDamage applies persistent damage to hex health from extreme weather.
+// Closes the loop where weather only had transient effects on regen rates and stored
+// goods. Storms erode coastal hexes; sustained heat (drought) degrades inland Plains
+// and Forest. Complements checkStormDamage (settlement infrastructure) and
+// checkCropFailure (stored grain) by damaging the LAND itself — the substrate of
+// future production. Conservation level reduces damage; irrigation protects against
+// drought.
+func (s *Simulation) applyWeatherHexDamage(tick uint64) {
+	if s.CurrentWeather.TravelPenalty >= 2.0 {
+		s.applyStormErosion(tick)
+	}
+	if s.HeatStreakHours >= 72 {
+		s.applyDroughtDegradation(tick)
+	}
+}
+
+// applyStormErosion damages coastal hexes during severe weather. Each populated
+// coastal settlement has an Agnosis³ (~1.3%) chance per sim-hour of an erosion
+// event. On hit, the settlement hex loses Agnosis × 0.01 (~0.236%) health, and the
+// six neighboring hexes lose half that. Conservation level reduces damage.
+// Deterministic per (settlement, tick) for replay.
+func (s *Simulation) applyStormErosion(tick uint64) {
+	chance := phi.Agnosis * phi.Agnosis * phi.Agnosis
+	regions := 0
+	for _, sett := range s.Settlements {
+		if sett.Population == 0 {
+			continue
+		}
+		hex := s.WorldMap.Get(sett.Position)
+		if hex == nil || hex.Terrain != world.TerrainCoast {
+			continue
+		}
+		hash := (sett.ID*2654435761 + tick*40503 + 7919) % 100000
+		if float64(hash)/100000.0 >= chance {
+			continue
+		}
+		s.damageHexHealth(sett.Position, phi.Agnosis*0.01)
+		for _, nc := range sett.Position.Neighbors() {
+			s.damageHexHealth(nc, phi.Agnosis*0.005)
+		}
+		regions++
+	}
+	if regions > 0 {
+		s.EmitEvent(Event{
+			Tick:        tick,
+			Description: fmt.Sprintf("Storm erodes the coast in %d region(s)", regions),
+			Category:    "disaster",
+			Meta: map[string]any{
+				"event_type": "storm_erosion",
+				"regions":    regions,
+			},
+		})
+	}
+}
+
+// applyDroughtDegradation degrades Plains and Forest hex health during sustained
+// heat. Triggered by HeatStreakHours >= 72 (the same threshold that fires crop
+// failure, so drought arrives as a one-two punch: stored grain spoils, then the
+// land itself dries). Rate Agnosis × 0.0005 (~0.0118%/hour, ~0.28%/day). Irrigation
+// level 3+ protects fully; lower levels partial. Conservation reduces remaining damage.
+func (s *Simulation) applyDroughtDegradation(tick uint64) {
+	rate := phi.Agnosis * 0.0005
+	for q := -s.WorldMap.Radius; q <= s.WorldMap.Radius; q++ {
+		for r := -s.WorldMap.Radius; r <= s.WorldMap.Radius; r++ {
+			coord := world.HexCoord{Q: q, R: r}
+			hex := s.WorldMap.Get(coord)
+			if hex == nil {
+				continue
+			}
+			if hex.Terrain != world.TerrainPlains && hex.Terrain != world.TerrainForest {
+				continue
+			}
+			if hex.IrrigationLevel >= 3 {
+				continue
+			}
+			irrProtection := 1.0 - float64(hex.IrrigationLevel)/3.0*phi.Agnosis
+			damage := rate * ConservationDamageFactor(hex.ConservationLevel) * irrProtection
+			hex.Health -= damage
+			if hex.Health < 0 {
+				hex.Health = 0
+			}
+		}
+	}
+}
+
+// damageHexHealth applies a bounded health decrement to a hex, scaled by
+// conservation level. Skips ocean hexes. Floors at 0.
+func (s *Simulation) damageHexHealth(coord world.HexCoord, baseDamage float64) {
+	hex := s.WorldMap.Get(coord)
+	if hex == nil || hex.Terrain == world.TerrainOcean {
+		return
+	}
+	hex.Health -= baseDamage * ConservationDamageFactor(hex.ConservationLevel)
+	if hex.Health < 0 {
+		hex.Health = 0
+	}
+}
+
 // autumnHarvest gives farmers a seasonal production bonus.
 func (s *Simulation) autumnHarvest(tick uint64) {
 	harvestCount := 0
