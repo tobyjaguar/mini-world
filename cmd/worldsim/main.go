@@ -487,6 +487,16 @@ func main() {
 				slog.Info("deaths counter restored", "deaths", v)
 			}
 		}
+		// R72: restore heat-streak counter so R71 drought path is robust to
+		// deploys mid-heatwave. Without this the counter resets to 0 on every
+		// restart and drought degradation never fires until a fresh 72-hour
+		// run accumulates.
+		if hshStr, err := db.GetMeta("heat_streak_hours"); err == nil {
+			if v, err := strconv.Atoi(hshStr); err == nil {
+				sim.HeatStreakHours = v
+				slog.Info("heat streak counter restored", "hours", v)
+			}
+		}
 	}
 
 	// Load agent memories and relationships from database (if any exist).

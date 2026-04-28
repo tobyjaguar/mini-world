@@ -99,6 +99,9 @@ $SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d /etc/systemd/syst
     echo -e '${OVERRIDE}' | sudo tee /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
     echo -e '${GOVERRIDE}' | sudo tee /etc/systemd/system/gardener.service.d/override.conf > /dev/null && \
     echo -e '${SOVERRIDE}' | sudo tee /etc/systemd/system/sentinel.service.d/override.conf > /dev/null && \
+    sudo chmod 600 /etc/systemd/system/worldsim.service.d/override.conf \
+                   /etc/systemd/system/gardener.service.d/override.conf \
+                   /etc/systemd/system/sentinel.service.d/override.conf && \
     echo -e '${RELAY_ENV}' | sudo tee /opt/worldsim/relay.env > /dev/null && \
     sudo chown worldsim:worldsim /opt/worldsim/relay.env && \
     sudo chmod 600 /opt/worldsim/relay.env && \

@@ -17,5 +17,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gardener
 
+# Security hardening (matches worldsim.service template).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/worldsim
+
 [Install]
 WantedBy=multi-user.target

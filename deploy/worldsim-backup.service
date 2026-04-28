@@ -7,3 +7,16 @@ Type=oneshot
 User=worldsim
 Group=worldsim
 ExecStart=/opt/worldsim/worldsim-backup.sh
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=worldsim-backup
+
+# Security hardening (matches worldsim.service template).
+# Backup script reads /opt/worldsim/data/crossworlds.db and writes to
+# /opt/worldsim/backups — ReadWritePaths covers the write target only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/worldsim/backups

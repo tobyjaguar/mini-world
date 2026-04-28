@@ -694,6 +694,13 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		return fmt.Errorf("save deaths: %w", err)
 	}
 
+	// Persist heat-streak counter so R71 drought path is robust to deploys
+	// mid-heatwave. Without this, HeatStreakHours resets to 0 on restart and
+	// drought degradation never fires until a fresh 72-hour run accumulates.
+	if err := db.SaveMeta("heat_streak_hours", fmt.Sprintf("%d", sim.HeatStreakHours)); err != nil {
+		return fmt.Errorf("save heat_streak_hours: %w", err)
+	}
+
 	slog.Info("world state saved")
 	return nil
 }
