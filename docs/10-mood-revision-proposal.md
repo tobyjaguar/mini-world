@@ -383,4 +383,26 @@ The R69 Soldier stipend push (originally +0.01, raised to +0.08 in R70 after the
 
 **When adding per-occupation reward pushes, audit whether they target the needs-math (OverallSatisfaction) path or the direct (Wellbeing.Satisfaction) path.** Needs-math pushes equilibrate via the EMA; direct pushes stack with the EMA and have larger steady-state effect. For occupations whose natural behavior-gated actions are suppressed by their work-boosts, the direct path is the appropriate fix.
 
+### EMA equilibrium formula and its saturation caveat (INV-11, 2026-04-23)
+
+The closed-form predictor for steady-state Wellbeing.Satisfaction:
+
+```
+currentSat ≈ satTarget + daily_direct_bumps / 14.4
+```
+
+where `satTarget = OverallSatisfaction × 2 − 1` and `14.4 = α × ticks_per_day = 0.01 × 1440`. Derivation in the `project_ema_equilibrium_formula` memory.
+
+**Empirical caveat — formula under-predicts when an upstream need is already saturated.** R70-2 was sized using this formula: stipend bump 0.01 → 0.08 was expected to shift soldier Sat by `+0.07/14.4 ≈ +0.005` (from 0.6818 → ~0.687), settling within the ±0.005 of world-avg bar. Observed at T+161K (~28 sim-hr post-deploy, well past the τ≈100-tick transient): **Soldier Sat = 0.7460**, +0.064 above prediction. Soldier `avg_safety` measured at 1.0030 in `/api/v1/status` — the `+0.003 Safety` boost on the same `payGarrisonStipends` path is overshooting the [0,1] needs clamp before `clampNeeds` runs at the end of `DecayNeeds`.
+
+The leading hypothesis (not fully verified): when the implicit upstream need (here Safety) is already pinned at the clamp ceiling, the additional Sat impulse no longer competes with simultaneous needs-EMA recalculation in the way the formula assumes — it accumulates more persistently across ticks. A secondary candidate is indirect amplification: more disposable wealth from the stipend funds more BuyFood actions → larger inventory → higher applyEat rate → more `+0.05` bumps. R70-2 didn't change the wealth payout, only the Sat bump, so the wealth-path explanation is weaker.
+
+**Operator decision (2026-04-23):** the elevated soldier Sat tier (~0.75) is accepted as desirable — soldiers feel happy protecting their hex. R70-2 stays as-is.
+
+**Practical guidance for future per-occupation Sat tuning:**
+1. Treat the `daily_bumps / 14.4` formula as a **lower bound** on the equilibrium shift, not an exact predictor.
+2. If the targeted need (or an adjacent need touched by the same code path) is already at or above 1.0 in `/api/v1/status` per-occupation data, expect amplification of ~5-15× the formula prediction.
+3. Verify empirically at T+1 sim-day, then T+1 sim-week. Don't assume the formula's transient model.
+4. The formula remains reliable for Sat-only direct pushes (no Need side-effects) on occupations whose Needs are below 1.0.
+
 *"Just as there is nothing which a diamond cannot cut, be it stone or gem; so too is one with a diamond-mind who has destroyed the taints and has both a liberated citta and is liberated by wisdom."* — AN 1.124
