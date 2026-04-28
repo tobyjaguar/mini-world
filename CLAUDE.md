@@ -984,6 +984,66 @@ The trade route "attrition" investigation (P1) independently refuted an earlier 
 
 **Φ alignment.** All new math uses existing constants (Being, Totality, Matter) with no new magic numbers. `math.Min(infraCap, hexCap)` honors both constraints without introducing tuning parameters. The `max(1, pp)` floor in migration is idiomatic (saturate the denominator at parity).
 
+### Round 66: Daughter Founder Rebalance + Soldier Esteem (2026-04-17)
+
+R65 produced cascading rebalancing but exposed a residual issue: producers founded daughters on terrain where their resource was absent. Soldier Sat remained ~2pt below other occupations.
+
+260. **Daughter founder rebalance** — NEW: `rebalanceDaughterFounders()` in `settlement_lifecycle.go` reassigns producer founders whose resource is absent from the new daughter's 7-hex neighborhood. Called immediately after `foundSettlement`. Eliminated the pathology where farmers founded daughters on Mountain hexes etc.
+261. **Soldier Esteem from crime deterrence** — FIXED: `processCrime()` now grants soldiers an Esteem boost alongside Purpose: `deterrence × Agnosis × 0.2` per day (was Purpose-only).
+
+**+46hr observation:** 211 rebalance events, 88-97% reassignment on some daughters. Alignment crossed 0.6 sustained (0.6033). Coherence new high (0.7205). Mood new high (0.7048). Soldier Sat impact unclear at +46hr (still 0.6723).
+
+### Round 67: Surplus-Aware Merchant Range + Retraining Cap + Per-Occupation Needs Observability (2026-04-20)
+
+Three fixes including the most consequential observability addition since the API audit (fixes 126-128).
+
+262. **Surplus-aware merchant scouting** — FIXED: `resolveMerchantTrade()` in `market.go` — merchants at surplus settlements (any good with `supply > pop × Being`) use 10-hex scouting instead of 5-hex. Targets stuck-floor settlements surrounded by similar-surplus clusters.
+263. **Food retraining cap ×5** — CHANGED: `processFoodRetraining()` cap raised from `Agnosis × 0.1` (~2.4%/wk) to `Agnosis × 0.5` (~11.8%/wk). Faster response to local price extremes.
+264. **Per-occupation needs in `/api/v1/status`** — NEW: `OccupationNeeds [10][5]float32` (Survival/Safety/Belonging/Purpose/Esteem per occupation) on `SimStats`. Computed in `updateStats()` from full population.
+
+**T+0 major reveal:** All non-Survival needs clamp at 1.0 for every occupation. Only Survival varies. Merchant lowest (0.3638), Soldier 0.3930. **R66 P3 Soldier Esteem boost was pouring water into a full bucket — Esteem already clamped.** Reframed all subsequent rounds: target Survival (R68) and direct Sat (R69) instead of needs-math.
+
+### Round 68: Merchant Survival on Trade Completion (2026-04-20)
+
+R67 observability revealed merchants had structurally low Survival (0.3638) — they travel and can't produce food.
+
+265. **Merchant Survival on trade** — FIXED: `sellMerchantCargo()` in `market.go` adds `a.Needs.Survival += phi.Agnosis * 0.05` (~0.012) alongside existing Safety/Esteem/Belonging/Purpose boosts. Merchants return from trade feeling fed.
+
+**T+~37hr validation:** Peak-then-regress (0.3749 → 0.3946 T+3hr → 0.3792 T+37hr). Under-bar; INV-6 diagnosed the rate-mismatch root cause (per-trade bump rate is 3 orders of magnitude below per-tick decay).
+
+### Round 69: Soldier Sat on Stipend + R10 Direct-Push Doc Audit (2026-04-20)
+
+266. **Soldier Sat on stipend** — FIXED: `payGarrisonStipends()` in `market.go` adds `a.Wellbeing.Satisfaction += 0.01` alongside existing Safety/Purpose. Closes the action-gap from INV-1: soldiers' auto-filled needs prevent them from triggering applyEat/rest/socialize Sat bumps.
+267. **R10 direct-push audit** — DOC: Added `docs/10-mood-revision-proposal.md` Section 9 documenting all direct Wellbeing.Satisfaction pushes (eat +0.05, rest +0.03, socialize +0.02, crime caught −0.2, disaster −0.2×intensity, war −0.5×severity, rivalry −0.02, seasonal −0.1, R69 stipend +0.01). Previously undocumented load-bearing mechanics.
+
+**T+~37hr validation:** Soldier Sat plateau at −0.010 gap vs world avg. INV-7 diagnosed: R69's +0.01/day stipend bump contributed +0.0007 to equilibrium — too small. EMA formula: `currentSat ≈ satTarget + daily_direct_bumps / 14.4`. Need ×8 stipend.
+
+### Round 70: applyTravel Sat Symmetry + Soldier Stipend ×8 (2026-04-21)
+
+INV-6 (R68 root cause: rate mismatch) and INV-7 (R69 root cause: bump too small) both fixed in R70. Plus a bonus INV-2 finding.
+
+268. **applyTravel eat-path Sat bump** — FIXED: `applyTravel()` in `behavior.go:316-326` adds `a.Wellbeing.Satisfaction += 0.05` when traveling agent eats from inventory (Fish or Grain branch), mirroring `applyEat()` line 160. Closes INV-2 asymmetry: traveling merchants who ate silently lost the Sat boost home agents got. Reframes R68 bar from Survival 0.40 to Merchant Sat within 0.005 of world avg (INV-3 established Survival 0.39 as designed scarcity).
+269. **Soldier stipend ×8** — CHANGED: `payGarrisonStipends()` Sat bump `+0.01 → +0.08` per INV-7 EMA math. New contribution: `+0.08/14.4 ≈ +0.0056` Sat shift.
+270. **Doc update** — `docs/10-mood-revision-proposal.md` Section 9: added applyTravel row, revised stipend entry to R70 value.
+
+**T+161K validation (2026-04-23):** R70-1 ✓ closed — Merchant Sat 0.6812 → 0.7015 (+0.020), now +0.005 above world avg. R70-2 — Soldier Sat **overshoot**: predicted 0.687, observed 0.7460 (+0.064 above prediction). **Operator accepted** the elevated Soldier tier — soldiers feel happy protecting their hex. INV-11 (doc-only follow-up) documented the EMA saturation caveat: when an upstream need (here Safety, measured at 1.003) is at the [0,1] clamp, the bump amplifies ~5–15× the formula prediction. Practical guidance: treat the formula as a lower bound when the targeted/adjacent need ≥1.0.
+
+### Round 71: Weather → Persistent Hex Health Damage (2026-04-28)
+
+Closes the external-data thesis gap from `docs/03-next-steps.md` where weather only had transient effects on regen rates and stored goods, never damaged the land itself.
+
+Three new functions in `internal/engine/seasons.go`:
+
+271. **`applyStormErosion(tick)`** — NEW: per-hour `Agnosis³` (~1.3%) chance per coastal settlement during storms (`TravelPenalty >= 2.0`). Damages settlement Coast hex by `Agnosis × 0.01` (~0.236%) + 6 neighbors at half-strength. Conservation reduces damage. Emits `disaster` event with `event_type: storm_erosion` for visibility. Deterministic per (settlement, tick).
+272. **`applyDroughtDegradation(tick)`** — NEW: gated on `HeatStreakHours >= 72` (the existing crop failure threshold, so drought arrives as a one-two punch: stored grain spoils, then the land itself dries). Plains/Forest hexes lose `Agnosis × 0.0005` (~0.0118%/hour, ~0.28%/day). Irrigation level 3+ fully protects; lower levels partial. Conservation reduces remaining damage.
+273. **`damageHexHealth(coord, base)`** — NEW: bounded helper. Skips ocean. Floors at 0.
+
+Wired into `TickHour` after `checkStormDamage`. Φ-pure constants — no new tuning parameters. Recovery via existing fallow path (~5.9%/week). A 5-day drought removes ~1.4% health; recovers in ~12 hours of fallow. No-op under stable weather.
+
+**Deployed 2026-04-28 19:29:19 UTC** at tick 4,175,261 (~19% into TickWeek). T+0 verified: zero spurious events, world ticking at 1.0 TPS, sentiment metrics stable. Validation pending: T+1 sim-week + first storm + first sustained heat.
+
+**Concurrent INV-12 evaluation (2026-04-28):** Memory's primary trigger fired (Redhollow pp=7.66) but secondary (sat distress) NOT met — zero of 52 high-pp settlements below 0.646 threshold. Architectural finding documented as latent: R65 cannot relieve Coast-edge overmassed settlements (founding-hex search at `settlement_lifecycle.go:70-99` lands in ocean → `continue` skips without removing emigrants). 38% of high-pp cohort is Coast. Currently benign because trade network handles imports + R60 fix #244 (agent direct purchase) keeps zero-treasury Coast settlements alive. INV-12 stays deferred.
+
 ### Remaining Minor Issues
 - Infrastructure construction (`sett.Treasury -= cost` for roads/walls) destroys ~7K crowns/day. Minor — may be considered a legitimate economic sink.
 - Consider adding `Skills.Fishing` field (proper schema change) to replace the `max(Farming, Combat, 0.5)` workaround. Low priority — current fix is effective.

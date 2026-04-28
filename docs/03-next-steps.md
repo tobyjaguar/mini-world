@@ -142,46 +142,60 @@ What's live:
 - Coherence-based extraction policy (governance type affects land stewardship)
 - Carrying capacity as settlement strategic metric (expand vs. intensify decisions)
 
-### External Data Integration — Underutilized
+### External Data Integration — Substantially Wired (R38, R39, R48, R58, R71)
 
-Three external data sources are wired up but only lightly used. All three could deepen the world if connected to more systems.
+**Status as of 2026-04-28:** The external-data thesis from this section's original framing is largely executed. Multiple rounds wired weather, random.org, and oracle visions into mechanical effects. R71 closes the most recent thesis gap (weather → persistent hex damage).
 
-**Weather API (OpenWeatherMap)** — fetched hourly, produces 3 modifiers:
-- `TempModifier` — **not used by any mechanic**
-- `FoodDecayMod` — affects inventory spoilage only
-- `TravelPenalty` — affects travel time only
-- Weather description is passed to oracle visions and newspaper but has no mechanical effect on the world
+**Weather API (OpenWeatherMap)** — fetched hourly, produces modifiers used across the engine:
 
-*Potential integration with land management:*
-- Hot/dry weather → accelerated hex health degradation (drought stress)
-- Rain → boosted fallow recovery and regen rate (via hex `Rainfall` field)
-- Storms → direct hex health damage (erosion, flooding)
-- Seasonal weather patterns → per-terrain regen modifiers (e.g. plains benefit from spring rain, tundra suffers in summer thaw)
-- Weather-driven crop failure events for settlement hexes
+| Field | Wired to | Round |
+|---|---|---|
+| `TempModifier` | Hourly hex regen (heat reduces +Agnosis × 0.5 × temp), weekly fallow recovery, drought hex damage (R71) | R38, R71 |
+| `FoodDecayMod` | Inventory spoilage rates | original |
+| `TravelPenalty` | Merchant travel time, storm settlement infrastructure damage (R58), storm hex erosion (R71), regen suppression | original, R58, R71 |
+| `IsRain` (TravelPenalty 1.2-1.9) | Hex regen +Agnosis (~24%), fallow recovery acceleration | R38 |
+| `IsStorm` (TravelPenalty ≥ 2.0) | Regen suppression, infra damage chance, **hex health erosion (R71)** | R38, R58, R71 |
+| Sustained heat (`HeatStreakHours ≥ 72`) | Crop failure (R58), Plains/Forest hex degradation (R71) | R58, R71 |
 
-**random.org API** — true randomness, used in exactly one place:
-- `processRandomEvents()` — weekly disaster (2%), discovery (5%), alchemy (3%) rolls
-- No connection to land, economy, agent decisions, or any other system
+**random.org API** — wired beyond original disaster/discovery/alchemy weekly rolls:
 
-*Potential integration:*
-- Random weather extremes (drought, flood) that affect hex health across a region
-- Discovery events that reveal hex potential (hidden mineral deposits, fertile soil)
-- Plague/blight events that degrade hex health in an area
-- True randomness for gardener triage tie-breaking
+| Use | Round |
+|---|---|
+| Weekly disaster/discovery/alchemy rolls | original |
+| Population-weighted event targeting | R39 |
+| Regional disaster spread (3-hex radius) | R39 |
+| Drought events (degrade neighborhood hex health) | R39 |
+| Plague spread along trade routes | R39 |
+| Discovery enrichment (medicinal springs heal, hidden trade routes boost hex health) | R39 |
 
-**Oracle Visions (Haiku LLM)** — weekly prophecies for Liberated agents:
-- Oracles receive world context (season, weather, mood, Gini) and produce prophecies + actions
-- Actions: trade, advocate, invest, speak, bless — none affect the physical world
-- Visions become memories and events but have no mechanical consequences beyond coherence nudges
+**Oracle Visions (Haiku LLM)** — 9 mechanical actions beyond narrative:
 
-*Potential integration with land management:*
-- Oracle "invest" action → direct hex improvement investment from agent wealth
-- Oracle "advocate" action → influence settlement land policy (conservation vs. extraction)
-- Oracle visions could perceive hex health degradation and warn settlements
-- New oracle action "tend" — oracle spends time restoring a degraded hex (fallow boost)
-- Prophecies about land health could trigger settlement-level behavioral shifts (Phase B)
+| Action | Effect | Round |
+|---|---|---|
+| `trade` | Initiate trade with named settlement | original |
+| `invest` | (still narrative — candidate for R72) | — |
+| `advocate` | (still narrative — candidate for R72) | — |
+| `speak`, `bless` | Memory + event generation | original |
+| `guide_migration` | Direct up to 10 dissatisfied producers to a named settlement | R24 |
+| `restore_land` | Heal degraded hexes in 7-hex neighborhood | R48 |
+| `bless_route` | Add 2 sustained weeks to trade route or seed new route | R48 |
+| `invoke_peace` | Create 4-week peace treaty with hostile neighbor | R48 |
+| `advocate_land` | Bypass governance gate for irrigation/conservation on most degraded hex | R58 |
 
-**The integration thesis:** External data sources are the world's connection to reality. Weather makes the world breathe with real atmospheric rhythms. True randomness prevents deterministic loops. Oracle visions are the only place where LLM intelligence touches the physical world. Currently all three are cosmetic — connecting them to land health would make outside information *matter*.
+### Remaining Stretch Goals
+
+The thesis "external data sources should deepen the world by connecting to land/economy" is now largely realized. Remaining candidates:
+
+1. **Oracle `invest` action** — wire to fund irrigation level on a claimed hex (oracle pays personal wealth → settlement treasury → level upgrade). Closes the last cosmetic oracle action. Single LLM action, ~80 lines.
+2. **Multi-week drought arcs** — random.org rolls start drought arcs that persist 2–4 weeks with regional TempModifier override. Tests R71 drought-degradation path more thoroughly. Needs drought-state tracking per region.
+3. **Weather-Driven Migration** — agents in drought-stricken settlements become more likely to migrate. Creates climate refugees, population redistribution. Migration mechanics already exist; weather trigger is new.
+4. **Oracle `advocate` action** — influence settlement land/economic policy (conservation vs extraction, trade openness, faction alignment). Currently narrative-only.
+5. **Epidemic Tracking** — multi-week plague arcs: outbreak → spread along routes → peak → recovery. Embargoes (R47) become a real defensive tool. Needs disease-state tracking + spread model.
+6. **Prophetic Warnings** — oracles warn of incoming disasters; settlement governance check for preparation bonus. Needs "heeded warning" state.
+7. **Vision Cascades** — multiple Liberated agents with aligned visions trigger settlement-wide effects. Needs alignment detection across oracle outputs.
+8. **Discovery Events** — resource discoveries permanently alter the map. Needs careful balance to avoid creating new pathologies.
+
+**Updated thesis (2026-04-28):** External data sources now have mechanical consequences across the engine. Weather makes the world breathe (regen + crops + storms + hex health). True randomness drives regional events. Oracle visions touch the physical world via 9 actions. Three of these (oracle `invest`, multi-week drought, weather-driven migration) remain candidates for the next round of deepening.
 
 ### Server Migration Complete (2026-02-27)
 
