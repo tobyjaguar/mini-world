@@ -94,8 +94,26 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 		}
 
 		if len(candidateHexes) == 0 {
-			// No suitable founding site — emigrants scatter (become migrants).
-			slog.Info("no founding site available, emigrants scatter", "settlement", sett.Name)
+			// R73 cascade fallback (INV-12 closure): no founding site found
+			// in the 18-hex golden-angle search. This is the dominant case
+			// for Coast-edge settlements, where most candidates land in
+			// ocean. Without this path the `continue` below would skip
+			// without removing emigrants, so the source stays overmassed
+			// indefinitely — INV-12's catastrophic-if-Legendary-trade-fails
+			// scenario.
+			//
+			// Force-migrate emigrants to the nearest under-pressure
+			// settlement within the SettlementNeighbors radius (10 hexes
+			// per R54). Prefers low-pp destinations to avoid shuffling
+			// overshoot between already-overmassed settlements.
+			target := s.findCascadeTarget(sett)
+			if target == nil {
+				// Truly stranded — no neighbor below capacity. Emigrants
+				// stay home this week; pressure persists, retry next week.
+				slog.Info("no founding site, no cascade target", "settlement", sett.Name)
+				continue
+			}
+			s.cascadeMigrate(sett, target, emigrants, settAgents, tick)
 			continue
 		}
 
@@ -544,4 +562,81 @@ func (s *Simulation) compactAbandonedSettlements() {
 	s.SettlementIndex = newIndex
 
 	slog.Info("abandoned settlements compacted", "removed", removed, "remaining", len(active))
+}
+
+// findCascadeTarget returns the lowest-pp settlement within the SettlementNeighbors
+// radius (~10 hexes per R54) of `from`, suitable as a destination when overmass
+// diaspora can't find a founding site. Returns nil if every neighbor is already
+// at or above capacity (pp >= 1.0) — in which case emigrants stay home and
+// retry next week. Used by R73 INV-12 cascade fix.
+func (s *Simulation) findCascadeTarget(from *social.Settlement) *social.Settlement {
+	neighbors, ok := s.SettlementNeighbors[from.ID]
+	if !ok {
+		return nil
+	}
+	var best *social.Settlement
+	bestPP := 1.0 // require strictly under capacity to be a target
+	for _, n := range neighbors {
+		if n.Population == 0 {
+			continue
+		}
+		_, pp := s.SettlementCarryingCapacity(n.ID)
+		if pp >= bestPP {
+			continue
+		}
+		bestPP = pp
+		best = n
+	}
+	return best
+}
+
+// cascadeMigrate moves emigrants from `from` to `to` and emits a political
+// event tagged with cascade=true. Used by R73 INV-12 cascade fix when overmass
+// diaspora can't find a founding site (typically Coast-edge settlements).
+// Unlike daughter founding, emigrants keep their personal wealth — this is a
+// migration, not a settlement-creation event.
+func (s *Simulation) cascadeMigrate(from, to *social.Settlement, emigrants []*agents.Agent, settAgents []*agents.Agent, tick uint64) {
+	emigrantSet := make(map[agents.AgentID]bool, len(emigrants))
+	for _, a := range emigrants {
+		newID := to.ID
+		a.HomeSettID = &newID
+		a.Position = to.Position
+		s.reassignIfMismatched(a, to.ID)
+		emigrantSet[a.ID] = true
+	}
+
+	remaining := make([]*agents.Agent, 0, len(settAgents)-len(emigrants))
+	for _, a := range settAgents {
+		if !emigrantSet[a.ID] {
+			remaining = append(remaining, a)
+		}
+	}
+	s.SettlementAgents[from.ID] = remaining
+	s.SettlementAgents[to.ID] = append(s.SettlementAgents[to.ID], emigrants...)
+
+	from.Population -= uint32(len(emigrants))
+	to.Population += uint32(len(emigrants))
+
+	desc := fmt.Sprintf("%d citizens overflow from %s to %s (cascade — no founding site)",
+		len(emigrants), from.Name, to.Name)
+	s.EmitEvent(Event{
+		Tick:        tick,
+		Description: desc,
+		Category:    "political",
+		Meta: map[string]any{
+			"source_settlement_id":   from.ID,
+			"source_settlement_name": from.Name,
+			"settlement_id":          to.ID,
+			"settlement_name":        to.Name,
+			"count":                  len(emigrants),
+			"cascade":                true,
+		},
+	})
+	s.createSettlementMemories(from.ID, tick, desc, 0.6)
+
+	slog.Info("cascade migration",
+		"from", from.Name,
+		"to", to.Name,
+		"emigrants", len(emigrants),
+	)
 }
