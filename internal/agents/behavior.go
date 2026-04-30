@@ -157,7 +157,7 @@ func applyEat(a *Agent) []string {
 	if a.Needs.Belonging > 1.0 {
 		a.Needs.Belonging = 1.0
 	}
-	a.Wellbeing.Satisfaction += 0.05
+	a.ApplyDirectSatBump(0.05, "eat")
 	return nil
 }
 
@@ -317,13 +317,13 @@ func applyTravel(a *Agent) []string {
 			a.Needs.Survival += 0.2
 			a.Needs.Belonging += 0.001
 			a.Needs.Safety += 0.003
-			a.Wellbeing.Satisfaction += 0.05
+			a.ApplyDirectSatBump(0.05, "travel.eat-fish")
 		} else if a.Inventory[GoodGrain] > 0 {
 			a.Inventory[GoodGrain]--
 			a.Needs.Survival += 0.2
 			a.Needs.Belonging += 0.001
 			a.Needs.Safety += 0.003
-			a.Wellbeing.Satisfaction += 0.05
+			a.ApplyDirectSatBump(0.05, "travel.eat-grain")
 		}
 	}
 
@@ -352,7 +352,7 @@ func applyRest(a *Agent) []string {
 	if a.Health > 1.0 {
 		a.Health = 1.0
 	}
-	a.Wellbeing.Satisfaction += 0.03
+	a.ApplyDirectSatBump(0.03, "rest")
 	a.Needs.Survival += 0.02
 	clampNeeds(&a.Needs)
 	return nil
@@ -362,7 +362,7 @@ func applySocialize(a *Agent) []string {
 	a.Needs.Belonging += 0.05
 	a.Needs.Safety += 0.003
 	a.Needs.Purpose += 0.002
-	a.Wellbeing.Satisfaction += 0.02
+	a.ApplyDirectSatBump(0.02, "socialize")
 	clampNeeds(&a.Needs)
 	return nil
 }

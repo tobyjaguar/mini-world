@@ -123,7 +123,7 @@ func (s *Simulation) processCrime(tick uint64) {
 			// Caught? Deterrence chance of being caught → become outlaw.
 			if deterrence > 0.3 && float64((simDay+uint64(a.ID)*3)%100)/100.0 < deterrence {
 				a.Role = agents.RoleOutlaw
-				a.Wellbeing.Satisfaction -= 0.2
+				a.ApplyDirectSatBump(-0.2, "crime.caught")
 				// Fine: lose some wealth.
 				fine := uint64(float64(a.Wealth) * phi.Agnosis)
 				if fine > a.Wealth {

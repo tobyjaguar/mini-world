@@ -646,7 +646,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 		for _, a := range s.SettlementAgents[sett.ID] {
 			if a.Alive {
 				a.Health -= float32(0.1 * intensity)
-				a.Wellbeing.Satisfaction -= float32(0.2 * intensity)
+				a.ApplyDirectSatBump(-float32(0.2*intensity), "disaster")
 				if a.Health < 0 {
 					a.Health = 0
 				}
@@ -730,7 +730,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 		for _, a := range s.SettlementAgents[sett.ID] {
 			if a.Alive {
 				a.Health -= float32(severity * 0.3)
-				a.Wellbeing.Satisfaction -= float32(severity * 0.5)
+				a.ApplyDirectSatBump(-float32(severity*0.5), "war.primary")
 				if a.Health < 0 {
 					a.Health = 0
 				}
@@ -748,7 +748,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 				for _, a := range s.SettlementAgents[neighbor.ID] {
 					if a.Alive {
 						a.Health -= float32(severity * 0.15) // Half intensity
-						a.Wellbeing.Satisfaction -= float32(severity * 0.25)
+						a.ApplyDirectSatBump(-float32(severity*0.25), "war.secondary")
 						if a.Health < 0 {
 							a.Health = 0
 						}

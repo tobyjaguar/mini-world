@@ -79,6 +79,7 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/settlements", s.handleSettlements)
 	mux.HandleFunc("/api/v1/agents", s.handleAgents)
+	mux.HandleFunc("/api/v1/liberated", s.handleLiberated)
 	mux.HandleFunc("/api/v1/agent/", s.handleAgentRoutes(storyLimiter))
 	mux.HandleFunc("/api/v1/events", s.handleEvents)
 	mux.HandleFunc("/api/v1/stats", s.handleStats)
@@ -424,6 +425,109 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, result)
+}
+
+// handleLiberated returns agents whose CittaCoherence has crossed the
+// Liberation threshold (>= 0.7 per `agents.StateFromCoherence`). The
+// simulation's Wheeler Emanationist Cosmology marks Liberation as the
+// rare third phase of consciousness — extremely few agents reach it, and
+// they anchor settlements through suffering rather than fleeing it
+// (R10 dual-register design, fix #43).
+//
+// This endpoint surfaces the cohort the simulation cares most about.
+// Sortable by coherence descending. Optional `?limit=N` cap.
+//
+// R74: closes the central thematic gap from the 2026-04-28 review —
+// "the simulation believes liberation is the highest good and currently
+// has no observability surface for it."
+func (s *Server) handleLiberated(w http.ResponseWriter, r *http.Request) {
+	type liberatedAgent struct {
+		ID             agents.AgentID `json:"id"`
+		Name           string         `json:"name"`
+		Age            uint16         `json:"age"`
+		Occupation     string         `json:"occupation"`
+		Tier           int            `json:"tier"`
+		Role           string         `json:"role"`
+		SettlementID   uint64         `json:"settlement_id,omitempty"`
+		SettlementName string         `json:"settlement_name,omitempty"`
+		Coherence      float32        `json:"coherence"`
+		EffMood        float32        `json:"effective_mood"`
+		Satisfaction   float32        `json:"satisfaction"`
+		Alignment      float32        `json:"alignment"`
+		Wealth         uint64         `json:"wealth"`
+		Memories       int            `json:"memories"`
+	}
+
+	occNames := []string{
+		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
+		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
+	}
+	roleNames := []string{
+		"Commoner", "Merchant", "Soldier", "Noble", "Leader", "Outlaw", "Scholar",
+	}
+
+	const liberationThreshold float32 = 0.7
+
+	var result []liberatedAgent
+	for _, a := range s.Sim.Agents {
+		if !a.Alive {
+			continue
+		}
+		if a.Soul.CittaCoherence < liberationThreshold {
+			continue
+		}
+
+		occName := "Unknown"
+		if int(a.Occupation) < len(occNames) {
+			occName = occNames[a.Occupation]
+		}
+		roleName := "Commoner"
+		if int(a.Role) < len(roleNames) {
+			roleName = roleNames[a.Role]
+		}
+
+		var settID uint64
+		var settName string
+		if a.HomeSettID != nil {
+			if sett, ok := s.Sim.SettlementIndex[*a.HomeSettID]; ok {
+				settID = sett.ID
+				settName = sett.Name
+			}
+		}
+
+		result = append(result, liberatedAgent{
+			ID:             a.ID,
+			Name:           a.Name,
+			Age:            a.Age,
+			Occupation:     occName,
+			Tier:           int(a.Tier),
+			Role:           roleName,
+			SettlementID:   settID,
+			SettlementName: settName,
+			Coherence:      a.Soul.CittaCoherence,
+			EffMood:        a.Wellbeing.EffectiveMood,
+			Satisfaction:   a.Wellbeing.Satisfaction,
+			Alignment:      a.Wellbeing.Alignment,
+			Wealth:         a.Wealth,
+			Memories:       len(a.Memories),
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Coherence > result[j].Coherence
+	})
+
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 && limit < len(result) {
+			result = result[:limit]
+		}
+	}
+
+	writeJSON(w, map[string]any{
+		"count":     len(result),
+		"threshold": liberationThreshold,
+		"agents":    result,
+	})
 }
 
 func (s *Server) handleAgentRoutes(storyLimiter *RateLimiter) http.HandlerFunc {
@@ -776,6 +880,18 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+		}
+	}
+
+	// R75: direct-Sat bumps that fired with a saturated upstream need (per
+	// INV-11). High counts at any source signal that future per-occupation
+	// Sat tuning will see ~5–15× amplification of the EMA-formula prediction.
+	satBumps := agents.SatBumpSaturatedCounter.Snapshot()
+	if len(satBumps) > 0 {
+		fmt.Fprintf(w, "# HELP worldsim_sat_bumps_saturated_total Direct Wellbeing.Satisfaction bumps that fired while an upstream need (Safety/Belonging/Esteem/Purpose) was at clamp ceiling. Per INV-11, these produce 5-15x amplified EMA shifts.\n")
+		fmt.Fprintf(w, "# TYPE worldsim_sat_bumps_saturated_total counter\n")
+		for source, count := range satBumps {
+			fmt.Fprintf(w, "worldsim_sat_bumps_saturated_total{source=%q} %d\n", source, count)
 		}
 	}
 }
