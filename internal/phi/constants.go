@@ -53,8 +53,14 @@ const (
 // Structural limits from the Fibonacci trinity.
 const (
 	// Completion is the pentad — max healthy categories/tiers/accumulation.
+	// Used in perpetuation.go to flag systems exceeding the pentad as
+	// candidates for redistribution.
 	Completion = 5.0
 
-	// Excess is beyond the pentad — threshold where corruption/evil begins.
-	Excess = 6.0
+	// (Removed in R78: `Excess = 6.0` was declared as "threshold where
+	// corruption/evil begins" but had zero call sites in the codebase.
+	// Either an aspirational placeholder or a Fibonacci-trinity completeness
+	// gesture without follow-through. Future mechanics that need a
+	// "beyond-pentad" threshold should re-introduce it with at least one
+	// concrete usage at the same time, per R78 Φ-discipline audit.)
 )

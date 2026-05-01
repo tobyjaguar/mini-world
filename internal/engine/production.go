@@ -78,6 +78,13 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	producedFloat := math.Min(fullProduction, available)
 	if producedFloat < 0.01 {
 		// Truly negligible — nothing to extract.
+		// Failed-production needs boosts (R28 fix #138, R32, R33): a farmer
+		// who shows up to a depleted hex didn't fail — the LAND failed them.
+		// The boosts insulate Sat from work-rate oscillations (verified
+		// 2026-04-30: work rate 30–44% oscillation has zero effect on sat).
+		// Magnitudes (4/2/1/1 in milli-Need-units) are explicit tuning
+		// weights, NOT Φ-derived (R78 audit). Pattern echoes the Maslow
+		// priority gradient from DecayNeeds.
 		a.Needs.Safety += 0.004
 		a.Needs.Belonging += 0.002
 		a.Needs.Esteem += 0.001
@@ -139,6 +146,13 @@ func ResolveWork(a *agents.Agent, action agents.Action, hex *world.Hex, tick uin
 	// Working improves all social needs — working is working, even fractionally.
 	// Producing real goods (food, ore, furs) is ontologically grounded work —
 	// the material substrate on which everything else depends.
+	//
+	// Boost magnitudes (12/8/4/4 in milli-Need-units) are explicit
+	// success-feedback tuning weights from R22 doom-loop recovery, NOT
+	// Φ-derived (R78 audit). Pattern weighting Esteem highest because
+	// successful production = visible reputation; Safety second because
+	// material output = security; Belonging+Purpose tied because both
+	// are social-meaning effects.
 	a.Needs.Esteem += 0.012
 	a.Needs.Safety += 0.008
 	a.Needs.Belonging += 0.004

@@ -405,4 +405,31 @@ The leading hypothesis (not fully verified): when the implicit upstream need (he
 3. Verify empirically at T+1 sim-day, then T+1 sim-week. Don't assume the formula's transient model.
 4. The formula remains reliable for Sat-only direct pushes (no Need side-effects) on occupations whose Needs are below 1.0.
 
+### Architectural decision: direct-Sat pushes are first-class event mechanics (R78, 2026-05-01)
+
+The 12 direct-Sat code paths cataloged above (`applyEat`, `applyRest`, `applySocialize`, `applyTravel.eat-fish/grain`, `crime.caught`, `disaster`, `war.primary/secondary`, `rivalry`, `winter.no-warmth`, `stipend`) short-circuit the gradual needs→EMA→Satisfaction path the original R10 design described. The 2026-04-28 review flagged this as architectural ambiguity: "Currently both, which is incoherent. Decide: legitimate first-class mechanics OR technical debt."
+
+**Decision: accept as legitimate first-class event-driven mechanics. NOT technical debt.**
+
+**Reasoning.** R10 modeled wellbeing as a dual-register system (Satisfaction + Alignment), with the implicit assumption that Satisfaction always derives from material needs via EMA. The empirical reality after 70+ tuning rounds is that wellbeing has THREE conceptual sources:
+
+1. **Material needs (chronic, gradient).** The original needs-EMA path. Survival, Safety, Belonging, Esteem, Purpose decay over ticks; agents' actions restore them; `OverallSatisfaction` blends them; the dual-register EMA at `behavior.go:441` (`α=0.01`) drifts `Wellbeing.Satisfaction` toward `2 × OverallSatisfaction − 1`. Time scale: hours to days.
+
+2. **Coherence/Alignment (chronic, identity-bound).** The Wheeler awakening curve. Slow drift via `applyAlignment`; tied to coherence state; provides the second register that `EffectiveMood` blends. Time scale: weeks to lifetimes.
+
+3. **Acute event qualia (instantaneous, narrative).** What the direct-Sat paths capture. **Eating isn't just need-restoration — it's the joy of eating** (`+0.05`). **Catching a thief isn't just shame at low Esteem — it's the qualitative shock of being caught** (`−0.2`). **A storm killing your neighbors isn't just lost belonging — it's grief itself** (`−0.2 × intensity`). These have NO chronic-needs analog. They're the "event horizon" of mood — momentary reactions to discrete world events.
+
+The third source is conceptually distinct, not redundant. Forcing it through the needs-EMA path would either:
+- (a) Lose information — conflate "I am fed" (chronic) with "I just ate something delicious" (acute)
+- (b) Inflate the needs vocabulary — invent "shame" or "grief" as needs, fragmenting the Maslow model into something brittle
+
+**Practical implications for future tuning:**
+
+1. **Direct-Sat magnitudes are NARRATIVE WEIGHTS, not Φ-derived constants** (per R78 audit). The values 0.05/0.03/0.02/0.08/0.2/0.5/0.25/0.1 reflect the relative qualitative impact of each event type — eating > resting > socializing; war > disaster > crime > rivalry. They were tuned through R20–R72 and stay as explicit tuning parameters.
+2. **The R67 saturation amplification still applies** (per the saturation caveat above). Future per-occupation Sat tuning that uses direct-Sat pushes should anticipate ~5–15× amplification when an upstream need is at the clamp.
+3. **R75's per-source counter** (`worldsim_sat_bumps_saturated_total{source=...}`) makes the amplification surface visible. Future Sat tuning audits the counter to anticipate per-source impact.
+4. **The R10 dual-register description in the design doc** should reflect this trinity. The next time `worldsim-design.md` Section 16 is touched, add a "third source" note: acute event qualia complement chronic needs and chronic alignment.
+
+**What stays unchanged.** No code refactor. The 12 call sites continue to use `(*Agent).ApplyDirectSatBump(delta, source)` (introduced in R75) which already provides the saturation telemetry. Phase 3.3 of the review backlog is **closed by this doc decision**, not by a code refactor.
+
 *"Just as there is nothing which a diamond cannot cut, be it stone or gem; so too is one with a diamond-mind who has destroyed the taints and has both a liberated citta and is liberated by wisdom."* — AN 1.124

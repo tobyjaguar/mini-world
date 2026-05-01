@@ -416,11 +416,25 @@ func decayGood(a *Agent, good GoodType, rate float64) {
 
 // DecayNeeds reduces all needs slightly each tick — the passage of time.
 // Agents must continually act to maintain their well-being.
-// Decay rate derived from Φ⁻³ (agnosis constant).
+//
+// Decay base rate is Φ-derived (Agnosis × 0.01 = ~0.24% per tick). The
+// per-need MULTIPLIERS (×2, ×1, ×0.5, ×0.3, ×0.1) are explicit
+// priority weights modeling the Maslow hierarchy — they are NOT
+// Φ-derived and shouldn't be force-fit (per R78 audit). The pattern is:
+//
+//	Survival × 2.0   — most urgent (hunger drives all else)
+//	Safety   × 1.0   — baseline reference
+//	Belonging × 0.5  — social needs decay slower than physical
+//	Esteem   × 0.3   — reputation persists
+//	Purpose  × 0.1   — meaning is most stable
+//
+// In practice (per R67 reveal) these multipliers don't drive observed
+// behavior because non-Survival needs universally clamp at 1.0 — the
+// hierarchy is theoretical until/unless saturation breaks.
 func DecayNeeds(a *Agent) {
 	decay := float32(phi.Agnosis * 0.01) // ~0.24% per tick
 
-	a.Needs.Survival -= decay * 2  // Hunger is most urgent
+	a.Needs.Survival -= decay * 2.0 // Maslow priority weights — see comment above.
 	a.Needs.Safety -= decay
 	a.Needs.Belonging -= decay * 0.5
 	a.Needs.Esteem -= decay * 0.3

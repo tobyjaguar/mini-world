@@ -233,6 +233,14 @@ func resolveSettlementMarket(sett *social.Settlement, settAgents []*agents.Agent
 		if totalTraded > 0 {
 			avgClear := totalRevenue / float64(totalTraded)
 			// Blend: 70% old price, 30% clearing price for stability.
+			//
+			// Weights (0.7 / 0.3) are explicit smoothing constants chosen
+			// for market-price stability, NOT Φ-derived (R78 audit). The
+			// EMA pattern damps high-frequency clearing-price noise so that
+			// `entry.Price` evolves slowly enough for merchant route
+			// selection to track it. The Φ-discipline applies to the
+			// CLAMPED BOUNDS below (Agnosis floor, Totality ceiling) — the
+			// blend can move freely between those Φ-derived limits.
 			blended := entry.Price*0.7 + avgClear*0.3
 			// Clamp to Phi-derived bounds — the blend must not break through.
 			floor := entry.BasePrice * phi.Agnosis
