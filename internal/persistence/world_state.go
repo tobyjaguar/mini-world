@@ -60,6 +60,7 @@ var persistedFields = []PersistedField{
 	{Name: "trade_volume", Save: saveTradeVolume, Load: loadTradeVolume},
 	{Name: "deaths", Save: saveDeaths, Load: loadDeaths},
 	{Name: "heat_streak_hours", Save: saveHeatStreakHours, Load: loadHeatStreakHours},
+	{Name: "last_newspaper", Save: saveLastNewspaper, Load: loadLastNewspaper},
 }
 
 // SaveLatePersisted iterates the registry and saves every late field. Called
@@ -264,6 +265,13 @@ func saveHeatStreakHours(sim *engine.Simulation, db *DB) error {
 	return db.SaveMeta("heat_streak_hours", fmt.Sprintf("%d", sim.HeatStreakHours))
 }
 
+func saveLastNewspaper(sim *engine.Simulation, db *DB) error {
+	if sim.LastNewspaperContent == "" {
+		return nil
+	}
+	return db.SaveMeta("last_newspaper", sim.LastNewspaperContent)
+}
+
 // ─── Load closures ────────────────────────────────────────────────────────
 
 func loadNonViableWeeks(sim *engine.Simulation, db *DB) {
@@ -434,5 +442,16 @@ func loadHeatStreakHours(sim *engine.Simulation, db *DB) {
 	if v, err := strconv.Atoi(s); err == nil {
 		sim.HeatStreakHours = v
 		slog.Info("heat streak counter restored", "hours", v)
+	}
+}
+
+func loadLastNewspaper(sim *engine.Simulation, db *DB) {
+	s, err := db.GetMeta("last_newspaper")
+	if err != nil {
+		return
+	}
+	if s != "" {
+		sim.LastNewspaperContent = s
+		slog.Info("last newspaper restored", "bytes", len(s))
 	}
 }

@@ -69,6 +69,11 @@ type Simulation struct {
 	// When it reaches 72 (3 sim-days), crop failure events fire.
 	HeatStreakHours int
 
+	// Last newspaper content (R79). Persisted via the registry so successive
+	// editions can reference prior storylines, threading multi-week arcs.
+	// Set by the API handler after each successful LLM generation.
+	LastNewspaperContent string
+
 	// Inter-settlement relations: sentiment scores between settlement pairs.
 	Relations    map[SettRelKey]*SettlementRelation
 	TradeTracker map[SettRelKey]float64 // Weekly trade volume accumulator, reset each week.

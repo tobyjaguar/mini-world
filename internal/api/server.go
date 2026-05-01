@@ -757,7 +757,9 @@ func (s *Server) handleNewspaper(w http.ResponseWriter, r *http.Request) {
 	// Build newspaper data from current world state.
 	data := s.buildNewspaperData()
 
-	paper, err := llm.GenerateNewspaper(s.LLM, data)
+	// Thread prior issue forward so the LLM can carry storylines across
+	// editions. Falls back to "" on first-ever generation.
+	paper, err := llm.GenerateNewspaper(s.LLM, data, s.Sim.LastNewspaperContent)
 	if err != nil {
 		slog.Error("newspaper generation failed", "error", err)
 		// Return stale cache if available.
@@ -771,6 +773,7 @@ func (s *Server) handleNewspaper(w http.ResponseWriter, r *http.Request) {
 
 	s.cachedPaper = paper
 	s.lastPaperTime = time.Now()
+	s.Sim.LastNewspaperContent = paper.Content
 	writeJSON(w, paper)
 }
 

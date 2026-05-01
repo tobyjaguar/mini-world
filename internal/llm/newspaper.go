@@ -87,7 +87,10 @@ type Newspaper struct {
 }
 
 // GenerateNewspaper creates a daily newspaper from world events using Haiku.
-func GenerateNewspaper(client *Client, data *NewspaperData) (*Newspaper, error) {
+// priorContent is the most recent prior issue's full content (markdown). When
+// non-empty, the LLM is encouraged to thread continuing storylines forward
+// rather than treat each issue as isolated.
+func GenerateNewspaper(client *Client, data *NewspaperData, priorContent string) (*Newspaper, error) {
 	if !client.Enabled() {
 		// Fallback: generate a simple text newspaper without LLM.
 		return &Newspaper{
@@ -101,9 +104,13 @@ func GenerateNewspaper(client *Client, data *NewspaperData) (*Newspaper, error) 
 
 Every soul carries a coherence — a measure of how unified or scattered their being is. The Embodied are identified with phenomena, living ordinary lives among desires and routines — not suffering, simply scattered. The Centered are stable and introspective, materially successful but still attached. The rare Liberated souls have achieved self-similarity, a point-source clarity that gives them disproportionate influence.
 
-Write in an engaging, period-appropriate style — broadsheet prose with a philosophical undercurrent. Reference the breathing of the economy (supply and demand as conjugate pressures), the coherence of the populace, and the deeper currents beneath surface events. Keep it concise (under 600 words). Do not break character or reference the simulation.`
+Write in an engaging, period-appropriate style — broadsheet prose with a philosophical undercurrent. Reference the breathing of the economy (supply and demand as conjugate pressures), the coherence of the populace, and the deeper currents beneath surface events.
 
-	prompt := buildNewspaperPrompt(data)
+CONTINUITY: When a PREVIOUS ISSUE is provided, treat it as the immediately preceding edition. Pick up at least one ongoing thread — a faction tension, a market trend, a named figure, an unresolved question your prior editor raised — and advance it with the new data. You may explicitly note callbacks ("As we observed last edition…", "The merchant houses we named earlier now…"). Do not simply repeat prior coverage. If a thread has resolved, name its resolution. If a new development overshadows the old, lead with it but acknowledge the shift. The Chronicle is a continuing record of one world, not a series of isolated bulletins.
+
+Keep each issue concise (under 600 words). Do not break character or reference the simulation.`
+
+	prompt := buildNewspaperPrompt(data, priorContent)
 
 	content, err := client.CompleteTagged(system, prompt, 1000, "newspaper")
 	if err != nil {
@@ -122,12 +129,23 @@ Write in an engaging, period-appropriate style — broadsheet prose with a philo
 	}, nil
 }
 
-func buildNewspaperPrompt(data *NewspaperData) string {
+func buildNewspaperPrompt(data *NewspaperData, priorContent string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Write today's edition of The Crossworlds Chronicle.\n\n")
 	fmt.Fprintf(&b, "DATE: %s (%s)\n", data.SimTime, data.Season)
 	fmt.Fprintf(&b, "WORLD: %d souls across %d settlements. Total treasury: %d crowns.\n\n", data.Population, data.Settlements, data.TotalWealth)
+
+	if priorContent != "" {
+		// Cap the previous issue at ~2000 chars so the prompt budget stays
+		// dominated by today's data, not yesterday's prose.
+		const maxPrior = 2000
+		excerpt := priorContent
+		if len(excerpt) > maxPrior {
+			excerpt = excerpt[:maxPrior] + "\n…[truncated]"
+		}
+		fmt.Fprintf(&b, "PREVIOUS ISSUE (your last edition — thread continuing storylines forward):\n---\n%s\n---\n\n", excerpt)
+	}
 
 	// World Spirit — Wheeler coherence overview.
 	fmt.Fprintf(&b, "WORLD SPIRIT:\n")
