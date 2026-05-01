@@ -174,6 +174,16 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 				if a.HomeSettID != nil {
 					s.createSettlementMemories(*a.HomeSettID, tick, desc, 0.6)
 
+					// R80: personalized memories for agents who actually knew
+					// the deceased. Liberation deaths reach further (Psyche
+					// threshold, all alive witnesses); ordinary deaths only
+					// imprint Tier 1+ above Matter sentiment.
+					settName := "the wilderness"
+					if sett, ok := s.SettlementIndex[*a.HomeSettID]; ok {
+						settName = sett.Name
+					}
+					s.imprintDeathMemories(a, isLiberated, settName, tick)
+
 					if isLiberated {
 						// Liberation death: the world becomes more scattered
 						// when its wise die. Scaled by witness coherence —

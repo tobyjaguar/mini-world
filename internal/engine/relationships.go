@@ -169,6 +169,8 @@ func (s *Simulation) formFamilies(sett interface{ }, alive []*agents.Agent, tick
 					"event_type":       "marriage",
 				},
 			})
+			// R80: both partners gain a story-bearing memory of the union.
+			s.imprintMarriageMemories(a, bestMatch, settName, tick)
 		}
 	}
 }
@@ -218,9 +220,23 @@ func (s *Simulation) processMentorship(sett interface{}, alive []*agents.Agent, 
 			mentor.Needs.Purpose = 1
 		}
 
+		// R80: detect first pairing BEFORE strengthenBond creates the
+		// relationship. Subsequent weekly pairings would otherwise re-imprint.
+		firstPairing := !hasRelationshipWith(mentor, mentee.ID)
+
 		// Strengthen bond between mentor and mentee.
 		strengthenBond(mentee, mentor)
 		strengthenBond(mentor, mentee)
+
+		if firstPairing {
+			settName := "the wilderness"
+			if mentor.HomeSettID != nil {
+				if sett, ok := s.SettlementIndex[*mentor.HomeSettID]; ok {
+					settName = sett.Name
+				}
+			}
+			s.imprintMentorshipStartMemories(mentor, mentee, settName, tick)
+		}
 
 		// Emit event for Tier 1+ mentors (notable wisdom-sharing).
 		if mentor.Tier >= agents.Tier1 {
