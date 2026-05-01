@@ -309,136 +309,6 @@ func main() {
 	sim.LastTick = startTick
 	sim.CurrentSeason = startSeason
 
-	// Restore inter-settlement relations from database.
-	if startTick > 0 {
-		if relStr, err := db.GetMeta("settlement_relations"); err == nil {
-			type relEntry struct {
-				A uint64  `json:"a"`
-				B uint64  `json:"b"`
-				S float64 `json:"s"`
-				T float64 `json:"t"`
-			}
-			var rels []relEntry
-			if json.Unmarshal([]byte(relStr), &rels) == nil && len(rels) > 0 {
-				sim.Relations = make(map[engine.SettRelKey]*engine.SettlementRelation, len(rels))
-				for _, r := range rels {
-					key := engine.SettRelKey{A: r.A, B: r.B}
-					sim.Relations[key] = &engine.SettlementRelation{Sentiment: r.S, Trade: r.T}
-				}
-				slog.Info("settlement relations restored", "pairs", len(rels))
-			}
-		}
-	}
-
-	// Restore trade routes from database.
-	if startTick > 0 {
-		if routeStr, err := db.GetMeta("trade_routes"); err == nil {
-			type routeEntry struct {
-				A  uint64  `json:"a"`
-				B  uint64  `json:"b"`
-				L  uint8   `json:"l"`
-				N  string  `json:"n"`
-				SW int     `json:"sw"`
-				DW int     `json:"dw"`
-				WT float64 `json:"wt"`
-			}
-			var routes []routeEntry
-			if json.Unmarshal([]byte(routeStr), &routes) == nil && len(routes) > 0 {
-				sim.TradeRoutes = make(map[engine.SettRelKey]*engine.TradeRoute, len(routes))
-				for _, r := range routes {
-					key := engine.SettRelKey{A: r.A, B: r.B}
-					sim.TradeRoutes[key] = &engine.TradeRoute{
-						Level: r.L, Name: r.N, SustainedWeeks: r.SW,
-						DormantWeeks: r.DW, WeeklyTrade: r.WT,
-					}
-				}
-				slog.Info("trade routes restored", "count", len(routes))
-			}
-		}
-
-		// Restore trade tracker (weekly trade volume accumulator).
-		if ttStr, err := db.GetMeta("trade_tracker"); err == nil {
-			type ttEntry struct {
-				A uint64  `json:"a"`
-				B uint64  `json:"b"`
-				V float64 `json:"v"`
-			}
-			var entries []ttEntry
-			if json.Unmarshal([]byte(ttStr), &entries) == nil && len(entries) > 0 {
-				sim.TradeTracker = make(map[engine.SettRelKey]float64, len(entries))
-				for _, e := range entries {
-					key := engine.SettRelKey{A: e.A, B: e.B}
-					sim.TradeTracker[key] = e.V
-				}
-				slog.Info("trade tracker restored", "pairs", len(entries))
-			}
-		}
-	}
-
-	// Restore diplomatic agreements from database.
-	if startTick > 0 {
-		if agreeStr, err := db.GetMeta("agreements"); err == nil {
-			type agreeEntry struct {
-				A  uint64 `json:"a"`
-				B  uint64 `json:"b"`
-				T  uint8  `json:"t"`
-				SW int    `json:"sw"`
-				FT uint64 `json:"ft"`
-			}
-			var agrees []agreeEntry
-			if json.Unmarshal([]byte(agreeStr), &agrees) == nil && len(agrees) > 0 {
-				sim.Agreements = make(map[engine.SettRelKey]*engine.Agreement, len(agrees))
-				for _, a := range agrees {
-					key := engine.SettRelKey{A: a.A, B: a.B}
-					sim.Agreements[key] = &engine.Agreement{
-						Type: engine.AgreementType(a.T), SustainedWeeks: a.SW, FormedAtTick: a.FT,
-					}
-				}
-				slog.Info("agreements restored", "count", len(agrees))
-			}
-		}
-	}
-
-	// Restore peace treaties from database.
-	if startTick > 0 {
-		if peaceStr, err := db.GetMeta("peace_treaties"); err == nil {
-			type peaceEntry struct {
-				A  uint64 `json:"a"`
-				B  uint64 `json:"b"`
-				RW int    `json:"rw"`
-				RC int    `json:"rc"`
-				FT uint64 `json:"ft"`
-			}
-			var entries []peaceEntry
-			if json.Unmarshal([]byte(peaceStr), &entries) == nil && len(entries) > 0 {
-				sim.PeaceTreaties = make(map[engine.SettRelKey]*engine.PeaceTreaty, len(entries))
-				for _, e := range entries {
-					key := engine.SettRelKey{A: e.A, B: e.B}
-					sim.PeaceTreaties[key] = &engine.PeaceTreaty{
-						RemainingWeeks: e.RW, RaidCount: e.RC, FormedAtTick: e.FT,
-					}
-				}
-				slog.Info("peace treaties restored", "count", len(entries))
-			}
-		}
-		if raidStr, err := db.GetMeta("raid_counts"); err == nil {
-			type raidEntry struct {
-				A uint64 `json:"a"`
-				B uint64 `json:"b"`
-				C int    `json:"c"`
-			}
-			var entries []raidEntry
-			if json.Unmarshal([]byte(raidStr), &entries) == nil && len(entries) > 0 {
-				sim.RaidCounts = make(map[engine.SettRelKey]int, len(entries))
-				for _, e := range entries {
-					key := engine.SettRelKey{A: e.A, B: e.B}
-					sim.RaidCounts[key] = e.C
-				}
-				slog.Info("raid counts restored", "count", len(entries))
-			}
-		}
-	}
-
 	// Initialize or load factions.
 	if startTick > 0 && db.HasFactions() {
 		factions, err := db.LoadFactions()
@@ -452,51 +322,13 @@ func main() {
 		sim.InitFactions()
 	}
 
-	// Restore settlement viability tracking from database.
+	// R76: restore all late-persisted world state via the registry. Each
+	// field's Save+Load logic is co-located in `internal/persistence/world_state.go`,
+	// so adding new persistent state is a single registry entry — no more
+	// wire-it-and-pray. The registry itself handles missing-key cases
+	// gracefully, so calling on a fresh world is a no-op.
 	if startTick > 0 {
-		if nvJSON, err := db.GetMeta("non_viable_weeks"); err == nil {
-			var nv map[uint64]int
-			if json.Unmarshal([]byte(nvJSON), &nv) == nil && len(nv) > 0 {
-				sim.NonViableWeeks = nv
-				slog.Info("non-viable weeks restored", "settlements", len(nv))
-			}
-		}
-		if awJSON, err := db.GetMeta("abandoned_weeks"); err == nil {
-			var aw map[uint64]int
-			if json.Unmarshal([]byte(awJSON), &aw) == nil && len(aw) > 0 {
-				sim.AbandonedWeeks = aw
-				slog.Info("abandoned weeks restored", "settlements", len(aw))
-			}
-		}
-		// Restore cumulative counters (births, trade volume).
-		if birthsStr, err := db.GetMeta("births"); err == nil {
-			if v, err := strconv.Atoi(birthsStr); err == nil {
-				sim.Stats.Births = v
-				slog.Info("births counter restored", "births", v)
-			}
-		}
-		if tvStr, err := db.GetMeta("trade_volume"); err == nil {
-			if v, err := strconv.ParseUint(tvStr, 10, 64); err == nil {
-				sim.Stats.TradeVolume = v
-				slog.Info("trade volume counter restored", "volume", v)
-			}
-		}
-		if deathsStr, err := db.GetMeta("deaths"); err == nil {
-			if v, err := strconv.Atoi(deathsStr); err == nil {
-				sim.Stats.Deaths = v
-				slog.Info("deaths counter restored", "deaths", v)
-			}
-		}
-		// R72: restore heat-streak counter so R71 drought path is robust to
-		// deploys mid-heatwave. Without this the counter resets to 0 on every
-		// restart and drought degradation never fires until a fresh 72-hour
-		// run accumulates.
-		if hshStr, err := db.GetMeta("heat_streak_hours"); err == nil {
-			if v, err := strconv.Atoi(hshStr); err == nil {
-				sim.HeatStreakHours = v
-				slog.Info("heat streak counter restored", "hours", v)
-			}
-		}
+		db.RestoreLatePersisted(sim)
 	}
 
 	// Load agent memories and relationships from database (if any exist).

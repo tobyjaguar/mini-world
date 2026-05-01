@@ -494,20 +494,6 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		return fmt.Errorf("save meta: %w", err)
 	}
 
-	// Persist settlement viability tracking maps so they survive restarts.
-	if len(sim.NonViableWeeks) > 0 {
-		nvJSON, _ := json.Marshal(sim.NonViableWeeks)
-		if err := db.SaveMeta("non_viable_weeks", string(nvJSON)); err != nil {
-			return fmt.Errorf("save non_viable_weeks: %w", err)
-		}
-	}
-	if len(sim.AbandonedWeeks) > 0 {
-		awJSON, _ := json.Marshal(sim.AbandonedWeeks)
-		if err := db.SaveMeta("abandoned_weeks", string(awJSON)); err != nil {
-			return fmt.Errorf("save abandoned_weeks: %w", err)
-		}
-	}
-
 	// Persist hex health state (only non-pristine hexes, to keep payload small).
 	type hexHealthEntry struct {
 		H  float64 `json:"h"`
@@ -555,150 +541,11 @@ func (db *DB) SaveWorldState(sim *engine.Simulation) error {
 		slog.Info("hex resources persisted", "hexes", len(hexResources))
 	}
 
-	// Persist inter-settlement relations.
-	if len(sim.Relations) > 0 {
-		type relEntry struct {
-			A uint64  `json:"a"`
-			B uint64  `json:"b"`
-			S float64 `json:"s"` // sentiment
-			T float64 `json:"t"` // trade
-		}
-		rels := make([]relEntry, 0, len(sim.Relations))
-		for key, rel := range sim.Relations {
-			rels = append(rels, relEntry{A: key.A, B: key.B, S: rel.Sentiment, T: rel.Trade})
-		}
-		relsJSON, _ := json.Marshal(rels)
-		if err := db.SaveMeta("settlement_relations", string(relsJSON)); err != nil {
-			return fmt.Errorf("save settlement_relations: %w", err)
-		}
-		slog.Info("settlement relations persisted", "pairs", len(rels))
-	}
-
-	// Persist trade routes.
-	if len(sim.TradeRoutes) > 0 {
-		type routeEntry struct {
-			A  uint64  `json:"a"`
-			B  uint64  `json:"b"`
-			L  uint8   `json:"l"`           // level
-			N  string  `json:"n"`           // name
-			SW int     `json:"sw"`          // sustained weeks
-			DW int     `json:"dw"`          // dormant weeks
-			WT float64 `json:"wt"`          // weekly trade
-		}
-		routes := make([]routeEntry, 0, len(sim.TradeRoutes))
-		for key, route := range sim.TradeRoutes {
-			routes = append(routes, routeEntry{
-				A: key.A, B: key.B, L: route.Level, N: route.Name,
-				SW: route.SustainedWeeks, DW: route.DormantWeeks, WT: route.WeeklyTrade,
-			})
-		}
-		routesJSON, _ := json.Marshal(routes)
-		if err := db.SaveMeta("trade_routes", string(routesJSON)); err != nil {
-			return fmt.Errorf("save trade_routes: %w", err)
-		}
-		slog.Info("trade routes persisted", "count", len(routes))
-	}
-
-	// Persist trade tracker (weekly trade volume accumulator).
-	// Without this, deploy restarts reset SustainedWeeks on all routes
-	// because processTradeRoutes sees an empty TradeTracker and marks
-	// every route as dormant.
-	if len(sim.TradeTracker) > 0 {
-		type ttEntry struct {
-			A uint64  `json:"a"`
-			B uint64  `json:"b"`
-			V float64 `json:"v"` // volume
-		}
-		entries := make([]ttEntry, 0, len(sim.TradeTracker))
-		for key, vol := range sim.TradeTracker {
-			entries = append(entries, ttEntry{A: key.A, B: key.B, V: vol})
-		}
-		ttJSON, _ := json.Marshal(entries)
-		if err := db.SaveMeta("trade_tracker", string(ttJSON)); err != nil {
-			return fmt.Errorf("save trade_tracker: %w", err)
-		}
-	}
-
-	// Persist diplomatic agreements.
-	if len(sim.Agreements) > 0 {
-		type agreeEntry struct {
-			A  uint64 `json:"a"`
-			B  uint64 `json:"b"`
-			T  uint8  `json:"t"`  // type
-			SW int    `json:"sw"` // sustained weeks
-			FT uint64 `json:"ft"` // formed at tick
-		}
-		agrees := make([]agreeEntry, 0, len(sim.Agreements))
-		for key, a := range sim.Agreements {
-			if a.Type > 0 { // Only persist formed agreements
-				agrees = append(agrees, agreeEntry{
-					A: key.A, B: key.B, T: uint8(a.Type), SW: a.SustainedWeeks, FT: a.FormedAtTick,
-				})
-			}
-		}
-		agreesJSON, _ := json.Marshal(agrees)
-		if err := db.SaveMeta("agreements", string(agreesJSON)); err != nil {
-			return fmt.Errorf("save agreements: %w", err)
-		}
-		slog.Info("agreements persisted", "count", len(agrees))
-	}
-
-	// Persist peace treaties.
-	if len(sim.PeaceTreaties) > 0 {
-		type peaceEntry struct {
-			A  uint64 `json:"a"`
-			B  uint64 `json:"b"`
-			RW int    `json:"rw"` // remaining weeks
-			RC int    `json:"rc"` // raid count
-			FT uint64 `json:"ft"` // formed at tick
-		}
-		entries := make([]peaceEntry, 0, len(sim.PeaceTreaties))
-		for key, p := range sim.PeaceTreaties {
-			entries = append(entries, peaceEntry{
-				A: key.A, B: key.B, RW: p.RemainingWeeks, RC: p.RaidCount, FT: p.FormedAtTick,
-			})
-		}
-		peaceJSON, _ := json.Marshal(entries)
-		if err := db.SaveMeta("peace_treaties", string(peaceJSON)); err != nil {
-			return fmt.Errorf("save peace_treaties: %w", err)
-		}
-	}
-
-	// Persist raid counts.
-	if len(sim.RaidCounts) > 0 {
-		type raidEntry struct {
-			A uint64 `json:"a"`
-			B uint64 `json:"b"`
-			C int    `json:"c"`
-		}
-		entries := make([]raidEntry, 0, len(sim.RaidCounts))
-		for key, c := range sim.RaidCounts {
-			if c > 0 {
-				entries = append(entries, raidEntry{A: key.A, B: key.B, C: c})
-			}
-		}
-		raidJSON, _ := json.Marshal(entries)
-		if err := db.SaveMeta("raid_counts", string(raidJSON)); err != nil {
-			return fmt.Errorf("save raid_counts: %w", err)
-		}
-	}
-
-	// Persist cumulative counters that can't be derived from agent/settlement state.
-	if err := db.SaveMeta("births", fmt.Sprintf("%d", sim.Stats.Births)); err != nil {
-		return fmt.Errorf("save births: %w", err)
-	}
-	if err := db.SaveMeta("trade_volume", fmt.Sprintf("%d", sim.Stats.TradeVolume)); err != nil {
-		return fmt.Errorf("save trade_volume: %w", err)
-	}
-	if err := db.SaveMeta("deaths", fmt.Sprintf("%d", sim.Stats.Deaths)); err != nil {
-		return fmt.Errorf("save deaths: %w", err)
-	}
-
-	// Persist heat-streak counter so R71 drought path is robust to deploys
-	// mid-heatwave. Without this, HeatStreakHours resets to 0 on restart and
-	// drought degradation never fires until a fresh 72-hour run accumulates.
-	if err := db.SaveMeta("heat_streak_hours", fmt.Sprintf("%d", sim.HeatStreakHours)); err != nil {
-		return fmt.Errorf("save heat_streak_hours: %w", err)
+	// All other persistent world state flows through the registry in
+	// world_state.go. Save and Load are co-located per field — no more
+	// wire-it-and-pray when adding new state.
+	if err := db.SaveLatePersisted(sim); err != nil {
+		return err
 	}
 
 	slog.Info("world state saved")
