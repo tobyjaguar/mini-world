@@ -256,10 +256,16 @@ func AssignArchetype(a *Agent) string {
 		if a.Role == RoleNoble || a.Role == RoleLeader {
 			return ArchSchemingNoble
 		}
-		switch a.Soul.Element() {
-		case ElementHydrogen:
+		// R81: ElementType removed; inlined the 2×2 quadrant on (mass, gauss).
+		// High-drive (gauss > 0.5) low-mass agents act like the old Hydrogen
+		// type → frontier explorers. High-drive high-mass act like the old
+		// Uranium type → scheming nobles. Everyone else stays traditional.
+		highMass := a.Soul.Mass > 0.5
+		highGauss := a.Soul.Gauss > 0.5
+		switch {
+		case !highMass && highGauss:
 			return ArchFrontierExplorer
-		case ElementUranium:
+		case highMass && highGauss:
 			return ArchSchemingNoble
 		default:
 			return ArchDevoutTraditionalist

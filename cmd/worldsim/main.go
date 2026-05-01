@@ -222,7 +222,6 @@ func main() {
 					"age", a.Age,
 					"occupation", a.Occupation,
 					"coherence", fmt.Sprintf("%.3f", a.Soul.CittaCoherence),
-					"element", a.Soul.Element(),
 					"wealth", a.Wealth,
 				)
 			}

@@ -60,7 +60,6 @@ type AgentSummary struct {
 	Wealth      uint64
 	Mood        string
 	State       string // State of Being: Embodied, Centered, Liberated
-	Element     string // Elemental type: Helium, Hydrogen, Gold, Uranium
 	Coherence   float32
 }
 
@@ -248,8 +247,8 @@ func buildNewspaperPrompt(data *NewspaperData, priorContent string) string {
 	if len(data.NotableAgents) > 0 {
 		fmt.Fprintf(&b, "NOTABLE FIGURES:\n")
 		for _, a := range data.NotableAgents {
-			fmt.Fprintf(&b, "- %s, age %d, %s, %d crowns — %s-type, %s (coherence %.2f)\n",
-				a.Name, a.Age, a.Occupation, a.Wealth, a.Element, a.State, a.Coherence)
+			fmt.Fprintf(&b, "- %s, age %d, %s, %d crowns — %s (coherence %.2f)\n",
+				a.Name, a.Age, a.Occupation, a.Wealth, a.State, a.Coherence)
 		}
 	}
 
@@ -354,7 +353,7 @@ func generateFallbackNewspaper(data *NewspaperData) string {
 	if len(data.NotableAgents) > 0 {
 		fmt.Fprintf(&b, "NOTABLE FIGURES\n")
 		for _, a := range data.NotableAgents {
-			fmt.Fprintf(&b, "- %s, age %d, %s — %s-type, %s\n", a.Name, a.Age, a.Occupation, a.Element, a.State)
+			fmt.Fprintf(&b, "- %s, age %d, %s — %s\n", a.Name, a.Age, a.Occupation, a.State)
 		}
 	}
 

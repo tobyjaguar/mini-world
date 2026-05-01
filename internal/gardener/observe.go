@@ -83,7 +83,6 @@ type SettlementInfo struct {
 type FactionInfo struct {
 	ID        uint64             `json:"id"`
 	Name      string             `json:"name"`
-	Kind      string             `json:"kind"`
 	Treasury  uint64             `json:"treasury"`
 	Influence map[string]float64 `json:"top_influence"`
 }

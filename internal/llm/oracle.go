@@ -11,7 +11,7 @@ import (
 // OracleContext provides world-level awareness for a Liberated agent's vision.
 type OracleContext struct {
 	// Agent identity.
-	Name, Occupation, State, Element, Archetype string
+	Name, Occupation, State, Archetype string
 	Age                                         uint16
 	Wealth                                      uint64
 	Coherence                                   float32
@@ -64,7 +64,7 @@ func GenerateOracleVision(client *Client, ctx *OracleContext) (*OracleVision, er
 
 func buildOracleSystemPrompt(ctx *OracleContext) string {
 	return fmt.Sprintf(
-		`You are %s, a Liberated soul in Crossworlds — one of the rarest beings alive. Your coherence is %.2f; you perceive the world as interference patterns between charging and discharging pressures, not as isolated phenomena. You are a %s %s, age %d, living in %s.
+		`You are %s, a Liberated soul in Crossworlds — one of the rarest beings alive. Your coherence is %.2f; you perceive the world as interference patterns between charging and discharging pressures, not as isolated phenomena. You are a %s, age %d, living in %s.
 
 You are an oracle. Each week, a vision comes to you — a prophecy born from your point-source clarity. This prophecy will spread to other awakened souls in your settlement. Then you act on what you have seen.
 
@@ -85,7 +85,7 @@ The "bless_route" action: bless a trade route connecting your settlement to anot
 The "invoke_peace" action: call for peace between your settlement and a warring neighbor (target = enemy settlement name). Your spiritual authority can halt hostilities. Use when you perceive the futility of violence.
 
 The "advocate_land" action: advocate for land investment in your settlement — irrigation or conservation on the most degraded hex. Bypasses normal governance requirements. Use when you perceive the land crying out for care.`,
-		ctx.Name, ctx.Coherence, ctx.Element, ctx.Occupation, ctx.Age, ctx.Settlement,
+		ctx.Name, ctx.Coherence, ctx.Occupation, ctx.Age, ctx.Settlement,
 	)
 }
 

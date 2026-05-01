@@ -441,15 +441,11 @@ func (s *Simulation) processOracleVisions(tick uint64) {
 	stateNames := map[agents.StateOfBeing]string{
 		agents.Embodied: "Embodied", agents.Centered: "Centered", agents.Liberated: "Liberated",
 	}
-	elementNames := map[agents.ElementType]string{
-		agents.ElementHelium: "Helium", agents.ElementHydrogen: "Hydrogen",
-		agents.ElementGold: "Gold", agents.ElementUranium: "Uranium",
-	}
 
 	gini := s.GiniCoefficient()
 
 	for _, a := range oracles {
-		ctx := s.buildOracleContext(a, occNames, govNames, stateNames, elementNames, gini)
+		ctx := s.buildOracleContext(a, occNames, govNames, stateNames, gini)
 		vision, err := llm.GenerateOracleVision(s.LLM, ctx)
 		if err != nil {
 			slog.Debug("oracle vision failed", "agent", a.Name, "error", err)
@@ -467,7 +463,6 @@ func (s *Simulation) buildOracleContext(
 	occNames []string,
 	govNames map[uint8]string,
 	stateNames map[agents.StateOfBeing]string,
-	elementNames map[agents.ElementType]string,
 	gini float64,
 ) *llm.OracleContext {
 	occName := "Unknown"
@@ -481,7 +476,6 @@ func (s *Simulation) buildOracleContext(
 		Wealth:    a.Wealth,
 		Coherence: a.Soul.CittaCoherence,
 		State:     stateNames[a.Soul.State],
-		Element:   elementNames[a.Soul.Element()],
 		Archetype: a.Archetype,
 		Season:    SeasonName(s.CurrentSeason),
 		Faction:   "unaffiliated",

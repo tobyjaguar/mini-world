@@ -6,10 +6,17 @@ package social
 type FactionID uint64
 
 // Faction represents an organization with goals, influence, and membership.
+//
+// Removed in R81: the FactionKind enum (Political/Economic/Military/Religious/
+// Criminal). It was set at seed and persisted but had zero call sites that
+// branched on it for behavior — pure label. The actual mechanical philosophy
+// of each faction lives in tax/trade/military preferences (see below), the
+// per-faction patronage weight functions (R34), the doctrine predicates
+// (R50), the rivalry pairings (R54), and the recruitment affinity rules
+// (R63). See `docs/21-typology-depth-review.md` for the audit.
 type Faction struct {
 	ID   FactionID `json:"id"`
 	Name string    `json:"name"`
-	Kind FactionKind `json:"kind"`
 
 	// Influence per settlement (settlement ID → 0–100).
 	Influence map[uint64]float64 `json:"influence"`
@@ -27,24 +34,12 @@ type Faction struct {
 	MilitaryPreference float64 `json:"military_preference"` // -1 pacifist, +1 militarist
 }
 
-// FactionKind categorizes the nature of a faction.
-type FactionKind uint8
-
-const (
-	FactionPolitical  FactionKind = iota // Governance-focused
-	FactionEconomic                      // Trade and wealth
-	FactionMilitary                      // Martial power
-	FactionReligious                     // Spiritual and cultural
-	FactionCriminal                      // Underground
-)
-
 // SeedFactions creates the 5 initial factions for the world.
 func SeedFactions() []*Faction {
 	return []*Faction{
 		{
 			ID:   1,
 			Name: "The Crown",
-			Kind: FactionPolitical,
 			Influence: make(map[uint64]float64),
 			Relations: make(map[FactionID]float64),
 			TaxPreference:      0.3,
@@ -54,7 +49,6 @@ func SeedFactions() []*Faction {
 		{
 			ID:   2,
 			Name: "Merchant's Compact",
-			Kind: FactionEconomic,
 			Influence: make(map[uint64]float64),
 			Relations: make(map[FactionID]float64),
 			TaxPreference:      -0.5,
@@ -64,7 +58,6 @@ func SeedFactions() []*Faction {
 		{
 			ID:   3,
 			Name: "Iron Brotherhood",
-			Kind: FactionMilitary,
 			Influence: make(map[uint64]float64),
 			Relations: make(map[FactionID]float64),
 			TaxPreference:      0.2,
@@ -74,7 +67,6 @@ func SeedFactions() []*Faction {
 		{
 			ID:   4,
 			Name: "Verdant Circle",
-			Kind: FactionReligious,
 			Influence: make(map[uint64]float64),
 			Relations: make(map[FactionID]float64),
 			TaxPreference:      0.0,
@@ -84,7 +76,6 @@ func SeedFactions() []*Faction {
 		{
 			ID:   5,
 			Name: "Ashen Path",
-			Kind: FactionCriminal,
 			Influence: make(map[uint64]float64),
 			Relations: make(map[FactionID]float64),
 			TaxPreference:      -0.8,

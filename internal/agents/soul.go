@@ -44,15 +44,13 @@ const (
 	Transcendentalist
 )
 
-// ElementType classifies agents on the Mass × Gauss axes (Section 16.3).
-type ElementType uint8
-
-const (
-	ElementHelium   ElementType = iota // Low mass, low drive — inert, stable
-	ElementHydrogen                    // Low mass, high drive — volatile, transformative
-	ElementGold                        // High mass, low drive — wealthy, passive
-	ElementUranium                     // High mass, high drive — powerful, unstable
-)
+// ElementType (Helium/Hydrogen/Gold/Uranium) was removed in R81. It was a
+// 2×2 quadrant on (mass, gauss) with one behavioral hook in archetype.go and
+// six LLM-context plumbing lines elsewhere — genuinely ornamental. Mass and
+// Gauss themselves remain (they drive other mechanics). The one behavioral
+// hook (a small skill-growth nudge for high-drive agents) was inlined in
+// archetype.go as `mass > 0.5 && gauss > 0.5`. See `docs/21-typology-depth-
+// review.md` for the audit.
 
 // AgentSoul holds the Wheeler coherence model state for an agent.
 type AgentSoul struct {
@@ -81,27 +79,6 @@ func StateFromCoherence(coherence float32) StateOfBeing {
 	default:
 		return Embodied
 	}
-}
-
-// ClassifyElement returns the elemental type based on mass and gauss.
-func ClassifyElement(mass, gauss float32) ElementType {
-	highMass := mass > 0.5
-	highGauss := gauss > 0.5
-	switch {
-	case !highMass && !highGauss:
-		return ElementHelium
-	case !highMass && highGauss:
-		return ElementHydrogen
-	case highMass && !highGauss:
-		return ElementGold
-	default:
-		return ElementUranium
-	}
-}
-
-// Element returns this soul's elemental classification.
-func (s *AgentSoul) Element() ElementType {
-	return ClassifyElement(s.Mass, s.Gauss)
 }
 
 // UpdateState recalculates derived state from coherence.

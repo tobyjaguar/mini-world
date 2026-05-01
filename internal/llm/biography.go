@@ -15,7 +15,6 @@ type BiographyContext struct {
 	Wealth        uint64
 	Coherence     float32
 	State         string
-	Element       string
 	Archetype     string
 	Faction       string
 	Settlement    string
@@ -38,7 +37,6 @@ func GenerateBiography(client *Client, ctx BiographyContext) (string, error) {
 	details = append(details, fmt.Sprintf("Occupation: %s", ctx.Occupation))
 	details = append(details, fmt.Sprintf("Wealth: %d crowns", ctx.Wealth))
 	details = append(details, fmt.Sprintf("Coherence: %.2f (%s)", ctx.Coherence, ctx.State))
-	details = append(details, fmt.Sprintf("Element: %s", ctx.Element))
 	details = append(details, fmt.Sprintf("Effective mood: %.2f (satisfaction: %.2f, alignment: %.2f)", ctx.Mood, ctx.Satisfaction, ctx.Alignment))
 
 	if ctx.Archetype != "" {

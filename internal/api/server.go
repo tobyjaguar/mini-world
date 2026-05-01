@@ -602,10 +602,6 @@ func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent 
 	stateNames := map[agents.StateOfBeing]string{
 		agents.Embodied: "Embodied", agents.Centered: "Centered", agents.Liberated: "Liberated",
 	}
-	elementNames := map[agents.ElementType]string{
-		agents.ElementHelium: "Helium", agents.ElementHydrogen: "Hydrogen",
-		agents.ElementGold: "Gold", agents.ElementUranium: "Uranium",
-	}
 
 	occName := "Unknown"
 	if int(agent.Occupation) < len(occNames) {
@@ -619,7 +615,6 @@ func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent 
 		Wealth:       agent.Wealth,
 		Coherence:    agent.Soul.CittaCoherence,
 		State:        stateNames[agent.Soul.State],
-		Element:      elementNames[agent.Soul.Element()],
 		Archetype:    agent.Archetype,
 		Mood:         agent.Wellbeing.EffectiveMood,
 		Satisfaction: agent.Wellbeing.Satisfaction,
@@ -991,11 +986,6 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 	stateNames := map[agents.StateOfBeing]string{
 		agents.Embodied: "Embodied", agents.Centered: "Centered", agents.Liberated: "Liberated",
 	}
-	elementNames := map[agents.ElementType]string{
-		agents.ElementHelium: "Helium", agents.ElementHydrogen: "Hydrogen",
-		agents.ElementGold: "Gold", agents.ElementUranium: "Uranium",
-	}
-	kindNames := []string{"Political", "Economic", "Military", "Religious", "Criminal"}
 
 	data := &llm.NewspaperData{
 		SimTime:     engine.SimTime(s.Sim.CurrentTick()),
@@ -1093,11 +1083,6 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 
 	// Faction news.
 	for _, f := range s.Sim.Factions {
-		kindName := "Unknown"
-		if int(f.Kind) < len(kindNames) {
-			kindName = kindNames[f.Kind]
-		}
-
 		// Find top settlement by influence.
 		var topSett string
 		var topInf float64
@@ -1110,8 +1095,10 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 			}
 		}
 
-		// Build faction summary line.
-		line := fmt.Sprintf("%s (%s): treasury %d crowns", f.Name, kindName, f.Treasury)
+		// Build faction summary line. R81: faction Kind enum removed; the
+		// faction name itself carries the character (Crown/Iron Brotherhood/
+		// Verdant Circle/etc.) — no Political/Economic/etc. tag needed.
+		line := fmt.Sprintf("%s: treasury %d crowns", f.Name, f.Treasury)
 		if topSett != "" {
 			line += fmt.Sprintf(", strongest in %s (influence %.0f)", topSett, topInf)
 		}
@@ -1169,7 +1156,6 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 			}
 
 			stateName := stateNames[a.Soul.State]
-			elemName := elementNames[a.Soul.Element()]
 
 			data.NotableAgents = append(data.NotableAgents, llm.AgentSummary{
 				Name:       a.Name,
@@ -1178,7 +1164,6 @@ func (s *Server) buildNewspaperData() *llm.NewspaperData {
 				Wealth:     a.Wealth,
 				Mood:       fmt.Sprintf("%.2f", a.Wellbeing.EffectiveMood),
 				State:      stateName,
-				Element:    elemName,
 				Coherence:  a.Soul.CittaCoherence,
 			})
 		}
@@ -1196,7 +1181,6 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 	type factionSummary struct {
 		ID        uint64             `json:"id"`
 		Name      string             `json:"name"`
-		Kind      string             `json:"kind"`
 		Members   int                `json:"members"`
 		Treasury  uint64             `json:"treasury"`
 		Influence map[string]float64 `json:"top_influence"` // settlement name → influence
@@ -1218,15 +1202,8 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	kindNames := []string{"Political", "Economic", "Military", "Religious", "Criminal"}
-
 	var result []factionSummary
 	for _, f := range s.Sim.Factions {
-		kindName := "Unknown"
-		if int(f.Kind) < len(kindNames) {
-			kindName = kindNames[f.Kind]
-		}
-
 		// Collect all settlement influences, then keep only top N.
 		type settInf struct {
 			name string
@@ -1250,7 +1227,6 @@ func (s *Server) handleFactions(w http.ResponseWriter, r *http.Request) {
 		result = append(result, factionSummary{
 			ID:        uint64(f.ID),
 			Name:      f.Name,
-			Kind:      kindName,
 			Members:   memberCount[uint64(f.ID)],
 			Treasury:  f.Treasury,
 			Influence: topInf,
@@ -1962,12 +1938,6 @@ func (s *Server) handleFactionDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kindNames := []string{"Political", "Economic", "Military", "Religious", "Criminal"}
-	kindName := "Unknown"
-	if int(faction.Kind) < len(kindNames) {
-		kindName = kindNames[faction.Kind]
-	}
-
 	occNames := []string{
 		"Farmer", "Miner", "Crafter", "Merchant", "Soldier",
 		"Scholar", "Alchemist", "Laborer", "Fisher", "Hunter",
@@ -2052,7 +2022,6 @@ func (s *Server) handleFactionDetail(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{
 		"id":             faction.ID,
 		"name":           faction.Name,
-		"kind":           kindName,
 		"treasury":       faction.Treasury,
 		"members":        members,
 		"member_count":   len(members),

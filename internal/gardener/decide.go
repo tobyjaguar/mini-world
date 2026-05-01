@@ -383,7 +383,7 @@ func formatSnapshot(snap *WorldSnapshot, health *WorldHealth, memory *CycleMemor
 	if len(snap.Factions) > 0 {
 		fmt.Fprintf(&b, "## Factions\n")
 		for _, f := range snap.Factions {
-			fmt.Fprintf(&b, "- %s (%s): treasury %d\n", f.Name, f.Kind, f.Treasury)
+			fmt.Fprintf(&b, "- %s: treasury %d\n", f.Name, f.Treasury)
 		}
 		b.WriteString("\n")
 	}

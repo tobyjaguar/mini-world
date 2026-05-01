@@ -323,12 +323,16 @@ func (db *DB) SaveFactions(factions []*social.Faction) error {
 		influenceJSON, _ := json.Marshal(f.Influence)
 		relationsJSON, _ := json.Marshal(f.Relations)
 
+		// R81: FactionKind removed from the Go struct. The `kind` column
+		// remains in the schema (NOT NULL constraint) but is now vestigial —
+		// we write 0 to satisfy the constraint. A future schema migration
+		// round can drop the column.
 		_, err := tx.Exec(`INSERT INTO factions
 			(id, name, kind, leader_id, treasury,
 			 tax_preference, trade_preference, military_preference,
 			 influence_json, relations_json)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			f.ID, f.Name, f.Kind, f.LeaderID, f.Treasury,
+			f.ID, f.Name, 0, f.LeaderID, f.Treasury,
 			f.TaxPreference, f.TradePreference, f.MilitaryPreference,
 			string(influenceJSON), string(relationsJSON),
 		)
@@ -345,7 +349,7 @@ func (db *DB) LoadFactions() ([]*social.Faction, error) {
 	type factionRow struct {
 		ID                 uint64  `db:"id"`
 		Name               string  `db:"name"`
-		Kind               uint8   `db:"kind"`
+		Kind               uint8   `db:"kind"` // R81: vestigial schema column, not loaded into Faction struct
 		LeaderID           *uint64 `db:"leader_id"`
 		Treasury           uint64  `db:"treasury"`
 		TaxPreference      float64 `db:"tax_preference"`
@@ -365,7 +369,6 @@ func (db *DB) LoadFactions() ([]*social.Faction, error) {
 		f := &social.Faction{
 			ID:                 social.FactionID(r.ID),
 			Name:               r.Name,
-			Kind:               social.FactionKind(r.Kind),
 			LeaderID:           r.LeaderID,
 			Treasury:           r.Treasury,
 			TaxPreference:      r.TaxPreference,
