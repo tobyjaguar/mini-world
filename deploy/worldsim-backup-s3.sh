@@ -50,10 +50,14 @@ echo "Source: $LATEST ($SIZE_RAW_HUMAN raw)"
 echo "Target: s3://${S3_BUCKET}/${S3_KEY}  storage_class=${S3_STORAGE_CLASS}  region=${AWS_DEFAULT_REGION}"
 
 # Stream gzip → aws s3 cp. No intermediate file, minimal disk churn.
-# --no-progress keeps journal output clean.
+# --no-progress keeps journal output clean. --sse AES256 declares
+# server-side encryption explicitly on every part of the multipart
+# upload — required by the bucket's DenyUnencryptedUploads policy
+# even though SSE-S3 is the bucket's default encryption.
 START=$(date +%s)
 gzip -c "$LATEST" | aws s3 cp - "s3://${S3_BUCKET}/${S3_KEY}" \
     --storage-class "$S3_STORAGE_CLASS" \
+    --sse AES256 \
     --no-progress
 END=$(date +%s)
 ELAPSED=$((END - START))
