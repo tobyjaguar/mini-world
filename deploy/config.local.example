@@ -25,3 +25,27 @@ GARDENER_INTERVAL=360
 
 # Go GC target percentage (lower = more frequent GC, less peak RSS)
 GOGC=50
+
+# Phase 1.4 — Off-server backup (S3)
+# All four below are required to enable S3 upload of daily snapshots.
+# If S3_BUCKET is unset, the worldsim-backup-s3 timer stays disabled and
+# only the local on-server backup runs.
+#
+# Setup steps:
+#   1. From your laptop with admin AWS credentials, run:
+#        export AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
+#        export S3_BUCKET=your-globally-unique-bucket-name
+#        ./deploy/setup-s3-bucket.sh
+#      This creates the bucket, blocks public access, enables versioning,
+#      and attaches a 30-day lifecycle expiry rule.
+#   2. In the AWS console, create a dedicated IAM user with PutObject-only
+#      permission on your bucket (policy is printed by setup-s3-bucket.sh).
+#   3. Drop that user's access key + secret here as the *_BACKUP_* vars.
+#   4. Run ./deploy/deploy.sh. The timer activates automatically.
+S3_BUCKET=
+S3_BACKUP_ACCESS_KEY_ID=
+S3_BACKUP_SECRET_ACCESS_KEY=
+AWS_DEFAULT_REGION=us-east-1
+# Optional overrides:
+# S3_PREFIX=daily        # key prefix; default "daily" matches the lifecycle rule
+# S3_STORAGE_CLASS=STANDARD_IA  # cheaper for rarely-read backups

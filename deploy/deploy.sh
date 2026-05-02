@@ -60,6 +60,9 @@ $SCP_CMD "$SCRIPT_DIR/relay.service" $USER@$HOST:/tmp/relay.service
 $SCP_CMD "$SCRIPT_DIR/worldsim-backup.service" $USER@$HOST:/tmp/worldsim-backup.service
 $SCP_CMD "$SCRIPT_DIR/worldsim-backup.timer" $USER@$HOST:/tmp/worldsim-backup.timer
 $SCP_CMD "$SCRIPT_DIR/worldsim-backup.sh" $USER@$HOST:/tmp/worldsim-backup.sh
+$SCP_CMD "$SCRIPT_DIR/worldsim-backup-s3.service" $USER@$HOST:/tmp/worldsim-backup-s3.service
+$SCP_CMD "$SCRIPT_DIR/worldsim-backup-s3.timer" $USER@$HOST:/tmp/worldsim-backup-s3.timer
+$SCP_CMD "$SCRIPT_DIR/worldsim-backup-s3.sh" $USER@$HOST:/tmp/worldsim-backup-s3.sh
 $SCP_CMD "$SCRIPT_DIR/nginx-crossworlds.conf" $USER@$HOST:/tmp/nginx-crossworlds.conf
 
 echo "=== Updating environment ==="
@@ -95,6 +98,23 @@ RELAY_ENV="${RELAY_ENV}\nWORLDSIM_RELAY_KEY=${RELAY_KEY}"
 RELAY_ENV="${RELAY_ENV}\nPORT=${RELAY_PORT}"
 [ -n "${CORS_ORIGINS:-}" ] && RELAY_ENV="${RELAY_ENV}\nCORS_ORIGINS=${CORS_ORIGINS}"
 
+# Phase 1.4 — Off-server backup env. Only emitted if S3_BUCKET is set in
+# config.local; absent S3_BUCKET means the operator hasn't enabled S3
+# backup yet, in which case worldsim-backup-s3.timer is left disabled.
+S3_BACKUP_ENABLED="false"
+if [ -n "${S3_BUCKET:-}" ]; then
+    : "${S3_BACKUP_ACCESS_KEY_ID:?S3_BUCKET set but S3_BACKUP_ACCESS_KEY_ID missing}"
+    : "${S3_BACKUP_SECRET_ACCESS_KEY:?S3_BUCKET set but S3_BACKUP_SECRET_ACCESS_KEY missing}"
+    : "${AWS_DEFAULT_REGION:=us-east-1}"
+    S3_BACKUP_ENV="S3_BUCKET=${S3_BUCKET}"
+    S3_BACKUP_ENV="${S3_BACKUP_ENV}\nAWS_ACCESS_KEY_ID=${S3_BACKUP_ACCESS_KEY_ID}"
+    S3_BACKUP_ENV="${S3_BACKUP_ENV}\nAWS_SECRET_ACCESS_KEY=${S3_BACKUP_SECRET_ACCESS_KEY}"
+    S3_BACKUP_ENV="${S3_BACKUP_ENV}\nAWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}"
+    [ -n "${S3_PREFIX:-}" ] && S3_BACKUP_ENV="${S3_BACKUP_ENV}\nS3_PREFIX=${S3_PREFIX}"
+    [ -n "${S3_STORAGE_CLASS:-}" ] && S3_BACKUP_ENV="${S3_BACKUP_ENV}\nS3_STORAGE_CLASS=${S3_STORAGE_CLASS}"
+    S3_BACKUP_ENABLED="true"
+fi
+
 $SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d /etc/systemd/system/gardener.service.d /etc/systemd/system/sentinel.service.d && \
     echo -e '${OVERRIDE}' | sudo tee /etc/systemd/system/worldsim.service.d/override.conf > /dev/null && \
     echo -e '${GOVERRIDE}' | sudo tee /etc/systemd/system/gardener.service.d/override.conf > /dev/null && \
@@ -106,6 +126,25 @@ $SSH_CMD "sudo mkdir -p /etc/systemd/system/worldsim.service.d /etc/systemd/syst
     sudo chown worldsim:worldsim /opt/worldsim/relay.env && \
     sudo chmod 600 /opt/worldsim/relay.env && \
     sudo systemctl daemon-reload"
+
+if [ "$S3_BACKUP_ENABLED" = "true" ]; then
+    echo "=== Configuring S3 backup credentials ==="
+    $SSH_CMD "echo -e '${S3_BACKUP_ENV}' | sudo tee /opt/worldsim/s3-backup.env > /dev/null && \
+        sudo chown worldsim:worldsim /opt/worldsim/s3-backup.env && \
+        sudo chmod 600 /opt/worldsim/s3-backup.env"
+    # Ensure aws-cli v2 is installed (idempotent — skips if already present).
+    $SSH_CMD "if ! command -v aws >/dev/null 2>&1; then \
+        echo 'Installing aws-cli v2...' && \
+        cd /tmp && \
+        curl -sS 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o awscliv2.zip && \
+        sudo apt-get install -y unzip > /dev/null && \
+        unzip -q -o awscliv2.zip && \
+        sudo ./aws/install --update && \
+        rm -rf awscliv2.zip aws/; \
+    else \
+        echo 'aws-cli already installed: '\$(aws --version); \
+    fi"
+fi
 
 echo "=== Deploying ==="
 $SSH_CMD "sudo systemctl stop relay || true && \
@@ -127,6 +166,11 @@ $SSH_CMD "sudo systemctl stop relay || true && \
     sudo mv /tmp/worldsim-backup.sh /opt/worldsim/worldsim-backup.sh && \
     sudo chown worldsim:worldsim /opt/worldsim/worldsim-backup.sh && \
     sudo chmod +x /opt/worldsim/worldsim-backup.sh && \
+    sudo mv /tmp/worldsim-backup-s3.service /etc/systemd/system/worldsim-backup-s3.service && \
+    sudo mv /tmp/worldsim-backup-s3.timer /etc/systemd/system/worldsim-backup-s3.timer && \
+    sudo mv /tmp/worldsim-backup-s3.sh /opt/worldsim/worldsim-backup-s3.sh && \
+    sudo chown worldsim:worldsim /opt/worldsim/worldsim-backup-s3.sh && \
+    sudo chmod +x /opt/worldsim/worldsim-backup-s3.sh && \
     sudo mv /tmp/nginx-crossworlds.conf /etc/nginx/sites-available/crossworlds && \
     sudo ln -sf /etc/nginx/sites-available/crossworlds /etc/nginx/sites-enabled/crossworlds && \
     sudo rm -f /etc/nginx/sites-enabled/default && \
@@ -139,6 +183,16 @@ $SSH_CMD "sudo systemctl stop relay || true && \
     sudo systemctl start gardener && \
     sudo systemctl start sentinel && \
     sudo systemctl start relay"
+
+if [ "$S3_BACKUP_ENABLED" = "true" ]; then
+    echo "=== Enabling S3 backup timer ==="
+    $SSH_CMD "sudo systemctl enable worldsim-backup-s3.timer && \
+        sudo systemctl start worldsim-backup-s3.timer && \
+        sudo systemctl list-timers worldsim-backup.timer worldsim-backup-s3.timer --no-pager"
+else
+    echo "=== S3 backup disabled (S3_BUCKET not set in config.local) ==="
+    echo "    See deploy/setup-s3-bucket.sh for one-time bucket setup."
+fi
 
 echo "=== Checking status ==="
 sleep 2

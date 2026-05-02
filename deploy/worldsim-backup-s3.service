@@ -1,0 +1,37 @@
+[Unit]
+Description=Crossworlds Off-Server Backup (S3 Upload)
+# Ordering hint only — does not require the local backup unit to be active,
+# so a stale-but-present snapshot can still be uploaded if the local unit
+# missed a cycle. Idempotent re-uploads are safe (S3 versioning protects).
+After=worldsim-backup.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=worldsim
+Group=worldsim
+
+# AWS creds + bucket name. File is mode 0600, written by deploy.sh from
+# config.local. Missing file = unit fails fast (PutObject can't proceed).
+EnvironmentFile=/opt/worldsim/s3-backup.env
+
+ExecStart=/opt/worldsim/worldsim-backup-s3.sh
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=worldsim-backup-s3
+
+# Hardening — read-only access to the local backups dir, no other paths.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+ReadOnlyPaths=/opt/worldsim/backups

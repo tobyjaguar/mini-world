@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Crossworlds Off-Server Backup (S3 Upload)
+
+[Timer]
+# 15 minutes after worldsim-backup.timer (which fires at 04:00 UTC). Local
+# snapshot completes in seconds-to-minutes; the buffer is generous and gives
+# headroom for occasional slow integrity checks on a 1+ GB DB.
+OnCalendar=*-*-* 04:15:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
