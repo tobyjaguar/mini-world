@@ -913,11 +913,8 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 			}
 
 			// Recruitment probability scales with faction's share of local influence.
-			// Fully-dominated settlement + affinity match: prob = Being × Psyche ≈ Matter (62%).
-			// Fully-dominated + no affinity: prob = Psyche (38%).
-			// Typical (50% share + affinity): ~31%.
-			// Typical (50% share + no affinity): ~19%.
-			prob := bestScore / totalInfluence * phi.Psyche
+			// See recruitmentProbability() for the formula and its endpoints.
+			prob := recruitmentProbability(bestScore, totalInfluence)
 
 			// Deterministic check.
 			hash := (uint64(a.ID)*2654435761 + tick*40503 + sett.ID*7) % 100000
@@ -973,4 +970,27 @@ func (s *Simulation) setRelation(a, b social.FactionID, value float64) {
 			f.Relations[a] = value
 		}
 	}
+}
+
+// recruitmentProbability is the per-week chance an unaffiliated agent in a
+// settlement is recruited by the highest-scoring faction there. Extracted
+// as a pure helper so the formula has snapshot test coverage (R82).
+//
+// `bestScore` is the winning faction's score in the local competition
+// (its raw influence × Being if the agent's natural affinity matches that
+// faction, raw influence × Monad otherwise). `totalInfluence` is the sum
+// of all five factions' influence in the settlement.
+//
+// Formula endpoints (with phi.Psyche ≈ 0.382, phi.Being ≈ 1.618):
+//   - Fully-dominated settlement + affinity match: prob = Being × Psyche ≈ Matter (~62%).
+//   - Fully-dominated + no affinity:               prob = Psyche                 (~38%).
+//   - Typical (50% share + affinity):              prob ≈ 0.5 × Being × Psyche   (~31%).
+//   - Typical (50% share + no affinity):           prob ≈ 0.5 × Psyche           (~19%).
+//   - totalInfluence == 0 (no factions present):   prob = 0 (degenerate; caller
+//     normally avoids this branch but the guard keeps the helper safe).
+func recruitmentProbability(bestScore, totalInfluence float64) float64 {
+	if totalInfluence <= 0 {
+		return 0
+	}
+	return bestScore / totalInfluence * phi.Psyche
 }
