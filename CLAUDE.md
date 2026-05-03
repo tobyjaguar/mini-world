@@ -208,6 +208,46 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/sentinel ./cmd/sentinel
 ./deploy/deploy.sh
 ```
 
+## Testing
+
+Test infrastructure landed in R82 (2026-05-03, Phases 5.1+5.3). Tests
+do not ship to the production binary — `_test.go` files are excluded
+from `go build` by definition. Run locally:
+
+```bash
+# Run all tests
+go test ./...
+
+# Verbose output (per-test pass/fail)
+go test -v ./...
+
+# Single package
+go test ./internal/agents/
+
+# Single test by name
+go test -run TestFactionRivalryMultiplier ./internal/engine/
+
+# Race detector
+go test -race ./...
+```
+
+Initial test coverage is intentionally sparse — snapshot tests on
+the subtle code paths the 2026-04-28 review flagged (factionRivalry-
+Multiplier, recruitmentProbability, the alive-agents iterator). Add
+tests organically as new subtle paths surface; they cost nothing
+to add now that the pattern is set.
+
+**The `agents.Alive()` iterator** (`internal/agents/iter.go`) is the
+preferred way to walk only-alive agents. The 81+ existing
+`for _, a := range s.Agents { if !a.Alive { continue } ... }` loops
+will be converted incrementally. New code should use the iterator:
+
+```go
+for a := range agents.Alive(s.Agents) {
+    // ...
+}
+```
+
 ## Production Deployment
 
 The world runs 24/7 on a DreamCompute instance. See `docs/02-operations.md` for full details.
