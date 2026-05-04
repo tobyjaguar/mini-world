@@ -110,3 +110,51 @@ func equalIDs(a, b []AgentID) bool {
 	}
 	return true
 }
+
+// makeBenchAgents builds a fixed-shape population for the iterator benchmarks.
+// Constructed with a deterministic alive ratio so benchmark runs are repeatable.
+func makeBenchAgents(n int, aliveRatio float64) []*Agent {
+	agents := make([]*Agent, n)
+	for i := range agents {
+		agents[i] = &Agent{
+			ID:    AgentID(i + 1),
+			Alive: float64(i%100)/100.0 < aliveRatio,
+		}
+	}
+	return agents
+}
+
+// BenchmarkAliveInline measures the existing pattern: a `range` over the slice
+// with an explicit `if !a.Alive { continue }` guard. This is what 81+ existing
+// engine call sites currently use.
+func BenchmarkAliveInline(b *testing.B) {
+	agents := makeBenchAgents(400_000, 0.95)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var sum uint64
+		for _, a := range agents {
+			if !a.Alive {
+				continue
+			}
+			sum += uint64(a.ID)
+		}
+		_ = sum
+	}
+}
+
+// BenchmarkAliveIterator measures the post-sweep pattern: a `range` over the
+// `Alive()` iter.Seq[*Agent]. The decision criterion is whether this is
+// within 5% of the inline pattern (Wave 3 hot-path conversion safe), 5-15%
+// slower (cold paths only), or >15% slower (no sweep, iterator stays as
+// new-code-only pattern). See `docs/22-r82-deferred-decisions.md`.
+func BenchmarkAliveIterator(b *testing.B) {
+	agents := makeBenchAgents(400_000, 0.95)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var sum uint64
+		for a := range Alive(agents) {
+			sum += uint64(a.ID)
+		}
+		_ = sum
+	}
+}
