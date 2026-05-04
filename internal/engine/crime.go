@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 )
 
@@ -135,7 +136,7 @@ func (s *Simulation) processCrime(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s was caught stealing and branded an outlaw in %s", a.Name, sett.Name),
-					Category:    "crime",
+					Category: eventproto.CategoryCrime,
 					Meta: map[string]any{
 						"agent_id":        a.ID,
 						"agent_name":      a.Name,

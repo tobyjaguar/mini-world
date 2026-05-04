@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
@@ -486,7 +487,7 @@ func (s *Simulation) processResourceMigration(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s migrated to %s seeking %s", a.Name, target.Name, resourceName(resType)),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_id":        a.ID,
 					"agent_name":      a.Name,
@@ -640,7 +641,7 @@ func (s *Simulation) processCrafterRecovery(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s begins retraining as a %s in %s", a.Name, occupationLabel(newOcc), sett.Name),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_id":        a.ID,
 					"agent_name":      a.Name,
@@ -782,7 +783,7 @@ func (s *Simulation) processCareerTransition(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s transitions from %s to %s in %s", a.Name, occupationLabel(old), occupationLabel(newOcc), sett.Name),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_id":        a.ID,
 					"agent_name":      a.Name,

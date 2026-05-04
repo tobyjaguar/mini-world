@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 )
@@ -68,7 +69,7 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s of %s has died, causing a succession crisis", leaderName, sett.Name),
-			Category:    "political",
+			Category: eventproto.CategoryPolitical,
 			Meta:        meta,
 		})
 	}
@@ -113,7 +114,7 @@ func (s *Simulation) ensureLeader(sett *social.Settlement, alive []*agents.Agent
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s becomes leader of %s", newLeader.Name, sett.Name),
-			Category:    "political",
+			Category: eventproto.CategoryPolitical,
 			Meta:        leaderMeta,
 		})
 	}
@@ -256,7 +257,7 @@ func (s *Simulation) checkRevolution(sett *social.Settlement, alive []*agents.Ag
 		Description: fmt.Sprintf("REVOLUTION in %s! %s leads uprising backed by %s. Governance changes from %s to %s. %d crowns seized.",
 			sett.Name, revolutionary.Name, dominantFaction.Name,
 			govNames[oldGov], govNames[sett.Governance], seized),
-		Category: "political",
+		Category: eventproto.CategoryPolitical,
 		Meta: map[string]any{
 			"settlement_id":   sett.ID,
 			"settlement_name": sett.Name,

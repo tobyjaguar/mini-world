@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"math"
 
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 )
 
@@ -209,7 +210,7 @@ func (s *Simulation) emitDiplomacyEvent(tick uint64, key SettRelKey, aType Agree
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: desc,
-		Category:    "political",
+		Category: eventproto.CategoryPolitical,
 		Meta: map[string]any{
 			"event_type":        "diplomacy",
 			"action":            action,

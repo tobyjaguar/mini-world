@@ -12,6 +12,7 @@ import (
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/economy"
 	"github.com/talgya/mini-world/internal/entropy"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
@@ -168,7 +169,7 @@ type Event struct {
 	Tick                 uint64         `json:"tick" db:"tick"`
 	Description          string         `json:"description" db:"description"`
 	NarratedDescription  string         `json:"narrated_description,omitempty" db:"narrated"` // LLM-narrated prose (major events only)
-	Category             string         `json:"category" db:"category"` // "economy", "social", "death", "birth", "political", "disaster", "discovery", etc.
+	Category             eventproto.Category `json:"category" db:"category"` // typed taxonomy in internal/eventproto/categories.go (R84)
 	Meta                 map[string]any `json:"meta,omitempty"`
 }
 
@@ -335,7 +336,7 @@ func (s *Simulation) TickMinute(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: desc,
-				Category:    "agent",
+				Category: eventproto.CategoryAgent,
 			})
 		}
 
@@ -354,7 +355,7 @@ func (s *Simulation) handleAgentDeath(a *agents.Agent, tick uint64, cause string
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: deathDesc,
-		Category:    "death",
+		Category: eventproto.CategoryDeath,
 		Meta: map[string]any{
 			"agent_id":      a.ID,
 			"agent_name":    a.Name,
@@ -437,7 +438,7 @@ func (s *Simulation) TickDay(tick uint64) {
 	s.updateStats()
 
 	// Count events by category since last report.
-	eventCounts := make(map[string]int)
+	eventCounts := make(map[eventproto.Category]int)
 	for _, e := range s.Events {
 		eventCounts[e.Category]++
 	}
@@ -712,7 +713,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
-			Category:    "disaster",
+			Category: eventproto.CategoryDisaster,
 			Meta: map[string]any{
 				"settlement_id":   sett.ID,
 				"settlement_name": sett.Name,
@@ -771,7 +772,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
-			Category:    "disaster",
+			Category: eventproto.CategoryDisaster,
 			Meta: map[string]any{
 				"settlement_id":   sett.ID,
 				"settlement_name": sett.Name,
@@ -862,7 +863,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
-			Category:    "discovery",
+			Category: eventproto.CategoryDiscovery,
 			Meta: map[string]any{
 				"settlement_id":   sett.ID,
 				"settlement_name": sett.Name,
@@ -890,7 +891,7 @@ func (s *Simulation) processRandomEvents(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: desc,
-				Category:    "discovery",
+				Category: eventproto.CategoryDiscovery,
 				Meta: map[string]any{
 					"agent_id":   alchemist.ID,
 					"agent_name": alchemist.Name,

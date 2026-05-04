@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 )
 
@@ -144,7 +145,7 @@ func (s *Simulation) emitPeaceEvent(tick uint64, key SettRelKey, action string) 
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: desc,
-		Category:    "political",
+		Category: eventproto.CategoryPolitical,
 		Meta: map[string]any{
 			"event_type":        "peace_treaty",
 			"action":            action,

@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
@@ -86,7 +87,7 @@ func (s *Simulation) ageAgentsMonthly(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s comes of age in %s", a.Name, settName),
-					Category:    "social",
+					Category: eventproto.CategorySocial,
 					Meta: map[string]any{
 						"agent_id":        a.ID,
 						"agent_name":      a.Name,
@@ -158,7 +159,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: desc,
-					Category:    "death",
+					Category: eventproto.CategoryDeath,
 					Meta: map[string]any{
 						"agent_id":      a.ID,
 						"agent_name":    a.Name,
@@ -222,7 +223,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has died of illness", a.Name),
-					Category:    "death",
+					Category: eventproto.CategoryDeath,
 					Meta: map[string]any{
 						"agent_id":      a.ID,
 						"agent_name":    a.Name,
@@ -399,7 +400,7 @@ func (s *Simulation) processBirths(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s is born in %s", child.Name, sett.Name),
-				Category:    "birth",
+				Category: eventproto.CategoryBirth,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -452,7 +453,7 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%d refugees arrive in %s", needed, sett.Name),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -471,7 +472,7 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("Emergency food relief arrives in %s", sett.Name),
-				Category:    "economy",
+				Category: eventproto.CategoryEconomy,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -597,7 +598,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 			s.EmitEvent(Event{
 				Tick:        s.LastTick,
 				Description: fmt.Sprintf("%s rises to prominence in %s", best.Name, occupationLabel(best.Occupation)),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_id":   best.ID,
 					"agent_name": best.Name,
@@ -660,7 +661,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 				s.EmitEvent(Event{
 					Tick:        s.LastTick,
 					Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
-					Category:    "social",
+					Category: eventproto.CategorySocial,
 					Meta: map[string]any{
 						"agent_id":   a.ID,
 						"agent_name": a.Name,

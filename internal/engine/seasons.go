@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/world"
 )
@@ -405,7 +406,7 @@ func (s *Simulation) applyStormErosion(tick uint64) {
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("Storm erodes the coast in %d region(s)", regions),
-			Category:    "disaster",
+			Category: eventproto.CategoryDisaster,
 			Meta: map[string]any{
 				"event_type": "storm_erosion",
 				"regions":    regions,
@@ -478,7 +479,7 @@ func (s *Simulation) autumnHarvest(tick uint64) {
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("Autumn harvest: %d farmers bring in the crop", harvestCount),
-			Category:    "economy",
+			Category: eventproto.CategoryEconomy,
 			Meta: map[string]any{
 				"count": harvestCount,
 			},
@@ -561,7 +562,7 @@ func (s *Simulation) checkCropFailure(tick uint64) {
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("Sustained heat wave causes crop failure in %d settlements — stored grain spoils", affected),
-			Category:    "disaster",
+			Category: eventproto.CategoryDisaster,
 			Meta: map[string]any{
 				"event_type":          "crop_failure",
 				"settlements_affected": affected,
@@ -610,7 +611,7 @@ func (s *Simulation) checkStormDamage(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("Storm damages roads in %s (level %d)", sett.Name, sett.RoadLevel),
-				Category:    "disaster",
+				Category: eventproto.CategoryDisaster,
 				Meta: map[string]any{
 					"event_type":      "storm_damage",
 					"settlement_id":   sett.ID,
@@ -625,7 +626,7 @@ func (s *Simulation) checkStormDamage(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("Storm damages walls in %s (level %d)", sett.Name, sett.WallLevel),
-				Category:    "disaster",
+				Category: eventproto.CategoryDisaster,
 				Meta: map[string]any{
 					"event_type":      "storm_damage",
 					"settlement_id":   sett.ID,
@@ -640,7 +641,7 @@ func (s *Simulation) checkStormDamage(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("Storm damages market in %s (level %d)", sett.Name, sett.MarketLevel),
-				Category:    "disaster",
+				Category: eventproto.CategoryDisaster,
 				Meta: map[string]any{
 					"event_type":      "storm_damage",
 					"settlement_id":   sett.ID,

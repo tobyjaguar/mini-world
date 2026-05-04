@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
@@ -324,7 +325,7 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("%s recruited %s to %s", a.Name, candidate.Name, factionName),
-						Category:    "social",
+						Category: eventproto.CategorySocial,
 						Meta: map[string]any{
 							"agent_id":      a.ID,
 							"agent_name":    a.Name,
@@ -357,7 +358,7 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s declares: \"%s\"", a.Name, d.Target),
-			Category:    "social",
+			Category: eventproto.CategorySocial,
 			Meta: map[string]any{
 				"agent_id":      a.ID,
 				"agent_name":    a.Name,
@@ -400,7 +401,7 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: detail,
-		Category:    "agent",
+		Category: eventproto.CategoryAgent,
 		Meta: map[string]any{
 			"agent_id":      a.ID,
 			"agent_name":    a.Name,
@@ -605,7 +606,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: fmt.Sprintf("%s prophesies: \"%s\"", a.Name, vision.Target),
-			Category:    "oracle",
+			Category: eventproto.CategoryOracle,
 			Meta: map[string]any{
 				"agent_id":      a.ID,
 				"agent_name":    a.Name,
@@ -626,7 +627,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("%s blessed %s, nudging their coherence toward clarity", a.Name, candidate.Name),
-						Category:    "oracle",
+						Category: eventproto.CategoryOracle,
 						Meta: map[string]any{
 							"agent_id":      a.ID,
 							"agent_name":    a.Name,
@@ -675,7 +676,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("Oracle %s guided %d struggling workers to %s", a.Name, guided, targetSett.Name),
-						Category:    "oracle",
+						Category: eventproto.CategoryOracle,
 						Meta: map[string]any{
 							"agent_id":        a.ID,
 							"agent_name":      a.Name,
@@ -711,7 +712,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("Oracle %s channeled their clarity into the land, restoring %d hexes around %s", a.Name, restored, sett.Name),
-						Category:    "oracle",
+						Category: eventproto.CategoryOracle,
 						Meta: map[string]any{
 							"agent_id":        a.ID,
 							"agent_name":      a.Name,
@@ -742,7 +743,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 					s.EmitEvent(Event{
 						Tick:        tick,
 						Description: fmt.Sprintf("Oracle %s blessed the %s, strengthening the bond of trade", a.Name, route.Name),
-						Category:    "oracle",
+						Category: eventproto.CategoryOracle,
 						Meta: map[string]any{
 							"agent_id":        a.ID,
 							"agent_name":      a.Name,
@@ -792,7 +793,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 							Tick: tick,
 							Description: fmt.Sprintf("Oracle %s invoked peace between %s and %s — hostilities cease",
 								a.Name, s.SettlementIndex[*a.HomeSettID].Name, targetSett.Name),
-							Category: "oracle",
+							Category: eventproto.CategoryOracle,
 							Meta: map[string]any{
 								"agent_id":          a.ID,
 								"agent_name":        a.Name,
@@ -835,7 +836,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 						s.EmitEvent(Event{
 							Tick:        tick,
 							Description: fmt.Sprintf("Oracle %s advocates for conservation in %s — the land is protected (level %d)", a.Name, sett.Name, bestHex.ConservationLevel),
-							Category:    "oracle",
+							Category: eventproto.CategoryOracle,
 							Meta: map[string]any{
 								"agent_id":        a.ID,
 								"settlement_name": sett.Name,
@@ -849,7 +850,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 						s.EmitEvent(Event{
 							Tick:        tick,
 							Description: fmt.Sprintf("Oracle %s advocates for irrigation in %s — the land flourishes (level %d)", a.Name, sett.Name, bestHex.IrrigationLevel),
-							Category:    "oracle",
+							Category: eventproto.CategoryOracle,
 							Meta: map[string]any{
 								"agent_id":        a.ID,
 								"settlement_name": sett.Name,
@@ -871,7 +872,7 @@ func (s *Simulation) applyOracleVision(a *agents.Agent, vision *llm.OracleVision
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: fmt.Sprintf("Oracle %s: \"%s\" — %s %s", a.Name, vision.Prophecy, vision.Action, vision.Target),
-		Category:    "oracle",
+		Category: eventproto.CategoryOracle,
 		Meta: map[string]any{
 			"agent_id":      a.ID,
 			"agent_name":    a.Name,

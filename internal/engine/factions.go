@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 )
@@ -462,7 +463,7 @@ func (s *Simulation) checkFactionTensions(tick uint64) {
 					Tick: tick,
 					Description: fmt.Sprintf("Tension rises between %s and %s in %s",
 						f1.Name, f2.Name, sett.Name),
-					Category: "political",
+					Category: eventproto.CategoryPolitical,
 					Meta: map[string]any{
 						"settlement_id":   sett.ID,
 						"settlement_name": sett.Name,
@@ -578,7 +579,7 @@ func (s *Simulation) distributeFactionPatronage(tick uint64) {
 			Tick: tick,
 			Description: fmt.Sprintf("%s distributes %d crowns in patronage to %d members",
 				f.Name, paid, len(members)),
-			Category: "economy",
+			Category: eventproto.CategoryEconomy,
 			Meta: map[string]any{
 				"faction_name": f.Name,
 				"amount":       paid,
@@ -718,7 +719,7 @@ func (s *Simulation) applyFactionDoctrines(tick uint64) {
 				Tick: tick,
 				Description: fmt.Sprintf("%s experiences a doctrine awakening through %s teachings",
 					a.Name, factionName),
-				Category: "spiritual",
+				Category: eventproto.CategorySpiritual,
 				Meta: map[string]any{
 					"event_type":    "doctrine_awakening",
 					"agent_id":      a.ID,
@@ -815,7 +816,7 @@ func (s *Simulation) processFactionDefection(tick uint64) {
 				Tick: tick,
 				Description: fmt.Sprintf("%s left %s after failing to fulfill its doctrine",
 					a.Name, factionName),
-				Category: "political",
+				Category: eventproto.CategoryPolitical,
 				Meta: map[string]any{
 					"event_type":   "faction_defection",
 					"agent_id":     a.ID,
@@ -934,7 +935,7 @@ func (s *Simulation) processFactionRecruitmentByInfluence(tick uint64) {
 					Tick: tick,
 					Description: fmt.Sprintf("%s joined %s through local influence in %s",
 						a.Name, factionName, sett.Name),
-					Category: "political",
+					Category: eventproto.CategoryPolitical,
 					Meta: map[string]any{
 						"event_type":      "faction_recruitment",
 						"agent_id":        a.ID,

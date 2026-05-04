@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/economy"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
@@ -152,7 +153,7 @@ func (s *Simulation) processSettlementOvermass(tick uint64) {
 		s.EmitEvent(Event{
 			Tick:        tick,
 			Description: desc,
-			Category:    "political",
+			Category: eventproto.CategoryPolitical,
 			Meta: map[string]any{
 				"source_settlement_id": sett.ID,
 				"settlement_name":      newSett.Name,
@@ -206,7 +207,7 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 						s.EmitEvent(Event{
 							Tick:        tick,
 							Description: fmt.Sprintf("%s's treasury of %d crowns distributed to neighboring settlements", sett.Name, sett.Treasury),
-							Category:    "economy",
+							Category: eventproto.CategoryEconomy,
 							Meta: map[string]any{
 								"settlement_id":   sett.ID,
 								"settlement_name": sett.Name,
@@ -222,7 +223,7 @@ func (s *Simulation) processSettlementAbandonment(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has been abandoned — no living souls remain", sett.Name),
-					Category:    "political",
+					Category: eventproto.CategoryPolitical,
 					Meta: map[string]any{
 						"settlement_id":   sett.ID,
 						"settlement_name": sett.Name,
@@ -430,7 +431,7 @@ func (s *Simulation) processInfrastructureGrowth(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s upgrades roads to level %d", sett.Name, sett.RoadLevel),
-				Category:    "economy",
+				Category: eventproto.CategoryEconomy,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -454,7 +455,7 @@ func (s *Simulation) processInfrastructureGrowth(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s upgrades walls to level %d", sett.Name, sett.WallLevel),
-				Category:    "economy",
+				Category: eventproto.CategoryEconomy,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -508,7 +509,7 @@ func (s *Simulation) processViabilityCheck(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("The remaining %d souls of %s migrate to %s (settlement non-viable)", aliveCount, sett.Name, target.Name),
-					Category:    "social",
+					Category: eventproto.CategorySocial,
 					Meta: map[string]any{
 						"source_settlement_id":   sett.ID,
 						"target_settlement_id":   target.ID,
@@ -622,7 +623,7 @@ func (s *Simulation) cascadeMigrate(from, to *social.Settlement, emigrants []*ag
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: desc,
-		Category:    "political",
+		Category: eventproto.CategoryPolitical,
 		Meta: map[string]any{
 			"source_settlement_id":   from.ID,
 			"source_settlement_name": from.Name,

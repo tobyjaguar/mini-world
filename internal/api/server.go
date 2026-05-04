@@ -21,6 +21,7 @@ import (
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/engine"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/persistence"
 	"github.com/talgya/mini-world/internal/social"
@@ -2210,10 +2211,14 @@ func (s *Server) handleIntervention(w http.ResponseWriter, r *http.Request) {
 		if cat == "" {
 			cat = "intervention"
 		}
+		// Admin interventions can label events with any string — runtime cast
+		// to Category type. Preserves operator flexibility (e.g. "intervention",
+		// "experiment") at the cost of weakening compile-time category safety
+		// for this one ingestion path. Intentional.
 		s.Sim.EmitEvent(engine.Event{
 			Tick:        tick,
 			Description: req.Description,
-			Category:    cat,
+			Category:    eventproto.Category(cat),
 		})
 		writeJSON(w, map[string]any{"success": true, "details": "event injected"})
 

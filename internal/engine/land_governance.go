@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/world"
 )
@@ -162,7 +163,7 @@ func (s *Simulation) processLandInvestment(tick uint64) {
 			Tick: tick,
 			Description: fmt.Sprintf("%s invests in %s (level %d) on hex (%d,%d)",
 				sett.Name, upgradeType, nextLevel, bestHex.Coord.Q, bestHex.Coord.R),
-			Category: "economy",
+			Category: eventproto.CategoryEconomy,
 			Meta: map[string]any{
 				"settlement_id":   sett.ID,
 				"settlement_name": sett.Name,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 )
 
@@ -160,7 +161,7 @@ func (s *Simulation) formFamilies(sett interface{ }, alive []*agents.Agent, tick
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s and %s have formed a family in %s", a.Name, bestMatch.Name, settName),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_name":       a.Name,
 					"partner_name":     bestMatch.Name,
@@ -249,7 +250,7 @@ func (s *Simulation) processMentorship(sett interface{}, alive []*agents.Agent, 
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s mentors %s in %s", mentor.Name, mentee.Name, settName),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_name":      mentor.Name,
 					"mentee_name":     mentee.Name,
@@ -310,7 +311,7 @@ func (s *Simulation) processFactionRecruitment(alive []*agents.Agent, tick uint6
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s recruited %s to %s", a.Name, target.Name, factionName),
-				Category:    "social",
+				Category: eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_name":   a.Name,
 					"target_name":  target.Name,
@@ -345,7 +346,7 @@ func (s *Simulation) ProcessBetrayalExpulsion(criminal, victim *agents.Agent, ti
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: fmt.Sprintf("%s expelled from %s for betrayal against %s", criminal.Name, factionName, victim.Name),
-		Category:    "political",
+		Category: eventproto.CategoryPolitical,
 		Meta: map[string]any{
 			"agent_name":   criminal.Name,
 			"faction_name": factionName,

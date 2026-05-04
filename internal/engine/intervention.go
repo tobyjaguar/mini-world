@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
 )
@@ -42,7 +43,7 @@ func (s *Simulation) ProvisionSettlement(name, goodName string, quantity int) (s
 	s.EmitEvent(Event{
 		Tick:        s.LastTick,
 		Description: desc,
-		Category:    "gardener",
+		Category: eventproto.CategoryGardener,
 		Meta: map[string]any{
 			"settlement_name": name,
 			"good":            goodName,
@@ -72,7 +73,7 @@ func (s *Simulation) CultivateSettlement(name string, multiplier float64, durati
 	s.EmitEvent(Event{
 		Tick:        s.LastTick,
 		Description: desc,
-		Category:    "gardener",
+		Category: eventproto.CategoryGardener,
 		Meta: map[string]any{
 			"settlement_name": name,
 			"multiplier":      multiplier,
@@ -137,7 +138,7 @@ func (s *Simulation) ConsolidateSettlement(name string, count int) (string, erro
 	s.EmitEvent(Event{
 		Tick:        s.LastTick,
 		Description: desc,
-		Category:    "gardener",
+		Category: eventproto.CategoryGardener,
 		Meta: map[string]any{
 			"source_settlement_name": name,
 			"target_settlement_name": targetSett.Name,

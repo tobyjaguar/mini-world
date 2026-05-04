@@ -26,6 +26,7 @@ import (
 	"math"
 
 	"github.com/talgya/mini-world/internal/agents"
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
@@ -335,7 +336,7 @@ func (s *Simulation) resolveRaid(tick uint64, attacker, defender *social.Settlem
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: desc,
-		Category:    "warfare",
+		Category: eventproto.CategoryWarfare,
 		Meta:        meta,
 	})
 

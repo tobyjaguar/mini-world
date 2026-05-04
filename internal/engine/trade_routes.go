@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/phi"
 )
 
@@ -201,7 +202,7 @@ func (s *Simulation) emitRouteEvent(tick uint64, key SettRelKey, route *TradeRou
 	s.EmitEvent(Event{
 		Tick:        tick,
 		Description: desc,
-		Category:    "economy",
+		Category: eventproto.CategoryEconomy,
 		Meta: map[string]any{
 			"event_type":      "trade_route",
 			"action":          action,
