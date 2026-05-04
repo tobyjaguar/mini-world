@@ -18,10 +18,18 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=relay
 
-# Security hardening.
+# Security hardening (R83 brought to full parity with worldsim-backup-s3).
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
 ReadWritePaths=/opt/worldsim
 
 [Install]

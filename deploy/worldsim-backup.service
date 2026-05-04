@@ -13,10 +13,18 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=worldsim-backup
 
-# Security hardening (matches worldsim.service template).
+# Security hardening (R83 brought to full parity with worldsim-backup-s3).
 # Backup script reads /opt/worldsim/data/crossworlds.db and writes to
 # /opt/worldsim/backups — ReadWritePaths covers the write target only.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
 ReadWritePaths=/opt/worldsim/backups
