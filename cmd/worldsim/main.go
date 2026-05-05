@@ -398,6 +398,15 @@ func main() {
 	// Pre-compute diplomacy crime bonus cache from loaded agreements.
 	sim.BuildDiplomacyCrimeBonusCache()
 
+	// R86: Recompute stats after resume so producer_health.work_rate is
+	// accurate immediately. NewSimulation() runs updateStats() during
+	// construction, but at that point sim.LastTick == 0, so the
+	// `s.LastTick > 0` guard in the work_rate computation flagged every
+	// producer as idle. Surfaced 2026-05-05 by kernel reboot (W-8).
+	if startTick > 0 {
+		sim.RecomputeStats()
+	}
+
 	eng := engine.NewEngine()
 	eng.Tick = startTick
 	eng.Speed = 1

@@ -1124,6 +1124,16 @@ func (s *Simulation) AvgCoherence() float64 {
 	return total / float64(count)
 }
 
+// RecomputeStats forces an immediate stats recomputation. Used on resume
+// from save (in main.go) to ensure producer_health.work_rate is accurate
+// before the first TickDay fires. NewSimulation() runs updateStats() during
+// construction, but at resume time sim.LastTick == 0 then, so the
+// `s.LastTick > 0` guard in the work_rate computation flags every producer
+// as idle until the first TickDay (~24 sim-min) recomputes. R86, W-8.
+func (s *Simulation) RecomputeStats() {
+	s.updateStats()
+}
+
 func (s *Simulation) updateStats() {
 	alive := 0
 	active := 0 // Agents participating in the simulation (age >= 2).
