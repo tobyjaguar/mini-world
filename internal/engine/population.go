@@ -202,9 +202,28 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 						// strips attachment, increasing coherence. Embodied
 						// agents benefit most; the liberated have already
 						// transcended this lesson.
+						// R88 (Doc 25 Layer 1): rate cut from Agnosis*0.05 to
+						// Agnosis*0.025 (2×). Capped at Matter by NaturalCap;
+						// can fill Embodied → Awakening but cannot bridge to
+						// Liberation. Plus: gated to "important deaths"
+						// (witness has a relationship with sentiment ≥ Matter)
+						// so background noise from random deaths is suppressed.
 						for _, witness := range s.SettlementAgents[*a.HomeSettID] {
 							if witness.Alive && witness.ID != a.ID {
-								gain := float32(phi.Agnosis*0.05) * (1 - witness.Soul.CittaCoherence*0.5)
+								// Sentiment gate: witness must have meaningful
+								// connection to the deceased (relationship with
+								// sentiment ≥ Matter ≈ 0.618).
+								meaningful := false
+								for _, rel := range witness.Relationships {
+									if rel.TargetID == a.ID && rel.Sentiment >= float32(phi.Matter) {
+										meaningful = true
+										break
+									}
+								}
+								if !meaningful {
+									continue
+								}
+								gain := float32(phi.Agnosis*0.025) * (1 - witness.Soul.CittaCoherence*0.5)
 								witness.Soul.AdjustCoherence(gain)
 							}
 						}

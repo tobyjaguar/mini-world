@@ -322,12 +322,18 @@ func (s *Spawner) SpawnChild(position world.HexCoord, settlementID uint64, terra
 	}
 
 	// Soul: centered on Agnosis with slight influence from parent (cultural transmission).
+	// R88 (Doc 25 Layer 1): birth coherence hard-capped at Matter — newborns
+	// can no longer inherit Liberation status from a liberated parent.
+	// Pre-Embodied is the natural state of birth; the Awakening Valley must
+	// be crossed through life. Layer 3 reincarnation will be the only path
+	// for a child to begin life past Matter.
 	coherence := float32(phi.Agnosis + s.rng.NormFloat64()*phi.Agnosis*0.5)
 	coherence = clamp32(coherence, 0.01, float32(phi.Matter))
-	// Small boost from parent wisdom.
-	coherence += parent.Soul.CittaCoherence * float32(phi.Agnosis)
-	if coherence > 1 {
-		coherence = 1
+	// Reduced parent boost: keeps the cultural-transmission flavor but
+	// cannot push past Matter.
+	coherence += parent.Soul.CittaCoherence * float32(phi.Agnosis*0.5)
+	if coherence > float32(phi.Matter) {
+		coherence = float32(phi.Matter)
 	}
 
 	soul := AgentSoul{

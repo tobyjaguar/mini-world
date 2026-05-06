@@ -371,9 +371,23 @@ func (s *Simulation) handleAgentDeath(a *agents.Agent, tick uint64, cause string
 
 		// Via negativa: witnessing death strips attachment, increasing coherence.
 		// "Loss removes dilution" — Wheeler's subtraction principle.
+		// R88 (Doc 25 Layer 1): rate cut from Agnosis*0.05 to Agnosis*0.025 (2×)
+		// + gated to "important deaths" (witness has relationship with sentiment
+		// ≥ Matter). Background noise from random deaths suppressed. Capped at
+		// Matter by NaturalCap; cannot bridge to Liberation.
 		for _, witness := range s.SettlementAgents[*a.HomeSettID] {
 			if witness.Alive && witness.ID != a.ID {
-				witness.Soul.AdjustCoherence(float32(phi.Agnosis * 0.05))
+				meaningful := false
+				for _, rel := range witness.Relationships {
+					if rel.TargetID == a.ID && rel.Sentiment >= float32(phi.Matter) {
+						meaningful = true
+						break
+					}
+				}
+				if !meaningful {
+					continue
+				}
+				witness.Soul.AdjustCoherence(float32(phi.Agnosis * 0.025))
 			}
 		}
 	}

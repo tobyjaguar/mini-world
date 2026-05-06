@@ -288,6 +288,16 @@ func (s *Simulation) resolveRaid(tick uint64, attacker, defender *social.Settlem
 		}
 	}
 
+	// R88 (Doc 25 Layer 1): trauma decay on raid witnesses. Settlement-wide
+	// loss of coherence, scaled by raid intensity. Loser settlement takes
+	// more (defeat is more traumatic than victory). Liberated agents take
+	// 2× the loss (extraction paradox). This is the negative force that
+	// makes liberation precarious — even sages can fall back through war.
+	winnerTraumaIntensity := float32(intensity) * 0.4
+	loserTraumaIntensity := float32(intensity) * 0.8
+	s.applyTraumaToWitnesses(winnerSett.ID, winnerTraumaIntensity, tick)
+	s.applyTraumaToWitnesses(loserSett.ID, loserTraumaIntensity, tick)
+
 	// Sentiment impact: war deepens hostility.
 	key := settRelKey(attacker.ID, defender.ID)
 	if rel, ok := s.Relations[key]; ok {

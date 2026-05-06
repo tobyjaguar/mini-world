@@ -689,12 +689,26 @@ func applyPatronageNeeds(factionID social.FactionID, a *agents.Agent) {
 //   Iron Brotherhood (Discipline): soldier in governed settlement (GovernanceScore > Agnosis)
 //   Verdant Circle (Harmony): worked recently + home hex health > Psyche
 //   Ashen Path (Dissolution): wealth < 30 or belonging > Matter
+// applyFactionDoctrines gives faction members fulfilling doctrine a small
+// weekly coherence boost. R88 (Doc 25 Layer 1): rate cut from Agnosis²*0.1
+// to Agnosis²*0.04 (2.5×) plus age 16 gate so children no longer accumulate
+// from settlement-level conditions (Crown's "well governed" or Ashen's
+// "wealth<30 OR belonging>Matter" qualified newborns automatically). The
+// remaining boost contributes ~0.072/sim-year for adults at full compliance,
+// capped at Matter by NaturalCap. Faithful Crown/Ashen adults reach Matter
+// over their lives; only Layer 2 active practice can bridge to Liberation.
 func (s *Simulation) applyFactionDoctrines(tick uint64) {
-	boost := float32(phi.Agnosis * phi.Agnosis * 0.1) // ~0.00557
+	boost := float32(phi.Agnosis * phi.Agnosis * 0.04) // ~0.00223 (was 0.00557)
 	awakenings := 0
 
 	for _, a := range s.Agents {
 		if !a.Alive || a.FactionID == nil {
+			continue
+		}
+		// R88: age gate — children belong to factions but don't accumulate
+		// doctrine coherence until majority. Liberation (and the path
+		// toward it) is an adult journey.
+		if a.Age < 16 {
 			continue
 		}
 

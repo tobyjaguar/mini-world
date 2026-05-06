@@ -214,7 +214,10 @@ func (s *Simulation) processMentorship(sett interface{}, alive []*agents.Agent, 
 		mentor := mentors[i]
 
 		// Apply mentorship effect: coherence growth for mentee, purpose for mentor.
-		growth := float32(phi.Agnosis * 0.05)
+		// R88 (Doc 25 Layer 1): rate cut from Agnosis*0.05 to Agnosis*0.025 (2×).
+		// Mentorship still nudges coherence; can no longer accumulate to liberation.
+		// Capped at Matter by NaturalCap.
+		growth := float32(phi.Agnosis * 0.025)
 		mentee.Soul.AdjustCoherence(growth)
 		mentor.Needs.Purpose += float32(phi.Agnosis * 0.1) // ~0.024 purpose from teaching
 		if mentor.Needs.Purpose > 1 {

@@ -285,10 +285,13 @@ func applyWork(a *Agent, tick uint64) []string {
 		a.Needs.Safety += 0.003    // "I am the one who provides safety"
 		a.Needs.Survival += 0.001  // Military discipline includes provisioning
 	case OccupationScholar:
-		// Scholars slowly gain wisdom. Rate is per-tick (runs every sim-minute),
-		// so use a tiny multiplier: ~0.00034/day → ~0.124/year coherence growth.
-		// A scholar starting at Agnosis (0.236) reaches Liberated (0.7) in ~3.7 years.
-		a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.000001))
+		// Scholars slowly gain wisdom from sustained study. R88 (Doc 25 Layer 1):
+		// rate cut 3× from Agnosis*0.000001 to Agnosis*0.0000003 ≈ 0.04/year,
+		// reframed: scholarship is a path, not a guaranteed arrival. Capped at
+		// Matter by NaturalCap. The earlier comment promising scholars reach
+		// Liberated in 3.7 years is rescinded — only Layer 2 active practice
+		// (ActionContemplate) can bridge from Matter to Liberation.
+		a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.0000003))
 		// Scholars produce medicine when herbs are available.
 		if a.Inventory[GoodHerbs] >= 1 {
 			a.Inventory[GoodHerbs]--

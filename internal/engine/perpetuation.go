@@ -67,14 +67,21 @@ func (s *Simulation) economicCircuitBreaker(tick uint64) {
 
 // culturalDrift makes younger agents slightly different from older ones.
 // Prevents the world from reaching perfect equilibrium.
+// culturalDrift gives adolescents a small weekly coherence + belonging nudge.
+// R88 (Doc 25 Layer 1): rate cut from Agnosis*0.005 to Agnosis*0.0017 (3×) and
+// end-age narrowed from 25 to 22 — adolescence is a flavor on coherence, not
+// the saturating accumulator that produced the candy machine. Capped at Matter
+// by the new NaturalCap (set in soul.go AdjustCoherence) so cultural drift
+// can fill Embodied → Awakening but cannot bridge the Awakening Valley.
+// See `mini-world/docs/25-liberation-redesign.md` §3.0.
 func (s *Simulation) culturalDrift(tick uint64) {
 	for _, a := range s.Agents {
 		if !a.Alive || a.Age > 30 {
 			continue
 		}
 
-		if a.Age >= 14 && a.Age <= 25 {
-			a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.005))
+		if a.Age >= 14 && a.Age <= 22 {
+			a.Soul.AdjustCoherence(float32(phi.Agnosis * 0.0017))
 			a.Needs.Belonging += float32(phi.Agnosis * 0.01)
 			if a.Needs.Belonging > 1 {
 				a.Needs.Belonging = 1

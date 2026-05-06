@@ -213,6 +213,12 @@ func AllArchetypes() []string {
 }
 
 // ApplyTier1CoherenceGrowth gives Tier 1 agents their daily coherence bonus.
+// R88 (Doc 25 Layer 1): per-archetype CoherenceGrowth values cut 3× via the
+// tier1Mult here, preserving the conceptual ratios between archetypes
+// (HealerSage growing fastest, DisgruntledLaborer slowest) while reducing
+// the absolute rate. With Tier 1 currently at 1 agent in production, this
+// is mostly defensive — but architecture must be right when Tier 1 populates.
+// Capped at Matter by NaturalCap; only Layer 2 active practice can bridge.
 func ApplyTier1CoherenceGrowth(a *Agent) {
 	if a.Tier != Tier1 || !a.Alive {
 		return
@@ -221,7 +227,8 @@ func ApplyTier1CoherenceGrowth(a *Agent) {
 	if !ok {
 		return
 	}
-	a.Soul.AdjustCoherence(tmpl.CoherenceGrowth)
+	const tier1Mult = 1.0 / 3.0 // R88 Layer 1 cut
+	a.Soul.AdjustCoherence(tmpl.CoherenceGrowth * tier1Mult)
 }
 
 // AssignArchetype determines the best archetype for an agent based on

@@ -86,9 +86,48 @@ func (s *AgentSoul) UpdateState() {
 	s.State = StateFromCoherence(s.CittaCoherence)
 }
 
-// AdjustCoherence modifies coherence by delta (positive = via negativa gain,
-// negative = attachment/dilution). Clamps to [0, 1].
+// AdjustCoherence modifies coherence by delta. Used by all natural-drift
+// paths: cultural drift, faction doctrine, scholar work, Tier 1 archetype
+// growth, mentorship, witness deaths, baseline drift, etc. Negative deltas
+// (trauma decay, sage-death ripple) always apply.
+//
+// R88 (Doc 25 Layer 1) — NaturalCap at Matter:
+// Positive deltas cannot push coherence past Matter (≈0.618). If an agent
+// is already at or above Matter (from Layer 2 active practice or Layer 3
+// reincarnation), positive drift contributes nothing — drift fills the
+// Embodied → Awakening band but cannot bridge the Awakening Valley. Only
+// `AdjustCoherenceUncapped` (practice insights, reincarnation seed) can
+// ascend past Matter to Liberation.
+//
+// Negative deltas always apply: trauma can drop a liberated agent below
+// Matter (the extraction paradox), at which point natural drift can fill
+// them back up to Matter, but the agent must practice again to re-bridge.
 func (s *AgentSoul) AdjustCoherence(delta float32) {
+	matter := float32(phi.Matter)
+	// Positive drift cannot push past Matter. If already at/above, skip.
+	if delta > 0 && s.CittaCoherence >= matter {
+		return
+	}
+	s.CittaCoherence += delta
+	if s.CittaCoherence < 0 {
+		s.CittaCoherence = 0
+	}
+	// If a positive drift just rose above Matter from below, clamp to Matter.
+	if delta > 0 && s.CittaCoherence > matter {
+		s.CittaCoherence = matter
+	}
+	if s.CittaCoherence > 1 {
+		s.CittaCoherence = 1
+	}
+	s.UpdateState()
+}
+
+// AdjustCoherenceUncapped modifies coherence by delta, bypassing the
+// NaturalCap at Matter. Used by Layer 2 active practice (samatha gradual
+// gain + vipassanā insights) and Layer 3 reincarnation seeding — the only
+// paths that can ascend past Matter to Liberation. Only the hard [0, 1]
+// bounds apply.
+func (s *AgentSoul) AdjustCoherenceUncapped(delta float32) {
 	s.CittaCoherence += delta
 	if s.CittaCoherence < 0 {
 		s.CittaCoherence = 0
