@@ -185,19 +185,49 @@ Each layer ships independently. Each is observable. Each is justified empiricall
 > | `TraumaLibMult` | `2.0` | extraction paradox |
 > | `TraumaCap` | `phi.Agnosis × 0.5` | single-event cap |
 
-> **Validated outcomes (5-seed sweep, 80 sim-year runs):**
-> - Liberated proportion: **1.11-1.35%** (target 1-3% ✓)
-> - Median age of liberated agent: **44-47** (target 50+ — slightly young but acceptable)
-> - Children liberated: **0** (target ≤ a few via reincarnation only ✓)
-> - Distribution by occupation:
->   - Scholar: 11.61% within-occupation ✓ (operator: "philosopher higher chance")
->   - Alchemist: 3.41% ✓
->   - Hunter: 0.64% ✓ (operator: "hunter has time to contemplate in nature")
->   - Merchant: 0.19% ✓ (operator: "merchant has free time")
->   - Laborer: 0.02% ✓ (operator: "working class less likely")
-> - All top-10 by coherence are **Transcendentalist** class — the rare seeker class (3% of pop)
+> **Layer 3 — Reincarnation (validated):**
 
-> **The §3.1 and §3.2 sections below remain as the design history but the implementation should follow the canonical architecture above.** Layer 3 (reincarnation) and Layer 4 (monastic settlements) are unchanged — see §3.3 and §3.4.
+> | Parameter | Value | Notes |
+> |---|---|---|
+> | `ReincarnationDenomFactor` | `Φ⁵ ≈ 11.09` | denominator in `P = pool / (pop × Φ⁵)` |
+> | `ReincarnatedSeedCoherenceMin/Max` | `[0.7, 0.85]` | seeded just past the threshold |
+> | `ReincarnatedSeedWisdomMin/Max` | `[100, 300]` | carried-over practice |
+> | `PoolDecayPerWeek` | `phi.Agnosis × 0.05 ≈ 0.012` | `1 - 0.988` weekly retention |
+> | `PoolEligibilityMinAge` | `30` years | only deceased adults contribute to pool |
+
+> **Layer 4 — Monastic settlements (validated):**
+
+> | Parameter | Value | Notes |
+> |---|---|---|
+> | Settlement type shares | 10% conflict / 70% normal / 20% monastic | per agent at birth |
+> | `MonasticPracticeMultiplier` | `1 + Agnosis × Being ≈ 1.382` | subtle but real boost |
+> | `ConflictPracticeMultiplier` | `1 - Agnosis × 0.5 ≈ 0.882` | suppression |
+> | `ConflictTraumaMultiplier` | `1 + Being ≈ 2.618` | war zones see more trauma |
+> | `AdeptMigrationProb` | `0.005` | weekly chance for adept Transcendentalists to migrate to monastic |
+
+> **Validated outcomes (5-seed sweep, 80 sim-year runs at 10K agents, all four layers):**
+
+> | Configuration | Mean liberated | Median age | Under-16 (non-R) | Reincarnations / 80yr |
+> |---|---|---|---|---|
+> | Current rules | 98.7% | 23 | ~33% | n/a |
+> | Layer 1 alone | 0.00% | n/a | 0 | n/a |
+> | Layer 1+2 | 1.20% | 44-47 | 0 | n/a |
+> | Layer 1+2+3 | 1.29% | 44-48 | 0 | ~1 |
+> | **Layer 1+2+3+4** | **1.50%** | **45-47** | **0** | **~1.4** |
+
+> - **Liberated proportion: 1.50%** mean across 5 seeds (target 1-3% ✓)
+> - **Children liberated: 0 non-reincarnated, 0-1 reincarnated** per run (target: only via reincarnation ✓)
+> - **Reincarnation cadence**: 1.4 per 80 sim-yrs at 10K agents → scales to **~1 every 2 sim-years at production's 400K population**. Right narrative beat.
+> - **Reincarnated child fates**: 50% maintain liberation; 50% fall back from trauma decay before reaching age 16 to practice. The carried wisdom is real but the agent must still choose to practice as an adult.
+> - **Distribution by occupation** (within-occupation %):
+>   - Scholar: ~12% ✓ (operator: "philosopher higher chance")
+>   - Alchemist: ~3% ✓
+>   - Hunter: ~0.6% ✓ (operator: "hunter contemplates in nature")
+>   - Merchant: ~0.2% ✓ (operator: "merchant has free time")
+>   - Laborer: ~0.02% ✓ (operator: "working class less likely")
+> - **All top-10 by coherence are Transcendentalist** class — the rare seeker class (3% of pop)
+
+> **The §3.1 and §3.2 sections below remain as the design history but the implementation should follow the canonical architecture above.** §3.3 (Layer 3) and §3.4 (Layer 4) are unchanged in concept and now have validated parameter values above.
 
 ### Layer 1 — Stop the candy machine (R88 candidate)
 
@@ -754,6 +784,7 @@ Layer 2's `wisdomEffortLiberationGate` constant. Too high → no one ever achiev
 |---|---|---|
 | 2026-05-06 | Operator + Claude | Initial draft. All four layers laid out. Validation analyses listed. Nothing committed. |
 | 2026-05-06 | Claude (validation pass) | Ran the validation analyses §4. Major findings: (1) audit was incomplete — 14 inflow paths exist, not 3. Cultural drift is the actual primary candy machine, not doctrine boost. Scholar work explicitly designed to liberate in 3.7 years per code comment. (2) Layer 1 revised to address all 7 population-significant inflow paths, not just doctrine boost. (3) Layer 2 architecture changed from clamp-cap-on-CittaCoherence to **split fields** (`CittaCoherence` + `WisdomEffort`) with AND-condition for liberation. Migration becomes automatic and clean — no retroactive change to agent state. Original "honest vs. grandfathered" question (Q1) made obsolete. (4) `WisdomEffortLiberationGate` proposed at `phi.Totality × 1000 ≈ 4236`; projection produces ~7,000 liberated at steady state (1.75% of population) within target band. (5) Pool decay rate (Layer 3 §4.3 C1) recalibrated; recommend `Φ⁵` denominator → ~1 reincarnation per sim-year. (6) Tier 1 currently has 1 agent in production — archetype growth pipeline mostly dormant, but architecture must still be right for when it populates. (7) Magnitude correction in original §1.2: liberation-death ripple is `Agnosis × 0.05 × c` (code), not `Agnosis × 0.1 × c` (original draft). Several operator decisions resolved (Q1, Q3, all of §4.3). New question added: Q7 (should the Awakening valley scale with WisdomEffort?). |
-| 2026-05-06 | Claude (projector validation) | **Built `cmd/lib_projector` — agent-based simulation calibrating Doc 25 constants against synthetic population matching production demographics.** Several iterations and bug fixes (mortality 80× too high; homemade exp approximation broken; age-in-weeks vs years confusion). **Architectural insight emerged from calibration: split-fields (AND-condition) is unnecessary under a cleaner architecture — `NaturalCap = Matter` (single-field, drift caps at Matter, only practice insights can bridge to Liberation).** This replaces the §3.2 split-fields design with a simpler single-field-with-cap design. WisdomEffort retained as cosmetic counter for narrative but not as gate. Liberation criterion returns to simple `c >= 0.7`. **Calibrated constants validated across 5 seeds (80 sim-yr runs):** Layer 1 alone produces 0% liberated (cap holds, by design); Layer 1 + Layer 2 produces 1.11-1.35% liberated, median age 44-47, **zero children**, occupation distribution Scholar 11.61% / Alchemist 3.41% / Hunter 0.64% / Merchant 0.19% / Laborer 0.02% — **matches operator intuition exactly**. Practice mechanics tuned: `samathaPerTick = 0.0005`, `InsightProb = 0.01`, `InsightCoherenceGain = 0.025`, `BasePracticeProb = phi.Agnosis³`. Trauma decay tuned to 0.33 events/year average. Major architecture change to §3.1 and §3.2 needed to reflect the cap-based single-field design. |
+| 2026-05-06 | Claude (Layer 1+2 projector validation) | **Built `cmd/lib_projector` — agent-based simulation calibrating Doc 25 constants against synthetic population matching production demographics.** Several iterations and bug fixes (mortality 80× too high; homemade exp approximation broken; age-in-weeks vs years confusion). **Architectural insight emerged from calibration: split-fields (AND-condition) is unnecessary under a cleaner architecture — `NaturalCap = Matter` (single-field, drift caps at Matter, only practice insights can bridge to Liberation).** This replaces the §3.2 split-fields design with a simpler single-field-with-cap design. WisdomEffort retained as cosmetic counter for narrative but not as gate. Liberation criterion returns to simple `c >= 0.7`. **Calibrated constants validated across 5 seeds (80 sim-yr runs):** Layer 1 alone produces 0% liberated (cap holds, by design); Layer 1 + Layer 2 produces 1.11-1.35% liberated, median age 44-47, **zero children**, occupation distribution Scholar 11.61% / Alchemist 3.41% / Hunter 0.64% / Merchant 0.19% / Laborer 0.02% — **matches operator intuition exactly**. Practice mechanics tuned: `samathaPerTick = 0.0005`, `InsightProb = 0.01`, `InsightCoherenceGain = 0.025`, `BasePracticeProb = phi.Agnosis³`. Trauma decay tuned to 0.33 events/year average. Major architecture change to §3.1 and §3.2 needed to reflect the cap-based single-field design. |
+| 2026-05-06 | Claude (Layer 3+4 projector validation) | **Added Layer 3 (reincarnation) and Layer 4 (monastic settlements) to the projector, then ran 5-seed sweeps with all 4 layers.** Final calibrated outcomes (80 sim-yr runs, 10K agents): **Layer 1+2: 1.20% mean** ; **Layer 1+2+3: 1.29% mean** (+0.09pp from rare reincarnation) ; **Layer 1+2+3+4: 1.50% mean** (+0.21pp from monastic amplification) — all in target band. **Reincarnation cadence: 1 event per 80 sim-yrs per 10K agents** = ~1 per 2 sim-years scaling to production's 400K. Right narrative beat. **Reincarnated child precariousness validated: 50% maintain liberation through adult life; 50% fall back from trauma decay before age 16** (when they can begin practice). The carried wisdom is real but the agent must still choose to practice. Layer 4 modeled as 10% conflict / 70% normal / 20% monastic settlements, with monastic = +1.38× practice multiplier, conflict = ×0.88 practice + ×2.62 trauma. Adept Transcendentalist agents migrate weekly toward monastic at ~0.5%/week. **§3.0 canonical architecture section updated with all four layers' validated constants and observed distributions.** Median age of liberated stays at 47 across configurations. Zero non-reincarnated under-16 liberated agents in any seed. **All four layers validated. R88-R91 design is calibrated and ready for implementation.** Operator decisions remaining (per §6) are now mostly stylistic (e.g. magnitude tuning at deploy) rather than architectural. |
 
 (Update this section as the doc evolves through future sessions.)
