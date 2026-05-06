@@ -35,29 +35,55 @@ As of 2026-05-06 (tick 4,743,746):
 
 **A 10-year-old Outlaw with perfect coherence and perfect alignment is the punchline.** Outlaw is a low-stage social role. Perfect coherence/alignment is the ontological summit. The current mechanism produces this contradiction routinely.
 
-### 1.2 Root cause (audit complete 2026-05-06)
+### 1.2 Root cause (audit corrected and completed 2026-05-06)
 
-`CittaCoherence` is a single scalar that responds to these inputs:
+**The original draft of this audit listed 3 inflow paths. The actual count is 10.** A full grep audit (`AdjustCoherence(` + `CittaCoherence +=` + initialization) surfaced multiple paths the doctrine-boost-focused first pass missed. The complete picture:
 
-| Mechanism | Where | Direction | Magnitude per agent |
-|---|---|---|---|
-| Genesis spawn | `internal/agents/spawner.go:237-251` (`generateSoul`) | seed | Normal(`Agnosis ≈ 0.236`, `Agnosis × 0.5`); clamped to `[0.01, Matter ≈ 0.618]`. **Never ≥ 0.7 at genesis.** |
-| Birth (newborn) | `internal/agents/spawner.go:325-330` (`SpawnChild`) | seed | base ~0.236 + jitter + `parent.Soul.CittaCoherence × Agnosis`; clamps at 1.0. **Can reach 1.0 from a single liberated parent under specific RNG.** |
-| Faction doctrine boost | `internal/engine/factions.go:680-738` (`applyFactionDoctrines`, R50 fix #222) | **+** | `+Agnosis² × 0.1 ≈ +0.00557/sim-week`, applied to every faction member who fulfills doctrine. **No age gate.** |
-| Baseline coherence drift | `internal/engine/simulation.go:982` (`processBaselineCoherence`, R53 fix #231) | **+** | Daily nudge for `Satisfaction > Matter && Age > 20`. Already age-gated, but tiny relative to doctrine boost. |
-| Witness ordinary death | `internal/engine/population.go:230` (R53 fix #230) | **+** | `+Agnosis × 0.05 × (1 - 0.5×c)`. Per witness, per witnessed death. |
-| Witness liberation death | `internal/engine/population.go:200` (R53 fix #229) | **−** | `-Agnosis × 0.1 × c`. Only fires when a liberated agent dies. Witness coherence-scaled. |
-| Soft clamp | `internal/agents/soul.go:92-98` | bound | `[0.0, 1.0]` |
+| # | Mechanism | Where | Direction | Magnitude per agent |
+|---|---|---|---|---|
+| 1 | Genesis spawn | `internal/agents/spawner.go:237-251` (`generateSoul`) | seed | Normal(`Agnosis ≈ 0.236`, `Agnosis × 0.5`); clamped to `[0.01, Matter ≈ 0.618]`. **Never ≥ 0.7 at genesis.** |
+| 2 | Birth (newborn) | `internal/agents/spawner.go:325-330` (`SpawnChild`) | seed | base ~0.236 + jitter + `parent.Soul.CittaCoherence × Agnosis`; clamps at 1.0. Can reach 1.0 from a single liberated parent under specific RNG. |
+| 3 | **Cultural drift (age 14-25)** | `internal/engine/perpetuation.go:77` (`culturalDrift`) | **+** | `+Agnosis × 0.005 ≈ +0.00118/week`, applied weekly to agents aged 14-25. **+0.067/year × 11 years window = +0.74 over adolescence.** Combined with spawn coherence ~0.236, an adolescent reaches **~0.97 by age 25 from this single path**. **This is the actual primary candy machine.** |
+| 4 | **Scholar work** | `internal/agents/behavior.go:291` (`applyWork` → Scholar branch) | **+** | `+Agnosis × 0.000001 ≈ +2.4e-7/tick = +0.124/year` of continuous work. The comment in code states explicitly: *"A scholar starting at Agnosis (0.236) reaches Liberated (0.7) in ~3.7 years."* This is liberation by occupation choice, by intentional design — and the design is what we're now reconsidering. |
+| 5 | **Tier 1 archetype growth** | `internal/agents/archetype.go:222-225` (`ApplyTier1CoherenceGrowth`) + per-archetype `CoherenceGrowth` constants | **+** | Daily, per archetype: `Agnosis × 0.01`–`Agnosis × 0.05` = **+1.7 to +4.3/year**. **Saturation in 2-6 sim-months for Tier 1 agents.** *Empirical mitigation*: only **1 Tier 1 agent in the world today** (`/api/v1/social` shows `tier_1: 1`). The pipeline exists but is currently inactive. Risk: if the world ever populates Tier 1 properly, this becomes a fast lane. |
+| 6 | Faction doctrine boost | `internal/engine/factions.go:710-712` (`applyFactionDoctrines`, R50 fix #222) | **+** | `+Agnosis² × 0.1 ≈ +0.00557/week`. No age gate. **+0.29/year** for any age, any tier, when doctrine is fulfilled. Crown and Ashen Path doctrines have settlement-level/default-true conditions that qualify children automatically. |
+| 7 | **Mentorship growth** | `internal/engine/relationships.go:217-218` (`processMentorship`) | **+** | `+Agnosis × 0.05 ≈ +0.0118 per mentorship pairing event`. Frequency depends on settlement social graph. Typical mentee receives 5-20 pairings/year. |
+| 8 | Witness ordinary death (per-natural-death path) | `internal/engine/population.go:206-208` (R53 fix #230) | **+** | `+Agnosis × 0.05 × (1 - 0.5×c) ≈ +0.0118` per witness per ordinary natural death. Decays as the witness coherence rises. |
+| 9 | **Settlement-wide death witness (random-event-death path)** | `internal/engine/simulation.go:374-378` | **+** | `+Agnosis × 0.05 ≈ +0.0118` per witness per settlement-wide death (random events, war casualties). **This is a separate path from #8** and not gated by the witness-coherence decay. With 19 raids/week + plagues + disasters, this is the highest-frequency witness gain. |
+| 10 | Witness liberation death (sage death) | `internal/engine/population.go:195-197` (R53 fix #229) | **−** | `−Agnosis × 0.05 × c` per witness per sage death. **Original draft of this doc said `Agnosis × 0.1 × c` — that was wrong; code is `0.05 × c`.** Half the magnitude I claimed. The only meaningful via-negativa path. |
+| 11 | Baseline drift (daily, age 20+, satisfied) | `internal/engine/simulation.go:990-993` (`processBaselineCoherence`, R53 fix #231) | **+** | `+Agnosis × 0.001 ≈ +0.000236/day = +0.086/year`. Already age-gated, low-magnitude. |
+| 12 | **Alchemist breakthrough event** | `internal/engine/simulation.go:888` | **+** | **`+0.05` flat (NOT Φ-derived).** Rare random discovery event. The single largest single-event coherence inflow in the codebase. One agent per event. |
+| 13 | **Oracle "bless" action** | `internal/engine/cognition.go:618-625` | **+** | `+Agnosis × 0.1 ≈ +0.0236` per oracle blessing, **clamped at 0.7** — the only mechanism that actually has a hard cap on creating Liberated. Other mechanisms can push agents far past 0.7. |
+| 14 | Soft clamp | `internal/agents/soul.go:92-98` | bound | `[0.0, 1.0]` |
 
-**The doctrine boost dominates.** At `+0.00557/week`, an agent born at `c=0.236` reaches `c=1.0` in `~140 sim-weeks ≈ 2.7 sim-years`. For an 8-year-old in Crown or Ashen Path (factions whose doctrines are settlement-level conditions or default-true for newborns), the saturation has already fired multiple times by the age the operator observed.
+**The picture is much messier than the original draft suggested.** Multiple paths conspire:
 
-**Crown doctrine** (`agentFulfillsDoctrine`, factions.go:748): `settlement.GovernanceScore > Psyche (~0.382)`. This is a settlement-level state — any agent of any age in any well-governed Crown settlement qualifies.
+- **Cultural drift alone** brings adolescents to ~0.97 by age 25. This is the primary candy machine, not the doctrine boost.
+- **Scholar occupation** explicitly designed to liberate scholars in 3.7 years — the comment in code says so.
+- **Doctrine boost** adds +0.29/year on top, no age gate.
+- **Witness gains** fire from TWO different code paths (population.go:208 and simulation.go:376), both at +0.0118 per witness, with continuous deaths in active settlements.
+- **Mentorship** adds +0.0118 per pairing, multiple times per year.
+- The single via-negativa decay (sage death witness) is half the magnitude originally claimed and only fires on sage deaths — not enough to balance the inflows.
+
+**Numerical sketch for an adolescent in this world:**
+
+A 14-year-old in any non-Crafter/Miner/Laborer occupation who is in a faction (most are):
+- Cultural drift: +0.067/year (until 25)
+- Doctrine boost: +0.29/year (no gate)
+- Witness gains: +0.05-0.5/year depending on settlement
+- Sub-total floor: **+0.4/year minimum**
+
+Starting at coherence 0.236 from spawn, by age 16 they're at ~0.71. **They cross the liberation threshold at age 16-17 just from circumstance.** If they're a Scholar, add +0.124/year → liberation by 16. If they're Tier 1, add +1.7 to +4.3/year → liberation in months.
+
+Most agents pass through liberation in their teens or early 20s, almost regardless of their occupation/class (only Crafter/Miner/Laborer/Nihilist combinations might miss the train). The liberated proportion of 55.5% is therefore not surprising at all once the full audit is in view; it's structurally inevitable under current mechanics.
+
+**Crown doctrine** (`agentFulfillsDoctrine`, factions.go:748): `settlement.GovernanceScore > Psyche (~0.382)`. Settlement-level state — any agent of any age in any well-governed Crown settlement qualifies.
 
 **Ashen Path doctrine**: `wealth < 30 OR belonging > Matter (~0.618)`. Newborns have `Wealth=0` (qualifies on first clause) AND `Belonging=0.8` from spawner default (qualifies on second). They simultaneously qualify on both criteria from minute zero of life.
 
 **Faction assignment**: from R32 fix #106 (`addAgent` in `population.go`), every newborn is assigned a faction at birth — not at majority. So newborns immediately enter the doctrine-boost loop.
 
-The conclusion is unambiguous: **the current model has no concept of liberation as practice or journey; it's a passive accumulator that saturates from circumstance.**
+The conclusion is unambiguous: **the current model has no concept of liberation as practice or journey; it's a passive accumulator that saturates from circumstance, with multiple convergent inflow paths.**
 
 ### 1.3 The deeper architectural error
 
@@ -128,51 +154,61 @@ Each layer ships independently. Each is observable. Each is justified empiricall
 
 ### Layer 1 — Stop the candy machine (R88 candidate)
 
-**Goal:** drop the liberated proportion from 55% to 10-20% by fixing the unintended inflow paths. No new mechanics — just constants and conditions in existing files.
+**Goal:** drop the liberated proportion from 55% to 10-20% by fixing the **multiple convergent inflow paths**, not just doctrine boost. No new mechanics — just constants and conditions in existing files.
 
 **Files touched:**
+- `internal/engine/perpetuation.go` — `culturalDrift` (the actual primary candy machine)
 - `internal/engine/factions.go` — `applyFactionDoctrines`
+- `internal/agents/behavior.go` — Scholar work coherence growth
+- `internal/agents/archetype.go` — Tier 1 archetype CoherenceGrowth values
+- `internal/engine/relationships.go` — mentorship growth
+- `internal/engine/population.go` + `internal/engine/simulation.go` — witness death gains
 - `internal/engine/population.go` — universal trauma decay path
 
-**Changes:**
+**Changes (in priority order — each addresses a distinct inflow path identified in §1.2):**
 
-1. **Doctrine boost: 10× cut and age-gated.**
-   - Change magnitude: `Agnosis² × 0.1 ≈ +0.00557/week` → `Agnosis³ × 0.1 ≈ +0.00131/week` (~Φ⁻⁵ scale, lower than `Matter × Agnosis × 0.005`).
-   - Add age gate: `if a.Age < 16 { continue }` at the top of the doctrine eligibility check.
-   - **New saturation time:** ~600 weeks = ~10 sim-years to climb from c=0.236 to c=1.0 at full compliance. A faithful Crown adult who lives to 60 might gain ~0.4 coherence from doctrine alone — meaningful but not saturating, and only if they live long under stable governance.
+1. **Cultural drift: cut by 10×, gate end-age narrowed.**
+   - Was: `+Agnosis × 0.005/week` for ages 14-25 → +0.74 over adolescence.
+   - New: `+Agnosis × 0.0005/week` for ages 14-22 → +0.06 over adolescence (about 10% of the original). Adolescence becomes a *flavor* on coherence, not a saturating accumulator.
 
-2. **Universal trauma decay**, not just sage-death.
+2. **Scholar work: 10× cut, intent reframed.**
+   - Was: `+Agnosis × 0.000001/tick = +0.124/year`. Comment said scholars reach Liberation in 3.7 years.
+   - New: `+Agnosis × 0.0000001/tick = +0.012/year`. Update the comment: "Scholar work nudges coherence — sustained scholarship over 30 sim-years adds ~0.36, enough to push from Embodied into Awakening but not bridging to Liberation. Layer 2 active practice (`ActionContemplate`) is required for that."
+
+3. **Tier 1 archetype growth: 10× cut.**
+   - Was: per-archetype `Agnosis × 0.01` to `Agnosis × 0.05` daily → 1.7-4.3/year (saturating).
+   - New: `Agnosis × 0.001` to `Agnosis × 0.005` daily → 0.17-0.43/year. Tier 1 still grows faster than Tier 0 but doesn't insta-liberate.
+   - **Empirical mitigation note:** Tier 1 currently has 1 agent in production, so this change is mostly defensive. But the architecture must be right for when Tier 1 populates.
+
+4. **Doctrine boost: 4× cut and age-gated.**
+   - Was: `Agnosis² × 0.1 ≈ +0.00557/week`, all ages.
+   - New: `Agnosis² × 0.025 ≈ +0.00139/week`, with `if a.Age < 16 { continue }`. (Slightly smaller cut than the original draft suggested — once cultural drift and scholar work are also reduced, doctrine boost can stay meaningful at +0.072/year for adults: a faithful Crown adult who lives to 60 gains ~3.2 coherence over their adult life — enough to reach Matter but not Liberation without Layer 2 practice.)
+
+5. **Mentorship growth: 5× cut.**
+   - Was: `+Agnosis × 0.05 ≈ +0.0118` per pairing event.
+   - New: `+Agnosis × 0.01 ≈ +0.0024` per pairing event. Mentorship still nudges coherence; doesn't accumulate to liberation.
+
+6. **Witness death gains: 5× cut on BOTH paths, gate to important deaths.**
+   - Path A (`population.go:206-208`, ordinary natural deaths): `Agnosis × 0.05 × (1 - 0.5c)` → `Agnosis × 0.01 × (1 - 0.5c)`.
+   - Path B (`simulation.go:374-378`, settlement-wide death witnesses for random events): `Agnosis × 0.05` → `Agnosis × 0.01`.
+   - Both gated to "important deaths" (witness sentiment ≥ Matter) so background noise from random deaths is suppressed.
+
+7. **Universal trauma decay (NEW path).**
    - New helper in `population.go`: `applyTraumaDecay(a *Agent, intensity float32)`.
-   - Triggered by: warfare casualties witnessed, plague survival, settlement abandonment, severe famine (Survival < Agnosis sustained), being a victim of theft.
-   - Magnitude: `−Agnosis × 0.05 × intensity` for ordinary witnesses. Liberated agents (`c ≥ 0.7`) take **double**: `−Agnosis × 0.1 × intensity`. This is the extraction paradox already documented in `soul.go`.
-   - Bounded so that no single trauma can drop coherence by more than `Agnosis ≈ 0.236`.
+   - Triggered by: warfare casualties witnessed, plague survival, settlement abandonment, severe famine (Survival < Agnosis sustained for >2 sim-days), being a victim of theft.
+   - Magnitude: `−Agnosis × 0.05 × intensity` for ordinary witnesses. Liberated agents (`c ≥ 0.7`) take **double**: `−Agnosis × 0.1 × intensity` (the extraction paradox already documented in `soul.go`).
+   - Bounded so no single trauma drops coherence by more than `Agnosis ≈ 0.236`.
 
-3. **Reduce the witness-ordinary-death gain.**
-   - Current: `+Agnosis × 0.05 × (1 - 0.5c)` per witnessed death — fires for any death with witnesses above some sentiment threshold.
-   - New: `+Agnosis³ × 0.05 × (1 - 0.5c)` — five orders of magnitude smaller per event. Plus: gate to "important deaths" only (witness sentiment ≥ Matter) so noise is suppressed.
-   - This stays as a small via-negativa nudge (the loss of someone meaningful makes you reflect) but doesn't accumulate to liberation on its own.
-
-**Constants summary (Layer 1):**
-
-```go
-// internal/engine/factions.go
-const doctrineBoostL1 = phi.Agnosis * phi.Agnosis * phi.Agnosis * 0.1 // ≈ 0.00131/week
-const doctrineMinAge = 16
-
-// internal/engine/population.go
-const traumaDecayBase = phi.Agnosis * 0.05    // ordinary witness
-const traumaDecayLib  = phi.Agnosis * 0.1     // liberated witness (extraction paradox)
-const traumaDecayCap  = phi.Agnosis           // single-event cap
-
-// witnessOrdinaryDeathGain reduced from Agnosis*0.05 to Agnosis³*0.05
-```
+8. **Magnitude correction in sage-death ripple (no behavior change, just doc/code consistency).**
+   - The original draft of §1.2 claimed `Agnosis × 0.1 × c`; actual code is `Agnosis × 0.05 × c`. No code change needed for Layer 1; just note the corrected baseline.
 
 **Expected outcome:**
-- Within 2-4 sim-weeks: liberated proportion drifts down as new births don't accumulate, and existing liberated agents' coherence doesn't grow further.
-- Within 2-4 sim-months: trauma decay starts pulling the high tail down. The 55% number drops toward 30-40%.
-- Within sim-year: equilibrium near 10-20%. Still too high relative to "rare," but no longer broken.
+- Within 2-4 sim-weeks: cultural drift slows, doctrine boost age-gate stops new births from accumulating. Liberation rate drift starts.
+- Within 2-4 sim-months: trauma decay pulls the high tail down. Adolescents no longer cross liberation in their teens.
+- Within ~1 sim-year: equilibrium near 15-25% liberated. Higher than the original Doc 25 estimate of 10-20% because the audit revealed more inflow paths than were in the first draft, and we don't want to over-correct.
+- **The 15-25% is still too high for "rare."** Layer 2 is required to get to 1-3%.
 
-**Why ship Layer 1 alone first:** validates that inflow paths are the dominant cause, observable in days, doesn't require schema migration. If the drop happens, Layer 2 is justified. If it doesn't, the audit was wrong and we re-investigate.
+**Why ship Layer 1 alone first:** validates that the inflow paths are the dominant cause across all 7 mechanisms (not just doctrine boost), observable within sim-weeks, no schema migration. If Layer 1 brings the rate to 15-25% as projected, Layer 2 is justified. If it doesn't drop at all, something else in the audit was missed and we re-investigate before adding new mechanics.
 
 ### Layer 2 — Active practice (R89 candidate)
 
@@ -250,27 +286,54 @@ For a Scholar/Transcendentalist who practices uninterrupted for 10 sim-years (an
 
 For a Laborer/Nihilist over the same period: **+0.00003 expected coherence**. Effectively zero. The model says structural conditions and disposition matter, and their combination matters multiplicatively.
 
-**The hard gate:**
+**The liberation criterion (split-fields architecture, not clamp-cap):**
+
+The original draft of this layer proposed clamping `CittaCoherence` at `Matter` until WisdomEffort reaches a gate. **That approach is broken** — `AdjustCoherence` is called from many sites, and clamping inside it would either retroactively un-liberate existing agents on first event (uneven across the population, depending on which agents happen to receive an event first) or require a separate one-time migration pass on startup.
+
+**The cleaner architecture: split fields, AND-condition for liberation.**
 
 ```go
-// In agents/soul.go AdjustCoherence — modify the existing function
-func (s *AgentSoul) AdjustCoherence(delta float32) {
-    s.CittaCoherence += delta
-    if s.CittaCoherence < 0 {
-        s.CittaCoherence = 0
-    }
-    // NEW: cannot rise above Matter without sufficient WisdomEffort
-    cap := float32(1.0)
-    if s.WisdomEffort < wisdomEffortLiberationGate { // tunable; proposal: phi.Totality * 1000 ≈ 4236
-        cap = float32(phi.Matter)
-    }
-    if s.CittaCoherence > cap {
-        s.CittaCoherence = cap
-    }
+// internal/agents/soul.go — Soul struct gets a new field:
+type AgentSoul struct {
+    CittaCoherence float32 `json:"citta_coherence"` // 0.0–1.0, the intrinsic field — drifts naturally
+    WisdomEffort   uint32  `json:"wisdom_effort"`   // R89: cumulative practice, only via ActionContemplate
+    // ... other fields unchanged ...
+}
+
+// internal/agents/soul.go — new helper:
+const WisdomEffortLiberationGate uint32 = ... // see §4.2 B1 for tuning
+
+// IsLiberated returns true only if BOTH coherence is high AND practice has been earned.
+// CittaCoherence alone is the "raw potential" — pristine ignorance OR earned awakening.
+// WisdomEffort distinguishes them.
+func (s *AgentSoul) IsLiberated() bool {
+    return s.CittaCoherence >= 0.7 && s.WisdomEffort >= WisdomEffortLiberationGate
 }
 ```
 
-The `wisdomEffortLiberationGate` constant is the structural truth: **only deliberate practice can bridge the Awakening valley.** With ~4236 successful practice ticks needed, even a Scholar/Transcendentalist needs years of uninterrupted practice to qualify, and any of: Survival drop, Safety drop, Belonging drop, age regression (impossible) interrupts the accumulation.
+**This is much cleaner than clamping:**
+
+- `CittaCoherence` keeps its current semantics (naturally drifts, can be high in a child via reincarnation seed).
+- `WisdomEffort` is purely additive from `ActionContemplate` — it has no decay, no clamp interaction.
+- The LIBERATION CRITERION moves from `c >= 0.7` to `c >= 0.7 AND wisdom >= gate`.
+- **No retroactive change to agent state.** Existing agents keep their `CittaCoherence`, but their `WisdomEffort` starts at 0, so they immediately fail the AND-condition and no longer register as liberated. They have to earn it back through practice.
+- **Reincarnation is clean:** seed both `c=0.7+jitter` AND `WisdomEffort=gate+offset` for reincarnated children. The carried-over wisdom is what makes the child liberated, not just the intrinsic coherence (Layer 3 details in §3.3 below).
+
+**API surface change:**
+
+`/api/v1/liberated` filter changes from `if a.Soul.CittaCoherence < 0.7 { continue }` to `if !a.Soul.IsLiberated() { continue }`. The endpoint contract is unchanged from the consumer's perspective; the underlying definition tightens.
+
+**The semantic distinction made mechanical:**
+
+| State | `CittaCoherence` | `WisdomEffort` | API says |
+|---|---|---|---|
+| Embodied | < 0.382 | any | not liberated |
+| Awakening | 0.382–0.7 | any | not liberated |
+| **Pristine ignorance** (current children) | ≥ 0.7 | 0 | **NOT liberated** ✓ |
+| **Earned awakening** (an adept who practiced) | ≥ 0.7 | ≥ gate | liberated ✓ |
+| **Reincarnated child** (rare) | ≥ 0.7 (seeded) | ≥ gate (seeded as carried-over wisdom) | liberated ✓ |
+
+This is exactly the distinction the operator articulated.
 
 **Tier 2 LLM agents** (`internal/llm/cognition.go`):
 - Add `"contemplate"` to the action vocabulary.
@@ -284,14 +347,17 @@ Add to `internal/persistence/db.go` migrations array:
 "ALTER TABLE agents ADD COLUMN wisdom_effort INTEGER NOT NULL DEFAULT 0",
 ```
 
-Wire into `SaveAgents` UPSERT and `LoadAgents` SELECT (R55 pattern). The R76 registry doesn't need a new entry — `WisdomEffort` is per-agent state, it lives on the agents table.
+Wire into `SaveAgents` UPSERT and `LoadAgents` SELECT (R55 pattern). The R76 registry doesn't need a new entry — `WisdomEffort` is per-agent state, lives on the agents table. Apply the R86 lesson: ensure all SaveAgents/LoadAgents struct paths are wired before deploy (avoid a repeat of the W-8 metric bug).
 
 **Expected outcome:**
-- Combined with Layer 1: liberated proportion drops to 1-5% steady state.
-- Distribution by occupation: Scholar 5-10× average, Alchemist 3-5×, Hunter 2×, Merchant 1.5×, Laborer/Miner ≤0.3×.
-- Distribution by class: Transcendentalist 5-10× average, Devotionalist 1×, Ritualist 0.4×, Nihilist <0.1×.
-- Median age of liberated agent climbs to 50+.
-- Liberation events become newsworthy. Each one has a story.
+- **Effective on day-one of deploy:** `/api/v1/liberated` returns the agents whose `CittaCoherence ≥ 0.7 AND WisdomEffort ≥ gate`. Since `WisdomEffort=0` for every existing agent, **the count drops from 221,683 to 0 immediately.**
+- **Within sim-weeks:** Tier 2 agents (30 of them) start choosing `contemplate`; Transcendentalists more often. Their `WisdomEffort` accumulates.
+- **Within sim-months:** Tier 0 agents who naturally pick contemplate (probability gated by occupation × class) accumulate.
+- **Within sim-years (steady state):** liberation count stabilizes at 1-3% of population (~4,000-12,000 agents at current pop size).
+- **Distribution by occupation:** Scholar 5-10× average, Alchemist 3-5×, Hunter 2×, Merchant 1.5×, Laborer/Miner ≤0.3× of average.
+- **Distribution by class:** Transcendentalist 5-10× average, Devotionalist 1×, Ritualist 0.4×, Nihilist <0.1×.
+- **Median age of liberated agent** climbs to 50+.
+- **Liberation events become newsworthy.** Each is a story (R79+R80 already give us the narrative continuity infrastructure).
 
 ### Layer 3 — Reincarnation (R90 candidate)
 
@@ -419,43 +485,101 @@ Before any layer is committed, these dry-run analyses should be done. They're li
 
 ### 4.1 Layer 1 validation
 
-**A1.** Confirm the `Agnosis³ × 0.1` doctrine boost magnitude is right. The naïve calculation: at +0.00131/week, an adult Crown agent in a stable settlement gains ~0.068/year. From `c=0.236` at age 16 to `c=1.0` requires ~11 years of full compliance — meaningful but achievable for the most disciplined adult. Question: is 11 years too short? Should it be `Agnosis⁴ × 0.1 ≈ 0.000310/week`, which would be 50 years of full compliance? **Sanity check needed before commit.**
+**A1. ~~Doctrine boost magnitude check~~ — SUPERSEDED.** The original draft proposed cutting doctrine boost from `Agnosis² × 0.1` to `Agnosis³ × 0.1`. After the full audit (A3), it's clear doctrine boost is NOT the dominant inflow path; cultural drift is. The revised Layer 1 cuts cultural drift by 10× and doctrine boost by only 4× (to `Agnosis² × 0.025`). Math under revised values: a faithful Crown adult gains +0.072/year — meaningful but bounded; over 60 sim-years adult life that's +4.3 coherence at full compliance, clamped at 1.0. They reach Matter (0.618) easily but don't bridge to Liberation without Layer 2 active practice. **Resolved.**
 
-**A2.** Estimate the steady-state trauma-decay flux. World currently sees ~80 deaths/week, 19 raids/week, occasional plague spreads. At `−Agnosis × 0.05 × intensity` per witness per event, with rough witness counts per event, what's the per-agent expected coherence loss per year? It should be small for low-trauma agents (≤ 0.05/year) but meaningful for those in high-conflict settlements (≥ 0.2/year). Sanity check: don't accidentally produce negative coherence after one bad season.
+**A2. Steady-state trauma-decay flux — DEFERRED until Layer 1 deploys.** The static math: world sees ~80 deaths/week, 19 raids/week. Per witness per event: `−Agnosis × 0.05 × intensity ≈ -0.0118 × intensity`. For a typical agent in a settlement with ~500 population, witnessed deaths might be ~20/year (settlement size relative to world death rate). Expected loss: ~20 × 0.0118 = -0.24/year for high-trauma settlements; ~0.05/year for peaceful ones. Sanity check on floor: at the worst, a war-torn settlement's average agent loses ~0.5 coherence/year — bounded by `Agnosis` per-event cap. **Won't produce negative coherence, but a sustained war could push average down by 0.3-0.5 — that's the dynamic we want.** Real validation requires watching post-deploy. **Resolved as static math; live validation deferred.**
 
-**A3.** Identify all current code paths that increment coherence. Are there any I missed in §1.2? Search for `CittaCoherence +=`, `AdjustCoherence(`, etc. across the entire engine package. Re-audit before committing.
+**A3. ~~Identify all current code paths that increment coherence~~ — DONE.** Re-audit in §1.2 surfaced 14 paths total (vs. 3 in the original draft). Revised Layer 1 addresses the 7 that are population-significant. **Resolved.**
 
-**A4.** Decide on age gate value. 16 is the existing adulthood threshold (used in `PromoteToTier2`, `processBirths`, `processBaselineCoherence` indirectly). Stick with it for consistency? Or use 20 (more conservative)? Stick with 16 unless there's a reason.
+**A4. ~~Decide on age gate value~~ — RESOLVED.** Use 16 throughout for consistency with `PromoteToTier2`, `processBirths`, and the existing adulthood semantic. Cultural drift's existing 14-25 window narrowed to 14-22 in revised Layer 1 (so it ends earlier and tapers naturally toward majority). **Resolved.**
 
 ### 4.2 Layer 2 validation
 
-**B1.** The `wisdomEffortLiberationGate` constant. Proposed value: `phi.Totality × 1000 ≈ 4236` ticks of successful practice. With base practice probability 0.013 and Scholar/Transcendentalist multiplier 2.62, that's `0.034/hour × 4236 / 8760 ≈ 16.4 sim-years` of full eligibility for the gate to clear. That's right for a Scholar/Transcendentalist; need to check it's not effectively impossible for Hunter/Devotionalist (would need ~50 sim-years, plausible for old hunters). Need to dry-run against the world's actual occupation × class distribution.
+**B1. `WisdomEffortLiberationGate` constant — DRAFT VALUE PROPOSED.**
 
-**B2.** Liberation distribution by demographic. Run the math against the live world's occupation/class distribution. With ~6000 Hunters and the class distribution per current `factionForAgent`, expected liberated count by occupation × class should match operator intuition (Scholars dominate, Laborers near-zero). If the math says 95% of liberated agents are Scholars, the multipliers may need rebalancing.
+Class distribution from `Spawner.randomClass()` (verified in spawner.go:261-269):
+- Devotionalist: 45% (~180K agents)
+- Ritualist: 35% (~140K)
+- Nihilist: 17% (~68K)
+- Transcendentalist: 3% (~12K)
 
-**B3.** Tier 2 contemplate prompt. The Tier 2 LLM needs prompt text describing what `contemplate` means and when it's appropriate. Draft this. The prompt should NOT bias agents toward it — they should choose it based on their disposition and ground.
+Live occupation distribution (pulled from API 2026-05-06 tick 4,746,176):
+- Farmer 47.4%, Alchemist 13.6%, Fisher 9.4%, Soldier 6.3%, Scholar 5.9%, Laborer 5.9%, Merchant 5.6%, Crafter 3.0%, Hunter 1.7%, Miner 1.4%
 
-**B4.** Schema migration safety. Adding `wisdom_effort INTEGER NOT NULL DEFAULT 0` is safe (backwards compatible); existing agents start with 0, which is correct (they haven't practiced yet). On first deploy, every existing agent's coherence may drop back to `Matter` cap if they're currently above 0.618 with WisdomEffort=0. **This is a behavior change visible in production.** The 221K liberated agents would lose liberation status until they accumulated practice.
+Proposed gate value: **`phi.Totality × 1000 ≈ 4236`** practice ticks.
 
-This is actually correct philosophically — they were liberated by accident, they should have to earn it. But it's a sharp transition. Discuss whether to do an opt-in migration: existing liberated agents get `WisdomEffort = wisdomEffortLiberationGate` on migration so they keep their status, but new accumulation requires practice. Trade-off:
-- **Honest transition** (everyone's coherence caps at Matter until they practice): the world sees Liberated counts drop overnight, then climb back over years as practice accumulates.
-- **Grandfathered transition** (existing liberated keep status, only new agents are subject): the existing 55% stays liberated; only newborns are subject to the new rules.
+Hours of full eligibility for the gate to clear, by combination:
+- Scholar × Transcendentalist (rarest combo, 0.18% pop ≈ 720 agents): `0.013 × 1.618 × 1.618 = 0.034/hour` → 4236 / 0.034 = **124,500 hours = 14.2 sim-years** ✓ achievable in a long contemplative life
+- Hunter × Transcendentalist (~200 agents): `0.013 × 0.618 × 1.618 = 0.013/hour` → **325,800 hours = 37.2 sim-years** — possible for elders
+- Merchant × Transcendentalist: same ~37 years
+- Laborer × Transcendentalist (~700 agents): `0.013 × 0.236 × 1.618 = 0.0050/hour` → **847,200 hours = 96.7 sim-years** — effectively impossible
+- Scholar × Devotionalist (~10K agents): `0.013 × 1.618 × 0.618 = 0.013/hour` → **325,800 hours = 37.2 sim-years** — possible for elder scholars
+- Laborer × Nihilist (~3.9K agents): `0.013 × 0.236 × 0.236 = 0.00072/hour` → **5.86M hours = 670 sim-years** — impossible by design
+- Hunter × Devotionalist: `0.013 × 0.618 × 0.618 = 0.0050/hour` → **96.7 sim-years** — only the most disciplined elder hunters
 
-I lean toward **honest transition** — the simulation has an opportunity here to let the world's structural truth emerge. But this is operator-level decision, not engineering decision.
+These ratios match the operator intuition.
+
+**B2. Liberation distribution projection — DONE.**
+
+Estimated liberated agents at steady state, assuming the world reaches a stable mortality regime and agents who reach the gate before death cumulate as liberated:
+
+| Combination | Pop | Years to gate | % live to qualify | Expected liberated |
+|---|---|---|---|---|
+| Scholar × Transcendentalist | 720 | 14 | ~70% | ~500 |
+| Alchemist × Transcendentalist | 1700 | 22 | ~50% | ~850 |
+| Hunter × Transcendentalist | 200 | 37 | ~25% | ~50 |
+| Merchant × Transcendentalist | 270 | 37 | ~25% | ~70 |
+| Soldier × Transcendentalist | 290 | 60 | ~10% | ~30 |
+| Fisher × Transcendentalist | 430 | 60 | ~10% | ~45 |
+| Scholar × Devotionalist | 10,500 | 37 | ~25% | ~2,600 |
+| Alchemist × Devotionalist | 24,500 | 60 | ~10% | ~2,450 |
+| Hunter × Devotionalist | 3,000 | 97 | ~5% | ~150 |
+| Other Transcendentalist + low-conducive | ~7,000 | 97-670 | <5% | ~200 |
+
+Rough total: **~7,000 liberated at steady state ≈ 1.75% of population.** Within the 1-3% target band. ✓
+
+Distribution by occupation in this projection: Scholars 44%, Alchemists 47%, Hunters 3%, Merchants 1%, others <5%. This is heavily Scholar/Alchemist biased, which matches operator intuition ("philosopher has higher chance"). Hunters are lower than I expected; their occupation weight (Matter ≈ 0.618) gets them practicing but their slower rate means few reach the gate before death. Could be tuned up if it feels wrong empirically.
+
+**Note:** Devotionalist Scholars produce more liberated agents than Transcendentalist Scholars purely because Devotionalists are 15× more numerous. This is correct — most liberated agents will have arrived by faithful practice within their tradition (Devotionalist = practice within faith framework), not by Transcendentalist seeking. Fewer dramatic seekers, more "the quiet scholar who practiced their whole life and crossed at age 60." This is good philosophically.
+
+**B3. Tier 2 contemplate prompt — DEFERRED to R89 implementation.**
+
+**B4. ~~Schema migration honest vs grandfathered~~ — RESOLVED VIA SPLIT-FIELDS ARCHITECTURE.** The original concern (whether to retroactively un-liberate existing agents) is moot: the revised Layer 2 (see §3.2) splits the liberation criterion into `CittaCoherence ≥ 0.7 AND WisdomEffort ≥ gate`. Existing agents keep their `CittaCoherence`; their new `WisdomEffort` defaults to 0; the AND-condition automatically excludes them from the API definition without any code change to their stored state. **The transition is clean by definition.** The only operator-visible effect is that `/api/v1/liberated` returns 0 immediately on Layer 2 deploy and slowly climbs back to 1-3% over sim-years. A nice newspaper moment: "the age of practice begins."
 
 ### 4.3 Layer 3 validation
 
-**C1.** Pool decay rate. Proposed `0.988/sim-week`. At equilibrium between liberated death rate and pool decay:
-- Liberated death rate today: ~80 deaths/week × 55% liberated × small fraction at age >= 30 ≈ ~40/week deaths to pool
-- BUT — under Layers 1+2, liberated population drops to 1-5%, so deaths to pool ≈ ~3-5/week
-- Pool decay 0.012/week × pool = drain rate → equilibrium pool size ~250-400 (under new lib %)
-- Reincarnation P = pool / (400000 × 11.09) ≈ 250/4.4M ≈ 1 in 17,600 → with ~14 births/sim-day at world birth-cap, that's roughly one reincarnation every ~3 sim-days.
+**C1. Pool decay rate — RECALIBRATED.**
 
-That's TOO MANY. Need `Φ⁶` or higher in the denominator. Run the math more carefully and tune. Target: one reincarnation every ~6-12 sim-months.
+Under Layers 1+2 with ~7,000 liberated agents (1.75% of population) at steady state, and assuming:
+- Annual liberated death rate (most are old) ≈ 5-10% of liberated population = 350-700/year
+- Liberated deaths at age ≥ 30 (the pool-eligibility floor) ≈ 95% of those = 330-665/year ≈ 6-13/sim-week to pool
 
-**C2.** Should the reincarnated child's coherence be capped on birth? Proposed `[0.65, 1.0]` is generous. Should be `[0.7, 0.85]` to keep them just-at-threshold, leaving room for them to fall back from trauma.
+At pool decay rate `0.988/week` (`1 - Agnosis × 0.05`), drain ≈ 0.012 × pool. Equilibrium pool size: inflow ÷ drain rate = ~10/0.012 = **~830 spirits at steady state.**
 
-**C3.** Identifying reincarnated agents. Add `reincarnated bool` field on Agent? This is operator-visible UX as well — the Liberated tab could highlight reincarnated children for easy story-finding. Adds a column to schema; small but persistent change.
+Birth rate at the cap ≈ 14/sim-day = 100/sim-week.
+
+P(reincarnation per birth) = pool / (population × Φ^k):
+- Φ⁵ = 11.09: P ≈ 830 / (400K × 11.09) ≈ 1/5340 → 100/5340 ≈ **0.019 reincarnations/week ≈ 1 per year** ✓ within target
+- Φ⁶ = 17.94: P ≈ 1/8650 → 1 per 1.6 years
+- Φ⁷ = 29.03: P ≈ 1/14000 → 1 per 2.6 years
+
+**Recommendation:** use **Φ⁵** in the denominator. ~1 reincarnation per sim-year is the right cadence for a once-in-a-lifetime narrative event. Each reincarnation is rare enough to be newsworthy but frequent enough that any given year has a chance of one. **Resolved.**
+
+**C2. Reincarnated child coherence cap — REVISED.** Proposed initialization range:
+
+```go
+initialCoherence := 0.7 + rng.NormFloat64() * float64(phi.Agnosis*0.1)  // mean 0.7, std ~0.024
+initialCoherence = clamp32(float32(initialCoherence), 0.65, 0.85)
+```
+
+Range `[0.65, 0.85]` (revised from earlier `[0.65, 1.0]`) keeps reincarnated children near the threshold but with room to fall back through trauma. Combined with `WisdomEffort` seeded to `WisdomEffortLiberationGate + Agnosis × 1000 ≈ 4236 + 236 = 4472` (slightly above gate, modest cushion), they qualify for IsLiberated but not by an extreme margin. **Resolved.**
+
+**C3. Reincarnated boolean field — RECOMMEND ADDING.** New field `Reincarnated bool` on Agent. Persisted to SQLite (one new column, simple migration). Visible in:
+- Newspaper context (oracle prompts know they exist)
+- `/api/v1/liberated` response (optional `reincarnated: true` field in liberatedAgent struct)
+- Frontend UI: badge on the Liberated tab next to such agents
+
+Story-mining justifies the column. **Resolved.**
 
 ### 4.4 Layer 4 validation
 
@@ -485,43 +609,58 @@ These should feed into the E-1..E-10 heuristics for power-law detection on liber
 
 ## 5. Open questions / decisions deferred
 
-These are not yet answered. Each is operator-level:
+### Q1. ~~Honest vs. grandfathered Layer 2 migration~~ — RESOLVED via split-fields architecture (§3.2). No retroactive change to agent state needed; the AND-condition does it automatically.
 
-### Q1. Honest vs. grandfathered Layer 2 migration
-See §4.2 B4. Resolution affects whether the world wakes up post-deploy with 55% liberated still (grandfathered) or with most coherence pushed back to Matter (honest). Recommend: honest, with a special "sage retired" event emitted for each agent whose coherence drops by > 0.1 in the migration. Lets the newspaper write about it. But this is operator's call.
+### Q2. Should `WisdomEffort` decay? **Open.** Currently proposed as monotonic. But practice is a habit; long-lapsed practitioners arguably lose what they had. Possible decay at `−1 per sim-week` if no contemplation in last sim-week? Simulates "use it or lose it." Adds complexity. **Recommend ship monotonic first, add decay if Layer 2 produces "ratcheting" pathology** (agents who briefly practiced as adults and then never again counting as liberated forever).
 
-### Q2. Should `WisdomEffort` decay?
-Currently proposed as monotonic. But practice is a habit; long-lapsed practitioners arguably lose what they had. Decay at `−Agnosis × 0.001/week` if no contemplation in last sim-week? Simulates "use it or lose it." Adds complexity but feels right philosophically. Unresolved.
+### Q3. ~~Should reincarnated agents be visible as such?~~ — RESOLVED in §4.3 C3: yes, add `Reincarnated bool` field, surface in API.
 
-### Q3. Should reincarnated agents be visible as such?
-See §4.3 C3. Adds a boolean column. UX: liberated tab could highlight, agent biographies could mention. Adds richness but also risk of "marking" certain agents in a way that feels deterministic.
+### Q4. **Should faction doctrine compliance fill `WisdomEffort` instead of `CittaCoherence`?** Open. Under the revised Layer 2 architecture, doctrine boost still adds to `CittaCoherence` (in the Embodied → Awakening band, capped well below Liberation by sheer rate). But conceptually, doctrine compliance is a *form of practice* — a Crown agent's daily ritual of governance, an Ashen agent's daily reminders of impermanence. **Strong design argument for routing doctrine compliance into `WisdomEffort` instead.** This would make every faction a *path of practice*, with `ActionContemplate` being just one (more direct) route. Trade-off: makes `WisdomEffort` accumulate faster than projected in §4.2 B2; gates may need re-tuning.
 
-### Q4. What does the doctrine boost actually mean now?
-If `Agnosis³ × 0.1` is the new magnitude, doctrine boost is ~0.07/sim-year per faithful adult. That's a lifetime contribution of ~5 coherence-units across 70 years — clamped at Matter (0.618) per Layer 2's hard gate. So doctrine boost contributes to Embodied → Awakening transition but not to Liberation. **Is this what we want?** Maybe doctrine compliance should fill `WisdomEffort` instead of `CittaCoherence` directly — making faction membership a *path of practice* (Crown's "Order is practice," Ashen's "Dissolution is practice") rather than a coherence accumulator. **Strongly worth considering.**
+**Recommend deferring this to after R88-R89 land.** Easier to tune one mechanism at a time. If post-R89 the Transcendentalist-Scholar bias is too strong (e.g. >70% of liberated are Scholars), routing doctrine compliance to WisdomEffort spreads liberation more evenly across factions. Ship straight first, then assess.
 
 ### Q5. Should there be an explicit `Tier3` "Sage" cognition tier?
-If a handful of agents reach genuine Liberation, they're qualitatively different from Tier 2 named characters. Should they get even richer LLM context? This would be a separate round (R92+) but worth flagging now — Liberation in the redesign is rare enough that giving each their own cognition tier becomes affordable. Tier 3 = the world's living philosophers, ~50-200 agents at any time, individually contextualized.
+**Open.** If a handful of agents reach genuine Liberation, they're qualitatively different from Tier 2 named characters. Should they get even richer LLM context? Tier 3 = the world's living philosophers, ~50-200 agents at any time, individually contextualized. This is post-R91 territory — only worth doing once the redesign settles and the cohort is stable.
 
 ### Q6. Disposition lock-in
-Class is currently set at agent creation and never changes. But shouldn't a Nihilist who slowly accumulates wisdom become a Devotionalist or Transcendentalist? Class-as-trajectory rather than class-as-essence. Maybe `WisdomEffort` thresholds promote across class boundaries. But this might be over-engineering.
+**Open.** Class is currently set at agent creation and never changes. Shouldn't a Nihilist who slowly accumulates wisdom become a Devotionalist or Transcendentalist? Class-as-trajectory rather than class-as-essence. Maybe `WisdomEffort` thresholds promote across class boundaries. But this might be over-engineering. **Defer until R88-R91 settle.**
+
+### Q7. **NEW:** Should the Awakening Valley still apply equally to all agents?
+The current `ComputeAlignment` (`internal/agents/soul.go:108-135`) creates a "dark night" valley between Psyche (0.382) and 0.7 — alignment dips before climbing. Under the revised model where `WisdomEffort` is the actual practice mechanism, should the valley scale with practice? An agent who has practiced (`WisdomEffort > 0`) experiences the valley as productive grief. An agent whose coherence rose without practice (a child from cultural drift) experiences it as confusing despair.
+
+If we want to encode this, ComputeAlignment could take WisdomEffort into account — dampening the valley for practitioners. But this adds complexity. **Defer to a future round (R92+) once the basic structure works.**
 
 ---
 
 ## 6. Operator decision points
 
-Before R88 commits, the operator needs to decide:
+After the analyses in §4 closed several questions, only a few remain.
 
-1. **§4.1 A1**: Doctrine boost magnitude. `Agnosis³ × 0.1` vs `Agnosis⁴ × 0.1`. Is liberation an 11-year compliance arc or a 50-year one for the disciplined?
-2. **§4.2 B4 / Q1**: Honest vs. grandfathered Layer 2 migration. Big philosophical question.
-3. **Q4**: Should doctrine compliance fill `WisdomEffort` rather than `CittaCoherence`? Architectural cleanup if yes.
+### Before R88 commits:
 
-Before R89 commits:
-4. **§4.2 B1**: `wisdomEffortLiberationGate` value. Proposed 4236; verify against world distribution.
-5. **§4.2 B3**: Tier 2 contemplate prompt language. Draft and review.
+1. **§3.1 cultural drift cut magnitude.** Proposed: 10× cut (`Agnosis × 0.005` → `Agnosis × 0.0005`) AND end-age narrowed (14-25 → 14-22). Is the 10× too aggressive? Would 5× be safer? Operator gut-check.
 
-Before R90 commits:
-6. **§4.3 C1**: Pool decay rate. Proposed 0.988/week needs recalibration with Layer 1+2 lib%.
-7. **Q3**: Reincarnated agent visibility. Add `reincarnated bool` field?
+2. **§3.1 scholar work cut.** Proposed: 10× cut (`Agnosis × 0.000001` → `Agnosis × 0.0000001`). The original code comment promises scholars liberation in 3.7 years — that promise is now explicitly broken. **Worth aligning with operator that this design intent is rescinded.**
+
+3. **§3.1 doctrine boost cut.** Proposed: 4× cut (`Agnosis² × 0.1` → `Agnosis² × 0.025`) plus age gate. Smaller cut than original draft because the audit revealed doctrine wasn't the dominant inflow.
+
+4. **None of these are deal-breakers.** All can be tuned post-deploy if Layer 1's effect doesn't match the projection.
+
+### Before R89 commits:
+
+5. **§4.2 B1**: `WisdomEffortLiberationGate` value. Recommend `phi.Totality × 1000 ≈ 4236`. Math under proposed weights produces ~7,000 liberated at steady state (1.75% of population) within target band.
+
+6. **§4.2 B3**: Tier 2 contemplate prompt language. Draft when R89 implementation begins.
+
+7. **Q4**: Should faction doctrine compliance route to `WisdomEffort` instead of `CittaCoherence`? **Recommend deferring this question** — ship Layer 2 with doctrine-on-coherence as currently designed, observe distribution, revisit if Transcendentalist-Scholar bias is too dominant.
+
+### Before R90 commits:
+
+8. All §4.3 sub-points are now resolved. **No remaining operator decisions before R90.**
+
+### Before R91 commits:
+
+9. **§4.4 D1**: Run Layers 1-3 in production for at least one sim-year before deciding whether Layer 4 (monastic settlements) is needed. May emerge naturally from existing migration code + Layer 2's settlement-level conducive multiplier.
 
 ---
 
@@ -567,5 +706,6 @@ Layer 2's `wisdomEffortLiberationGate` constant. Too high → no one ever achiev
 | Date | Author | Change |
 |---|---|---|
 | 2026-05-06 | Operator + Claude | Initial draft. All four layers laid out. Validation analyses listed. Nothing committed. |
+| 2026-05-06 | Claude (validation pass) | Ran the validation analyses §4. Major findings: (1) audit was incomplete — 14 inflow paths exist, not 3. Cultural drift is the actual primary candy machine, not doctrine boost. Scholar work explicitly designed to liberate in 3.7 years per code comment. (2) Layer 1 revised to address all 7 population-significant inflow paths, not just doctrine boost. (3) Layer 2 architecture changed from clamp-cap-on-CittaCoherence to **split fields** (`CittaCoherence` + `WisdomEffort`) with AND-condition for liberation. Migration becomes automatic and clean — no retroactive change to agent state. Original "honest vs. grandfathered" question (Q1) made obsolete. (4) `WisdomEffortLiberationGate` proposed at `phi.Totality × 1000 ≈ 4236`; projection produces ~7,000 liberated at steady state (1.75% of population) within target band. (5) Pool decay rate (Layer 3 §4.3 C1) recalibrated; recommend `Φ⁵` denominator → ~1 reincarnation per sim-year. (6) Tier 1 currently has 1 agent in production — archetype growth pipeline mostly dormant, but architecture must still be right for when it populates. (7) Magnitude correction in original §1.2: liberation-death ripple is `Agnosis × 0.05 × c` (code), not `Agnosis × 0.1 × c` (original draft). Several operator decisions resolved (Q1, Q3, all of §4.3). New question added: Q7 (should the Awakening valley scale with WisdomEffort?). |
 
 (Update this section as the doc evolves through future sessions.)
