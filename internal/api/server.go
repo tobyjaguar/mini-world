@@ -436,11 +436,22 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 // (R10 dual-register design, fix #43).
 //
 // This endpoint surfaces the cohort the simulation cares most about.
-// Sortable by coherence descending. Optional `?limit=N` cap.
 //
 // R74: closes the central thematic gap from the 2026-04-28 review —
 // "the simulation believes liberation is the highest good and currently
 // has no observability surface for it."
+//
+// R87: paginated + server-side sort + min_age filter. Surfaced 2026-05-06
+// when the unpaginated response reached 221,683 agents / 83 MB / 90s+
+// load times, freezing the frontend on client-side sort. Query params:
+//   limit    — page size (default 100, max 1000)
+//   offset   — page start (default 0)
+//   sort     — coherence|age|alignment|satisfaction|mood|memories|wealth|name (default coherence)
+//   order    — asc|desc (default desc; for name, default asc)
+//   min_age  — minimum age filter (default 0; reserved for the upcoming
+//              "what does liberation mean for children?" design conversation)
+// Response: {agents, count, total, threshold, limit, offset, sort, order}.
+// `count` retained for backwards compat = total matching agents (pre-slice).
 func (s *Server) handleLiberated(w http.ResponseWriter, r *http.Request) {
 	type liberatedAgent struct {
 		ID             agents.AgentID `json:"id"`
@@ -469,12 +480,54 @@ func (s *Server) handleLiberated(w http.ResponseWriter, r *http.Request) {
 
 	const liberationThreshold float32 = 0.7
 
+	q := r.URL.Query()
+
+	limit := 100
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			if n > 1000 {
+				n = 1000
+			}
+			limit = n
+		}
+	}
+	offset := 0
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	minAge := 0
+	if v := q.Get("min_age"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			minAge = n
+		}
+	}
+	sortKey := q.Get("sort")
+	switch sortKey {
+	case "coherence", "age", "alignment", "satisfaction", "mood", "memories", "wealth", "name":
+		// valid
+	default:
+		sortKey = "coherence"
+	}
+	order := q.Get("order")
+	if order != "asc" && order != "desc" {
+		if sortKey == "name" {
+			order = "asc"
+		} else {
+			order = "desc"
+		}
+	}
+
 	var result []liberatedAgent
 	for _, a := range s.Sim.Agents {
 		if !a.Alive {
 			continue
 		}
 		if a.Soul.CittaCoherence < liberationThreshold {
+			continue
+		}
+		if int(a.Age) < minAge {
 			continue
 		}
 
@@ -514,19 +567,54 @@ func (s *Server) handleLiberated(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	total := len(result)
+
+	desc := order == "desc"
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Coherence > result[j].Coherence
+		var less bool
+		switch sortKey {
+		case "age":
+			less = result[i].Age < result[j].Age
+		case "alignment":
+			less = result[i].Alignment < result[j].Alignment
+		case "satisfaction":
+			less = result[i].Satisfaction < result[j].Satisfaction
+		case "mood":
+			less = result[i].EffMood < result[j].EffMood
+		case "memories":
+			less = result[i].Memories < result[j].Memories
+		case "wealth":
+			less = result[i].Wealth < result[j].Wealth
+		case "name":
+			less = result[i].Name < result[j].Name
+		default: // coherence
+			less = result[i].Coherence < result[j].Coherence
+		}
+		if desc {
+			return !less
+		}
+		return less
 	})
 
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 && limit < len(result) {
-			result = result[:limit]
+	if offset >= total {
+		result = result[:0]
+	} else {
+		end := offset + limit
+		if end > total {
+			end = total
 		}
+		result = result[offset:end]
 	}
 
 	writeJSON(w, map[string]any{
-		"count":     len(result),
+		"count":     total, // backwards compat: total matching, pre-slice
+		"total":     total,
 		"threshold": liberationThreshold,
+		"limit":     limit,
+		"offset":    offset,
+		"sort":      sortKey,
+		"order":     order,
+		"min_age":   minAge,
 		"agents":    result,
 	})
 }
