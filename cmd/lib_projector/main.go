@@ -127,15 +127,17 @@ var factionDistribution = [NumFactions + 1]float64{
 
 // SimAgent — minimal agent state for the projector.
 type SimAgent struct {
-	Age          int
-	Occupation   int
-	Class        int
-	FactionID    int
-	Coherence    float64
-	WisdomEffort uint32
-	Tier         int     // 0, 1, or 2
-	Wealth       float64 // for Ashen doctrine eligibility check
-	HexHealth    float64 // for VC doctrine eligibility check
+	Age           int
+	Occupation    int
+	Class         int
+	FactionID     int
+	Coherence     float64
+	WisdomEffort  uint32
+	Tier          int     // 0, 1, or 2
+	Wealth        float64 // for Ashen doctrine eligibility check
+	HexHealth     float64 // for VC doctrine eligibility check
+	Reincarnated  bool    // Layer 3: carries over wisdom from a deceased liberated elder
+	SettlementType int    // Layer 4: 0=conflict, 1=normal, 2=monastic
 }
 
 // IsLiberated under the proposed split-fields criterion (Layer 2).
@@ -250,6 +252,25 @@ type Config struct {
 	// Trauma decay can still push below Matter; reincarnation can bypass.
 	NaturalCap float64 // 0 = no cap; Matter = Layer 1+ cap
 
+	// Layer 3 — Reincarnation
+	UseReincarnation         bool
+	ReincarnationDenomFactor float64 // P = pool / (pop * Φ^k); k tunable
+	ReincarnatedSeedCoherenceMin float64
+	ReincarnatedSeedCoherenceMax float64
+	ReincarnatedSeedWisdomMin    uint32
+	ReincarnatedSeedWisdomMax    uint32
+	PoolDecayPerWeek         float64 // pool *= (1 - this)
+	PoolEligibilityMinAge    int     // age in years; deceased agents must be >= this to add to pool
+
+	// Layer 4 — Monastic settlements
+	UseMonasticSettlements        bool
+	MonasticSettlementShare       float64 // fraction of agents in monastic settlements
+	ConflictSettlementShare       float64 // fraction of agents in conflict settlements
+	MonasticPracticeMultiplier    float64 // boost on practice probability
+	ConflictPracticeMultiplier    float64 // suppression on practice probability
+	ConflictTraumaMultiplier      float64 // amplification of trauma rate
+	AdeptMigrationProb            float64 // weekly probability that an adept (high WisdomEffort) migrates to monastic
+
 	// Birth coherence model
 	BirthBaseCoherence float64 // mean
 	BirthBaseStdev     float64
@@ -344,6 +365,27 @@ func Layer1Config() Config {
 func Layer1Plus2Config() Config {
 	c := Layer1Config()
 	c.Name = "layer1+2"
+	return withActivePractice(c)
+}
+
+// Layer1Plus2Plus3Config — Layer 1 + Layer 2 + Reincarnation
+func Layer1Plus2Plus3Config() Config {
+	c := Layer1Plus2Config()
+	c.Name = "layer1+2+3"
+	return withReincarnation(c)
+}
+
+// AllLayersConfig — all four layers combined
+func AllLayersConfig() Config {
+	c := Layer1Plus2Config()
+	c.Name = "layer1+2+3+4"
+	c = withReincarnation(c)
+	c = withMonasticSettlements(c)
+	return c
+}
+
+// withActivePractice adds Layer 2 to a config.
+func withActivePractice(c Config) Config {
 	c.UseSplitFields = false // unnecessary under cap architecture
 	c.UseActivePractice = true
 	c.WisdomEffortGate = 0 // not used as gate; counter only
@@ -381,12 +423,50 @@ func Layer1Plus2Config() Config {
 	return c
 }
 
+// withReincarnation adds Layer 3 to a config.
+//
+// Calibration target: ~1 reincarnation per sim-year at steady state with
+// ~7K liberated agents (Layer 1+2 result). With pool decay 0.012/week,
+// equilibrium pool ≈ deaths-to-pool / decay rate. Layer 1+2 produces
+// ~1.2% liberated × ~0.5% annual mortality of liberated × 95% age >= 30
+// ≈ 0.0057% × pop = 600/year-pop = 11.5/week deaths to pool.
+// Equilibrium pool ≈ 11.5/0.012 = 960.
+// P(reincarnation) = 960 / (10000 * Φ^k). For Φ⁵ = 11.09: P ≈ 0.0087/birth.
+// At ~5 births/sim-week (replenishment for 0.5%/year mortality), reincarnations
+// per week ≈ 0.043 → ~2.2 per sim-year. Slightly above target; tunable.
+func withReincarnation(c Config) Config {
+	c.UseReincarnation = true
+	c.ReincarnationDenomFactor = phi.Phi * phi.Phi * phi.Phi * phi.Phi * phi.Phi // Φ⁵ ≈ 11.09
+	c.ReincarnatedSeedCoherenceMin = 0.7
+	c.ReincarnatedSeedCoherenceMax = 0.85
+	c.ReincarnatedSeedWisdomMin = 100
+	c.ReincarnatedSeedWisdomMax = 300
+	c.PoolDecayPerWeek = phi.Agnosis * 0.05 // ≈0.012 (0.988 retention)
+	c.PoolEligibilityMinAge = 30 // years
+	return c
+}
+
+// withMonasticSettlements adds Layer 4 to a config.
+func withMonasticSettlements(c Config) Config {
+	c.UseMonasticSettlements = true
+	c.MonasticSettlementShare = 0.20 // 20% of agents in monastic settlements
+	c.ConflictSettlementShare = 0.10 // 10% in conflict settlements
+	c.MonasticPracticeMultiplier = 1 + phi.Agnosis * phi.Being // ≈1.382 (subtle but real)
+	c.ConflictPracticeMultiplier = 1 - phi.Agnosis * 0.5       // ≈0.882
+	c.ConflictTraumaMultiplier = 1 + phi.Being                  // ≈2.618 (war zones see more trauma)
+	c.AdeptMigrationProb = 0.005 // ~0.5% chance per week for high-WisdomEffort agents
+	return c
+}
+
 // Run — execute the projection and return weekly liberation %.
 type RunResult struct {
-	WeeklyLiberatedPct []float64
-	FinalAgents        []SimAgent
-	TotalDeaths        int
-	TotalBirths        int
+	WeeklyLiberatedPct      []float64
+	FinalAgents             []SimAgent
+	TotalDeaths             int
+	TotalBirths             int
+	TotalReincarnations     int
+	WeeklyPoolSize          []int
+	PeakPoolSize            int
 }
 
 func runProjection(cfg Config, seed int64, weeks int, agentCount int, ageDistribution string) RunResult {
@@ -395,33 +475,82 @@ func runProjection(cfg Config, seed int64, weeks int, agentCount int, ageDistrib
 
 	result := RunResult{
 		WeeklyLiberatedPct: make([]float64, 0, weeks),
+		WeeklyPoolSize:     make([]int, 0, weeks),
 	}
+
+	// Layer 3: liberated spirits pool
+	libPool := 0.0 // kept as float for fractional decay
 
 	for w := 0; w < weeks; w++ {
 		// 1. Apply each coherence path
 		applyPaths(rng, agents, cfg)
 
-		// 2. Births / deaths (maintain population stability)
+		// 2. Layer 4: adept migration to monastic settlements
+		if cfg.UseMonasticSettlements && cfg.AdeptMigrationProb > 0 {
+			for i := range agents {
+				a := &agents[i]
+				// Adept = WisdomEffort > 100 and Transcendentalist class
+				if a.WisdomEffort > 100 && a.Class == ClassTranscendentalist &&
+					a.SettlementType != 2 && rng.Float64() < cfg.AdeptMigrationProb {
+					a.SettlementType = 2 // migrate to monastic
+				}
+			}
+		}
+
+		// 3. Births / deaths (maintain population stability)
 		alive := agents[:0]
+		deathsToPool := 0
 		for i := range agents {
 			a := &agents[i]
-			a.Age++ // sim-week aging is too granular; use 1 year per 52 weeks
-			// Actually simpler: stochastic mortality per week
-			pDie := mortalityWeekly(a.Age / 52)
+			a.Age++ // age in weeks
+			ageY := a.Age / 52
+			pDie := mortalityWeekly(ageY)
 			if rng.Float64() < pDie {
 				result.TotalDeaths++
+				// Layer 3: liberated agents who lived past PoolEligibilityMinAge contribute
+				// to the spirits pool
+				if cfg.UseReincarnation && a.IsLiberated(cfg.UseSplitFields, cfg.WisdomEffortGate) &&
+					ageY >= cfg.PoolEligibilityMinAge {
+					libPool++
+					deathsToPool++
+				}
 				continue
 			}
 			alive = append(alive, *a)
 		}
-		// Replenish to target population
+
+		// Layer 3: pool decay
+		if cfg.UseReincarnation {
+			libPool *= (1 - cfg.PoolDecayPerWeek)
+			if libPool < 0 {
+				libPool = 0
+			}
+		}
+
+		// Replenish to target population (with reincarnation rolls)
 		for len(alive) < agentCount {
-			alive = append(alive, spawnNewborn(rng, alive, cfg))
+			newborn := spawnNewborn(rng, alive, cfg)
+			// Layer 3: roll for reincarnation
+			if cfg.UseReincarnation && libPool > 0 {
+				pReincarn := libPool / (float64(agentCount) * cfg.ReincarnationDenomFactor)
+				if rng.Float64() < pReincarn {
+					// Reincarnated child — seed with elevated coherence and inherited wisdom
+					libPool--
+					newborn.Reincarnated = true
+					seedC := cfg.ReincarnatedSeedCoherenceMin +
+						rng.Float64()*(cfg.ReincarnatedSeedCoherenceMax-cfg.ReincarnatedSeedCoherenceMin)
+					newborn.Coherence = seedC
+					newborn.WisdomEffort = cfg.ReincarnatedSeedWisdomMin +
+						uint32(rng.Intn(int(cfg.ReincarnatedSeedWisdomMax-cfg.ReincarnatedSeedWisdomMin)))
+					result.TotalReincarnations++
+				}
+			}
+			alive = append(alive, newborn)
 			result.TotalBirths++
 		}
 		agents = alive
 
-		// 3. Tick liberation %
+		// Track liberation %
 		libCount := 0
 		for i := range agents {
 			if agents[i].IsLiberated(cfg.UseSplitFields, cfg.WisdomEffortGate) {
@@ -429,6 +558,10 @@ func runProjection(cfg Config, seed int64, weeks int, agentCount int, ageDistrib
 			}
 		}
 		result.WeeklyLiberatedPct = append(result.WeeklyLiberatedPct, float64(libCount)/float64(len(agents)))
+		result.WeeklyPoolSize = append(result.WeeklyPoolSize, int(libPool))
+		if int(libPool) > result.PeakPoolSize {
+			result.PeakPoolSize = int(libPool)
+		}
 	}
 
 	result.FinalAgents = agents
@@ -508,7 +641,12 @@ func applyPaths(rng *rand.Rand, agents []SimAgent, cfg Config) {
 
 		// Universal trauma decay (Layer 1 NEW)
 		if cfg.TraumaPerYear > 0 {
-			traumaExpected := cfg.TraumaPerYear / 52.0
+			traumaRate := cfg.TraumaPerYear
+			// Layer 4: conflict settlements amplify trauma rate
+			if cfg.UseMonasticSettlements && a.SettlementType == 0 {
+				traumaRate *= cfg.ConflictTraumaMultiplier
+			}
+			traumaExpected := traumaRate / 52.0
 			nTrauma := poisson(rng, traumaExpected)
 			for n := 0; n < nTrauma; n++ {
 				intensity := 0.3 + rng.Float64()*0.7
@@ -539,6 +677,15 @@ func applyPaths(rng *rand.Rand, agents []SimAgent, cfg Config) {
 				const eligibleHours = 20.0
 				const samathaPerTick = 0.0005 // gradual deepening per practice tick (calibrated 2026-05-06 to land mean ~1.5% liberation in 80yr run)
 				practiceProb := cfg.BasePracticeProb * occW * clsW
+				// Layer 4: settlement-type modifies practice probability
+				if cfg.UseMonasticSettlements {
+					switch a.SettlementType {
+					case 2: // monastic
+						practiceProb *= cfg.MonasticPracticeMultiplier
+					case 0: // conflict
+						practiceProb *= cfg.ConflictPracticeMultiplier
+					}
+				}
 				expectedTicks := practiceProb * eligibleHours
 				ticks := poisson(rng, expectedTicks)
 				a.WisdomEffort += uint32(ticks)
@@ -641,7 +788,24 @@ func generateAgent(rng *rand.Rand, ageDistribution string, cfg Config) SimAgent 
 		a.Tier = 1
 	}
 
+	// Layer 4: settlement type assignment
+	a.SettlementType = pickSettlementType(rng, cfg)
+
 	return a
+}
+
+// pickSettlementType assigns 0=conflict, 1=normal, 2=monastic per the config shares.
+func pickSettlementType(rng *rand.Rand, cfg Config) int {
+	if !cfg.UseMonasticSettlements {
+		return 1 // normal
+	}
+	r := rng.Float64()
+	if r < cfg.ConflictSettlementShare {
+		return 0
+	} else if r < cfg.ConflictSettlementShare+cfg.MonasticSettlementShare {
+		return 2
+	}
+	return 1
 }
 
 func spawnNewborn(rng *rand.Rand, currentAgents []SimAgent, cfg Config) SimAgent {
@@ -678,14 +842,15 @@ func spawnNewborn(rng *rand.Rand, currentAgents []SimAgent, cfg Config) SimAgent
 	}
 
 	return SimAgent{
-		Age:        0,
-		Occupation: occ,
-		Class:      class,
-		FactionID:  faction,
-		Coherence:  c,
-		Tier:       0,
-		Wealth:     0,
-		HexHealth:  0.3 + rng.Float64()*0.6,
+		Age:            0,
+		Occupation:     occ,
+		Class:          class,
+		FactionID:      faction,
+		Coherence:      c,
+		Tier:           0,
+		Wealth:         0,
+		HexHealth:      0.3 + rng.Float64()*0.6,
+		SettlementType: pickSettlementType(rng, cfg),
 	}
 }
 
@@ -706,12 +871,14 @@ func pickWeighted(rng *rand.Rand, weights []float64) int {
 
 // Summary stats for end-of-run analysis.
 type Summary struct {
-	FinalLiberated   float64
-	MedianAge        int
-	LiberatedByOcc   map[string]float64
-	LiberatedByClass map[string]float64
-	LiberatedUnder16 int
-	TotalAgents      int
+	FinalLiberated      float64
+	MedianAge           int
+	LiberatedByOcc      map[string]float64
+	LiberatedByClass    map[string]float64
+	LiberatedUnder16    int
+	ReincarnatedAlive   int
+	ReincarnatedAndLib  int
+	TotalAgents         int
 }
 
 func summarize(result RunResult, cfg Config) Summary {
@@ -735,12 +902,18 @@ func summarize(result RunResult, cfg Config) Summary {
 		ageY := a.Age / 52
 		occCount[a.Occupation]++
 		classCount[a.Class]++
+		if a.Reincarnated {
+			s.ReincarnatedAlive++
+		}
 		if a.IsLiberated(cfg.UseSplitFields, cfg.WisdomEffortGate) {
 			libByOcc[a.Occupation]++
 			libByClass[a.Class]++
 			libAges = append(libAges, ageY)
 			if ageY < 16 {
 				s.LiberatedUnder16++
+			}
+			if a.Reincarnated {
+				s.ReincarnatedAndLib++
 			}
 		}
 	}
@@ -801,17 +974,25 @@ func debugTopAgents(result RunResult, cfg Config) {
 }
 
 func runCompare(seed int64, weeks, agents int, startAge string) {
-	configs := []Config{CurrentRulesConfig(), Layer1Config(), Layer1Plus2Config()}
+	configs := []Config{
+		CurrentRulesConfig(),
+		Layer1Config(),
+		Layer1Plus2Config(),
+		Layer1Plus2Plus3Config(),
+		AllLayersConfig(),
+	}
 
 	fmt.Printf("\n=== Liberation Projection (seed=%d weeks=%d agents=%d start=%s) ===\n\n", seed, weeks, agents, startAge)
-	fmt.Printf("%-12s %-10s %-12s %-12s %-12s\n", "Scenario", "Final %", "Median age", "Under 16", "Total agents")
-	fmt.Printf("%s\n", "------------------------------------------------------------")
+	fmt.Printf("%-14s %-10s %-10s %-10s %-10s %-12s %-10s %-10s %-10s\n",
+		"Scenario", "Final %", "MedAge", "Under16", "Total", "TotReincarn", "RAlive", "RLib", "PeakPool")
+	fmt.Printf("%s\n", "----------------------------------------------------------------------------------------------------")
 
 	for _, cfg := range configs {
 		result := runProjection(cfg, seed, weeks, agents, startAge)
 		s := summarize(result, cfg)
-		fmt.Printf("%-12s %-10.2f %-12d %-12d %-12d\n",
-			cfg.Name, s.FinalLiberated*100, s.MedianAge, s.LiberatedUnder16, s.TotalAgents)
+		fmt.Printf("%-14s %-10.2f %-10d %-10d %-10d %-12d %-10d %-10d %-10d\n",
+			cfg.Name, s.FinalLiberated*100, s.MedianAge, s.LiberatedUnder16, s.TotalAgents,
+			result.TotalReincarnations, s.ReincarnatedAlive, s.ReincarnatedAndLib, result.PeakPoolSize)
 	}
 
 	fmt.Println()
