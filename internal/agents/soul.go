@@ -78,6 +78,13 @@ type AgentSoul struct {
 	// children (Layer 3) are seeded with non-zero WisdomEffort representing
 	// carried-over practice from a deceased liberated elder.
 	WisdomEffort uint32 `json:"wisdom_effort"`
+
+	// R90 (Doc 25 Layer 3): true if this agent was born reincarnated —
+	// seeded with elevated coherence and inherited WisdomEffort from the
+	// LiberatedSpiritsPool. Surfaced in oracle prompts and biographies for
+	// narrative continuity. The agent must still choose to practice as an
+	// adult to maintain liberation; ~50% fall back through trauma.
+	Reincarnated bool `json:"reincarnated,omitempty"`
 }
 
 // StateFromCoherence derives the StateOfBeing from a coherence value.

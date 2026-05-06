@@ -70,6 +70,13 @@ type Simulation struct {
 	// When it reaches 72 (3 sim-days), crop failure events fire.
 	HeatStreakHours int
 
+	// R90 (Doc 25 Layer 3): pool of carried-over wisdom from deceased
+	// liberated agents (age >= 30 at death). Each weekly tick the pool
+	// decays at PoolDecayPerWeek; each newborn rolls reincarnation
+	// probability against pool/(pop * Φ⁵). Persisted via R76 registry
+	// (`liberated_spirits_pool` field).
+	LiberatedSpiritsPool int
+
 	// Last newspaper content (R79). Persisted via the registry so successive
 	// editions can reference prior storylines, threading multi-week arcs.
 	// Set by the API handler after each successful LLM generation.
@@ -525,6 +532,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processSettlementAbandonment(tick)
 	s.compactAbandonedSettlements()
 	s.BuildSettlementNeighbors() // Rebuild after abandoned settlements removed.
+	s.processSpiritsPoolDecay()  // R90 Layer 3: spirits not claimed slowly fade
 	s.processWeeklyTier2Replenishment()
 	s.updateArchetypeTemplates(tick)
 	s.processOracleVisions(tick)

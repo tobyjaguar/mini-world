@@ -61,6 +61,23 @@ var persistedFields = []PersistedField{
 	{Name: "deaths", Save: saveDeaths, Load: loadDeaths},
 	{Name: "heat_streak_hours", Save: saveHeatStreakHours, Load: loadHeatStreakHours},
 	{Name: "last_newspaper", Save: saveLastNewspaper, Load: loadLastNewspaper},
+	{Name: "liberated_spirits_pool", Save: saveLiberatedSpiritsPool, Load: loadLiberatedSpiritsPool},
+}
+
+// R90 (Doc 25 Layer 3): persist the LiberatedSpiritsPool counter so
+// reincarnation cadence carries across restarts.
+func saveLiberatedSpiritsPool(sim *engine.Simulation, db *DB) error {
+	return db.SaveMeta("liberated_spirits_pool", strconv.Itoa(sim.LiberatedSpiritsPool))
+}
+
+func loadLiberatedSpiritsPool(sim *engine.Simulation, db *DB) {
+	v, err := db.GetMeta("liberated_spirits_pool")
+	if err != nil {
+		return
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		sim.LiberatedSpiritsPool = n
+	}
 }
 
 // SaveLatePersisted iterates the registry and saves every late field. Called

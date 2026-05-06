@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand"
 
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/eventproto"
@@ -154,6 +155,16 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 						}
 					}
 					desc = fmt.Sprintf("%s, a sage of %s, has passed at age %d. Their light is extinguished.", a.Name, settName, a.Age)
+
+					// R90 (Doc 25 Layer 3): liberated agents who lived past
+					// age 30 contribute to the LiberatedSpiritsPool. Their
+					// accumulated wisdom is conserved as spirit-stuff that
+					// may find a new vessel in a future reincarnated child.
+					// The age 30 floor prevents reincarnation cycles being
+					// seeded by reincarnated children themselves.
+					if a.Age >= ReincarnationAgeFloor {
+						s.LiberatedSpiritsPool++
+					}
 				}
 
 				s.EmitEvent(Event{
@@ -413,6 +424,16 @@ func (s *Simulation) processBirths(tick uint64) {
 			// Round 24: removed birth-time producer gate.
 			// With 0.26% producers, this never fires, but removing it prevents
 			// re-triggering once producers recover. Occupation is identity.
+
+			// R90 (Doc 25 Layer 3): roll for reincarnation. Most births are
+			// ordinary; rarely (~1 per 2 sim-years at production scale), a
+			// newborn is seeded from the LiberatedSpiritsPool with elevated
+			// coherence and inherited WisdomEffort. Only path for an under-16
+			// agent to be liberated.
+			birthRng := rand.New(rand.NewSource(int64(tick) + int64(child.ID)))
+			if reincarnated, seedC, seedW := s.rollReincarnation(birthRng); reincarnated {
+				s.applyReincarnation(child, seedC, seedW, tick)
+			}
 
 			s.addAgent(child)
 
