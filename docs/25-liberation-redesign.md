@@ -152,6 +152,53 @@ A liberated agent dying does not erase liberation from the world. It creates a s
 
 Each layer ships independently. Each is observable. Each is justified empirically before committing to the next.
 
+### 3.0 Current canonical architecture (validated 2026-05-06 via projector)
+
+> **Architecture evolved during validation.** The original §3.2 proposed split-fields (`CittaCoherence` + `WisdomEffort` with AND-condition for liberation). After running `cmd/lib_projector` against synthetic populations matching production demographics, a cleaner architecture emerged:
+
+> **Single field (`CittaCoherence`) with hard cap at `Matter` (≈0.618) on natural inflows.** Drift fills the Embodied → Awakening band but cannot bridge the Awakening Valley to Liberation. **Only deliberate practice insight events bypass the cap.** This means:
+
+> - Liberation criterion stays `CittaCoherence >= 0.7` (no AND-condition needed)
+> - `WisdomEffort` retained as a cosmetic counter for narrative depth (biographies, oracle context) but does NOT gate the API surface
+> - All in-simulation branches that read raw coherence (governance leadership, faction recruitment, crime mitigation, archetype assignment, etc.) keep working unchanged — they read the variable; the variable still means "inner clarity"
+> - The hard cap at Matter is the **structural** mechanism that prevents drift-liberation; without it, Layer 1 cuts alone aren't enough (validated empirically — see §4.x)
+
+> **Validated calibrated constants (Layer 1 + Layer 2 together):**
+
+> | Parameter | Value | Notes |
+> |---|---|---|
+> | `NaturalCap` | `phi.Matter ≈ 0.618` | drift inflows cannot push past this |
+> | `BirthHardCap` | `phi.Matter` | newborns can't be born past this either |
+> | `samathaPerTick` | `0.0005` | gradual deepening per practice tick (every tick) |
+> | `InsightProb` | `0.01` | per practice tick, probability of vipassanā insight |
+> | `InsightCoherenceGain` | `0.025` | size of insight bump (when it fires) |
+> | `BasePracticeProb` | `phi.Agnosis³ ≈ 0.013` | per hour when eligible |
+> | `WisdomEffortLiberationGate` | `0` (not used as gate) | counter only |
+> | Cultural drift cut | `0.005 → 0.0017` (3× cut) | + end age 25→22 |
+> | Doctrine boost cut | `0.1 → 0.04` (2.5× cut) | + age 16 gate |
+> | Scholar work cut | `× 0.3` | comment in code rescinded |
+> | Tier 1 archetype cut | `× 0.3` | mostly defensive |
+> | Mentorship cut | `× 0.5` | |
+> | Witness death gain cut | `× 0.5` | |
+> | `TraumaPerYear` | `0.33` | avg ~1 event per 3 years |
+> | `TraumaPerEvent` | `phi.Agnosis × 0.05` | base coherence cost |
+> | `TraumaLibMult` | `2.0` | extraction paradox |
+> | `TraumaCap` | `phi.Agnosis × 0.5` | single-event cap |
+
+> **Validated outcomes (5-seed sweep, 80 sim-year runs):**
+> - Liberated proportion: **1.11-1.35%** (target 1-3% ✓)
+> - Median age of liberated agent: **44-47** (target 50+ — slightly young but acceptable)
+> - Children liberated: **0** (target ≤ a few via reincarnation only ✓)
+> - Distribution by occupation:
+>   - Scholar: 11.61% within-occupation ✓ (operator: "philosopher higher chance")
+>   - Alchemist: 3.41% ✓
+>   - Hunter: 0.64% ✓ (operator: "hunter has time to contemplate in nature")
+>   - Merchant: 0.19% ✓ (operator: "merchant has free time")
+>   - Laborer: 0.02% ✓ (operator: "working class less likely")
+> - All top-10 by coherence are **Transcendentalist** class — the rare seeker class (3% of pop)
+
+> **The §3.1 and §3.2 sections below remain as the design history but the implementation should follow the canonical architecture above.** Layer 3 (reincarnation) and Layer 4 (monastic settlements) are unchanged — see §3.3 and §3.4.
+
 ### Layer 1 — Stop the candy machine (R88 candidate)
 
 **Goal:** drop the liberated proportion from 55% to 10-20% by fixing the **multiple convergent inflow paths**, not just doctrine boost. No new mechanics — just constants and conditions in existing files.
@@ -707,5 +754,6 @@ Layer 2's `wisdomEffortLiberationGate` constant. Too high → no one ever achiev
 |---|---|---|
 | 2026-05-06 | Operator + Claude | Initial draft. All four layers laid out. Validation analyses listed. Nothing committed. |
 | 2026-05-06 | Claude (validation pass) | Ran the validation analyses §4. Major findings: (1) audit was incomplete — 14 inflow paths exist, not 3. Cultural drift is the actual primary candy machine, not doctrine boost. Scholar work explicitly designed to liberate in 3.7 years per code comment. (2) Layer 1 revised to address all 7 population-significant inflow paths, not just doctrine boost. (3) Layer 2 architecture changed from clamp-cap-on-CittaCoherence to **split fields** (`CittaCoherence` + `WisdomEffort`) with AND-condition for liberation. Migration becomes automatic and clean — no retroactive change to agent state. Original "honest vs. grandfathered" question (Q1) made obsolete. (4) `WisdomEffortLiberationGate` proposed at `phi.Totality × 1000 ≈ 4236`; projection produces ~7,000 liberated at steady state (1.75% of population) within target band. (5) Pool decay rate (Layer 3 §4.3 C1) recalibrated; recommend `Φ⁵` denominator → ~1 reincarnation per sim-year. (6) Tier 1 currently has 1 agent in production — archetype growth pipeline mostly dormant, but architecture must still be right for when it populates. (7) Magnitude correction in original §1.2: liberation-death ripple is `Agnosis × 0.05 × c` (code), not `Agnosis × 0.1 × c` (original draft). Several operator decisions resolved (Q1, Q3, all of §4.3). New question added: Q7 (should the Awakening valley scale with WisdomEffort?). |
+| 2026-05-06 | Claude (projector validation) | **Built `cmd/lib_projector` — agent-based simulation calibrating Doc 25 constants against synthetic population matching production demographics.** Several iterations and bug fixes (mortality 80× too high; homemade exp approximation broken; age-in-weeks vs years confusion). **Architectural insight emerged from calibration: split-fields (AND-condition) is unnecessary under a cleaner architecture — `NaturalCap = Matter` (single-field, drift caps at Matter, only practice insights can bridge to Liberation).** This replaces the §3.2 split-fields design with a simpler single-field-with-cap design. WisdomEffort retained as cosmetic counter for narrative but not as gate. Liberation criterion returns to simple `c >= 0.7`. **Calibrated constants validated across 5 seeds (80 sim-yr runs):** Layer 1 alone produces 0% liberated (cap holds, by design); Layer 1 + Layer 2 produces 1.11-1.35% liberated, median age 44-47, **zero children**, occupation distribution Scholar 11.61% / Alchemist 3.41% / Hunter 0.64% / Merchant 0.19% / Laborer 0.02% — **matches operator intuition exactly**. Practice mechanics tuned: `samathaPerTick = 0.0005`, `InsightProb = 0.01`, `InsightCoherenceGain = 0.025`, `BasePracticeProb = phi.Agnosis³`. Trauma decay tuned to 0.33 events/year average. Major architecture change to §3.1 and §3.2 needed to reflect the cap-based single-field design. |
 
 (Update this section as the doc evolves through future sessions.)
