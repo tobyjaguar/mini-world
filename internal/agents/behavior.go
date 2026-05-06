@@ -62,9 +62,16 @@ func Tier0Decide(a *Agent) Action {
 	// This check happens BEFORE the priority switch so practice can interrupt
 	// even routine work — the practitioner steps away to meditate.
 	if ContemplationEligible(a) {
+		// R91 (Doc 25 Layer 4): settlement-level boost on practice probability.
+		// Default 1.0 (no boost); higher in monastic settlements; lower in
+		// conflict zones. Refreshed weekly by computeMonasticBoosts.
+		boost := float64(a.PracticeBoost)
+		if boost <= 0 {
+			boost = 1.0
+		}
 		// Use package-level rand for per-agent stochasticity (acceptable
 		// non-determinism — one of many stochastic sources in the sim).
-		if rand.Float64() < ContemplationProbability(a) {
+		if rand.Float64() < ContemplationProbability(a)*boost {
 			return Action{AgentID: a.ID, Kind: ActionContemplate, Detail: a.Name + " sits in contemplation"}
 		}
 	}

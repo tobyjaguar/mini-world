@@ -106,6 +106,15 @@ type Agent struct {
 	// Production accumulator — fractional extraction progress toward producing 1 unit.
 	ProductionProgress float32 `json:"production_progress,omitempty"`
 
+	// R91 (Doc 25 Layer 4): cached settlement-level multiplier on
+	// ContemplationProbability. Refreshed weekly from monastery score.
+	// 1.0 = neutral (default for fresh agents); >1.0 = monastic boost
+	// (~1.38 in high-VC peaceful settlements); <1.0 = conflict suppression
+	// (~0.88 in war zones). Persisted via JSON; loaded value defaults to 0
+	// for legacy agents and is re-initialized to 1.0 on first read by the
+	// recompute pass.
+	PracticeBoost float32 `json:"practice_boost,omitempty"`
+
 	// Metadata
 	BornTick     uint64 `json:"born_tick"`
 	LastWorkTick uint64 `json:"last_work_tick"` // Last tick agent successfully produced from hex resources

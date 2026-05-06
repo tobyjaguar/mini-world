@@ -533,6 +533,7 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.compactAbandonedSettlements()
 	s.BuildSettlementNeighbors() // Rebuild after abandoned settlements removed.
 	s.processSpiritsPoolDecay()  // R90 Layer 3: spirits not claimed slowly fade
+	s.computeMonasticBoosts()     // R91 Layer 4: refresh per-agent practice multipliers
 	s.processWeeklyTier2Replenishment()
 	s.updateArchetypeTemplates(tick)
 	s.processOracleVisions(tick)
