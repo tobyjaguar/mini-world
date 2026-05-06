@@ -4,6 +4,8 @@
 package agents
 
 import (
+	"math/rand"
+
 	"github.com/talgya/mini-world/internal/phi"
 )
 
@@ -18,15 +20,16 @@ type Action struct {
 type ActionKind uint8
 
 const (
-	ActionIdle       ActionKind = iota
-	ActionEat                          // Consume food from inventory
-	ActionWork                         // Produce goods at current location
-	ActionForage                       // Gather food from the land
-	ActionTrade                        // Buy/sell at local market
-	ActionTravel                       // Move toward destination
-	ActionRest                         // Recover health/mood
-	ActionSocialize                    // Interact with nearby agent
-	ActionBuyFood                      // Purchase food from settlement market
+	ActionIdle        ActionKind = iota
+	ActionEat                    // Consume food from inventory
+	ActionWork                   // Produce goods at current location
+	ActionForage                 // Gather food from the land
+	ActionTrade                  // Buy/sell at local market
+	ActionTravel                 // Move toward destination
+	ActionRest                   // Recover health/mood
+	ActionSocialize              // Interact with nearby agent
+	ActionBuyFood                // Purchase food from settlement market
+	ActionContemplate            // R89 Doc 25 Layer 2: deliberate practice — bhāvanā / cultivation
 )
 
 // Decide determines what an agent does this tick, routing by cognition tier.
@@ -49,6 +52,21 @@ func Tier0Decide(a *Agent) Action {
 	// Merchants in transit skip normal decisions.
 	if a.TravelTicksLeft > 0 {
 		return Action{AgentID: a.ID, Kind: ActionTravel, Detail: a.Name + " travels with cargo"}
+	}
+
+	// R89 (Doc 25 Layer 2): contemplation. Eligible agents (four foundations
+	// met, age >= 16) may choose deliberate practice. Per-tick probability
+	// gated by occupation × class. The probability is small per-tick but
+	// compounds: a Scholar/Transcendentalist practicing for decades earns
+	// the WisdomEffort and insight events that bridge the Awakening Valley.
+	// This check happens BEFORE the priority switch so practice can interrupt
+	// even routine work — the practitioner steps away to meditate.
+	if ContemplationEligible(a) {
+		// Use package-level rand for per-agent stochasticity (acceptable
+		// non-determinism — one of many stochastic sources in the sim).
+		if rand.Float64() < ContemplationProbability(a) {
+			return Action{AgentID: a.ID, Kind: ActionContemplate, Detail: a.Name + " sits in contemplation"}
+		}
 	}
 
 	priority := a.Needs.Priority()
@@ -136,9 +154,19 @@ func ApplyAction(a *Agent, action Action, tick uint64) []string {
 		// Trade requires market context — handled at world level.
 	case ActionTravel:
 		events = applyTravel(a)
+	case ActionContemplate:
+		// R89 (Doc 25 Layer 2): deliberate practice. RNG seeded from tick + agent ID
+		// for determinism within a tick.
+		events = applyContemplate(a, rngForAgent(tick, a.ID))
 	}
 
 	return events
+}
+
+// rngForAgent returns a per-(tick, agent) RNG suitable for stochastic action
+// effects that need determinism for replay/debugging.
+func rngForAgent(tick uint64, id AgentID) *rand.Rand {
+	return rand.New(rand.NewSource(int64(tick) + int64(id)))
 }
 
 func applyEat(a *Agent) []string {

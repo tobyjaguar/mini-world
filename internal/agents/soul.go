@@ -67,6 +67,17 @@ type AgentSoul struct {
 
 	// Via negativa accumulator.
 	WisdomScore float32 `json:"wisdom_score"` // Accumulated through subtraction
+
+	// R89 (Doc 25 Layer 2): WisdomEffort accumulates from deliberate practice
+	// (ActionContemplate). It does NOT gate Liberation directly — the cap-
+	// based architecture means raw CittaCoherence ≥ 0.7 is sufficient. But
+	// crossing the Awakening Valley (Matter → 0.7) requires practice
+	// insights that bypass NaturalCap, which only fire during contemplation.
+	// So WisdomEffort is the empirical record of how an agent earned their
+	// liberation, surfaced in biographies and oracle prompts. Reincarnated
+	// children (Layer 3) are seeded with non-zero WisdomEffort representing
+	// carried-over practice from a deceased liberated elder.
+	WisdomEffort uint32 `json:"wisdom_effort"`
 }
 
 // StateFromCoherence derives the StateOfBeing from a coherence value.
