@@ -741,12 +741,45 @@ func generatePopulation(rng *rand.Rand, n int, ageDistribution string, cfg Confi
 	return agents
 }
 
+// productionActualAges2026_05_07 — agent counts per age year, snapshot from
+// /api/v1/agents on 2026-05-07. Total 399,062 agents. Top: age 9 (109K),
+// age 10 (93K), age 8 (86K), age 11 (69K). Boom cohort at ages 7-11.
+// 99.9% under 16; only 413 adults total.
+var productionActualAges2026_05_07 = []struct {
+	Age   int
+	Count int
+}{
+	{0, 224}, {1, 115}, {2, 316}, {3, 787}, {4, 2104},
+	{5, 3626}, {6, 4287}, {7, 16558}, {8, 85751}, {9, 109799},
+	{10, 92726}, {11, 68697}, {12, 13264}, {13, 31}, {14, 217},
+	{15, 147}, {16, 193}, {17, 106}, {18, 73}, {19, 24},
+	{20, 12}, {21, 5},
+}
+
+// sampleProductionActualAgeYears returns an age (years) drawn from the
+// production-actual distribution at sample time. Uses cumulative weighted
+// sampling — same shape as the real population.
+func sampleProductionActualAgeYears(rng *rand.Rand) int {
+	total := 0
+	for _, a := range productionActualAges2026_05_07 {
+		total += a.Count
+	}
+	r := rng.Intn(total)
+	for _, a := range productionActualAges2026_05_07 {
+		if r < a.Count {
+			return a.Age
+		}
+		r -= a.Count
+	}
+	return productionActualAges2026_05_07[len(productionActualAges2026_05_07)-1].Age
+}
+
 func generateAgent(rng *rand.Rand, ageDistribution string, cfg Config) SimAgent {
 	var age int
 	switch ageDistribution {
 	case "uniform":
 		age = rng.Intn(80 * 52)
-	case "production": // skewed older, matches live world
+	case "production": // OLD synthetic guess — kept for backwards-compat
 		// Approximation: 25% under 16, 50% 16-50, 25% 50+
 		r := rng.Float64()
 		switch {
@@ -757,6 +790,13 @@ func generateAgent(rng *rand.Rand, ageDistribution string, cfg Config) SimAgent 
 		default:
 			age = (50 + rng.Intn(40)) * 52
 		}
+	case "production_actual_2026_05_07":
+		// Real age histogram pulled from /api/v1/agents on 2026-05-07.
+		// Surfaced by #14 investigation: 99.9% of population is under 16,
+		// boom cohort at ages 7-11. World was in post-bottleneck young
+		// phase. This mode lets the projector seed from production's
+		// actual current state to project convergence forward.
+		age = sampleProductionActualAgeYears(rng) * 52
 	default:
 		age = 0
 	}
@@ -939,8 +979,8 @@ func main() {
 	seed := flag.Int64("seed", 42, "RNG seed")
 	weeks := flag.Int("weeks", 520, "sim-weeks to project (520 = 10 sim-years)")
 	agents := flag.Int("agents", 10000, "synthetic population size")
-	mode := flag.String("mode", "compare", "compare | tune")
-	startAge := flag.String("start", "production", "uniform | production")
+	mode := flag.String("mode", "compare", "compare | tune | trajectory")
+	startAge := flag.String("start", "production", "uniform | production | production_actual_2026_05_07")
 	flag.Parse()
 
 	switch *mode {
@@ -948,10 +988,118 @@ func main() {
 		runCompare(*seed, *weeks, *agents, *startAge)
 	case "tune":
 		runTune(*seed, *weeks, *agents, *startAge)
+	case "trajectory":
+		runTrajectory(*seed, *weeks, *agents, *startAge)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown mode: %s\n", *mode)
 		os.Exit(1)
 	}
+}
+
+// runTrajectory projects production's current age distribution forward and
+// reports per-year metrics: adult count, liberated count, reincarnations.
+// Designed to answer #14a: "what does production look like in N sim-years?"
+// without touching production. Uses Layer 1+2+3+4 + R92-corrected eligibility.
+func runTrajectory(seed int64, weeks, agents int, startAge string) {
+	cfg := AllLayersConfig()
+
+	fmt.Printf("\n=== Liberation Trajectory (seed=%d weeks=%d agents=%d start=%s)\n", seed, weeks, agents, startAge)
+	fmt.Printf("    config: Layer 1+2+3+4 with R92 Sat-based eligibility\n")
+	fmt.Printf("    Reports per-year metrics. Each row = one sim-year.\n\n")
+	fmt.Printf("%-6s %-8s %-10s %-10s %-10s %-12s %-12s %-10s\n",
+		"SimYr", "Total", "Adults16+", "Lib", "Lib %", "Adult Lib", "Reincarn(cum)", "PoolSize")
+	fmt.Println("-----------------------------------------------------------------------------------------------------")
+
+	rng := rand.New(rand.NewSource(seed))
+	agentList := generatePopulation(rng, agents, startAge, cfg)
+	libPool := 0.0
+	totalReincarnations := 0
+	totalDeaths := 0
+	totalBirths := 0
+
+	weeksPerYear := 52
+	for w := 0; w < weeks; w++ {
+		applyPaths(rng, agentList, cfg)
+
+		if cfg.UseMonasticSettlements && cfg.AdeptMigrationProb > 0 {
+			for i := range agentList {
+				a := &agentList[i]
+				if a.WisdomEffort > 100 && a.Class == ClassTranscendentalist &&
+					a.SettlementType != 2 && rng.Float64() < cfg.AdeptMigrationProb {
+					a.SettlementType = 2
+				}
+			}
+		}
+
+		alive := agentList[:0]
+		for i := range agentList {
+			a := &agentList[i]
+			a.Age++
+			ageY := a.Age / 52
+			pDie := mortalityWeekly(ageY)
+			if rng.Float64() < pDie {
+				totalDeaths++
+				if cfg.UseReincarnation && a.IsLiberated(cfg.UseSplitFields, cfg.WisdomEffortGate) &&
+					ageY >= cfg.PoolEligibilityMinAge {
+					libPool++
+				}
+				continue
+			}
+			alive = append(alive, *a)
+		}
+		if cfg.UseReincarnation {
+			libPool *= (1 - cfg.PoolDecayPerWeek)
+			if libPool < 0 {
+				libPool = 0
+			}
+		}
+		for len(alive) < agents {
+			newborn := spawnNewborn(rng, alive, cfg)
+			if cfg.UseReincarnation && libPool > 0 {
+				pReincarn := libPool / (float64(agents) * cfg.ReincarnationDenomFactor)
+				if rng.Float64() < pReincarn {
+					libPool--
+					newborn.Reincarnated = true
+					seedC := cfg.ReincarnatedSeedCoherenceMin +
+						rng.Float64()*(cfg.ReincarnatedSeedCoherenceMax-cfg.ReincarnatedSeedCoherenceMin)
+					newborn.Coherence = seedC
+					newborn.WisdomEffort = cfg.ReincarnatedSeedWisdomMin +
+						uint32(rng.Intn(int(cfg.ReincarnatedSeedWisdomMax-cfg.ReincarnatedSeedWisdomMin)))
+					totalReincarnations++
+				}
+			}
+			alive = append(alive, newborn)
+			totalBirths++
+		}
+		agentList = alive
+
+		// Per-year report
+		if (w+1)%weeksPerYear == 0 {
+			adults := 0
+			lib := 0
+			adultLib := 0
+			for i := range agentList {
+				a := &agentList[i]
+				ageY := a.Age / 52
+				if ageY >= 16 {
+					adults++
+				}
+				if a.IsLiberated(cfg.UseSplitFields, cfg.WisdomEffortGate) {
+					lib++
+					if ageY >= 16 {
+						adultLib++
+					}
+				}
+			}
+			libPct := 100.0 * float64(lib) / float64(len(agentList))
+			year := (w + 1) / weeksPerYear
+			fmt.Printf("%-6d %-8d %-10d %-10d %-10.2f %-12d %-12d %-10d\n",
+				year, len(agentList), adults, lib, libPct, adultLib, totalReincarnations, int(libPool))
+		}
+	}
+
+	fmt.Printf("\nFinal totals: %d births, %d deaths, %d reincarnations over %d sim-years.\n",
+		totalBirths, totalDeaths, totalReincarnations, weeks/weeksPerYear)
 }
 
 func debugTopAgents(result RunResult, cfg Config) {
