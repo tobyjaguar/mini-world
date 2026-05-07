@@ -299,7 +299,6 @@ func (s *Simulation) TickMinute(tick uint64) {
 		// Decay needs (passage of time).
 		agents.DecayNeeds(a)
 		if !a.Alive {
-			s.Stats.Deaths++
 			s.handleAgentDeath(a, tick, "starvation")
 			continue
 		}
@@ -349,7 +348,6 @@ func (s *Simulation) TickMinute(tick uint64) {
 
 		// Check for death (starvation during action resolution).
 		if !a.Alive {
-			s.Stats.Deaths++
 			s.handleAgentDeath(a, tick, "starvation")
 		}
 	}
@@ -358,6 +356,18 @@ func (s *Simulation) TickMinute(tick uint64) {
 // handleAgentDeath processes an agent's death: emits event, transfers wealth,
 // creates memories, and boosts witness coherence.
 func (s *Simulation) handleAgentDeath(a *agents.Agent, tick uint64, cause string) {
+	// R93 (2026-05-07): always increment Stats.Deaths here, regardless of
+	// caller. Previously this was duplicated at TickMinute starvation sites
+	// (simulation.go:302, :352) and missing entirely at the warfare site
+	// (warfare.go:468 applyCasualties). Battle deaths emitted events but
+	// never counted in Stats.Deaths — the discrepancy that surfaced as the
+	// "anomalously low death rate" finding in the 2026-05-07 /observe.
+	// Centralizing here ensures all death paths (starvation, battle, future
+	// plague/crime/disaster) increment the counter atomically with the
+	// event emission. Existing callers that already incremented have had
+	// their `s.Stats.Deaths++` removed; new callers needn't think about it.
+	s.Stats.Deaths++
+
 	deathDesc := fmt.Sprintf("%s has died", a.Name)
 	s.EmitEvent(Event{
 		Tick:        tick,
