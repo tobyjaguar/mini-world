@@ -468,6 +468,12 @@ func (s *Server) handleLiberated(w http.ResponseWriter, r *http.Request) {
 		Alignment      float32        `json:"alignment"`
 		Wealth         uint64         `json:"wealth"`
 		Memories       int            `json:"memories"`
+		// R94 (2026-05-07): surface the R89 + R90 mechanics so the frontend
+		// can show "earned vs. inherited" liberation without per-agent detail
+		// lookups. WisdomEffort is the practice counter (R89); Reincarnated
+		// flags carried-over wisdom from a deceased liberated elder (R90).
+		WisdomEffort uint32 `json:"wisdom_effort"`
+		Reincarnated bool   `json:"reincarnated,omitempty"`
 	}
 
 	occNames := []string{
@@ -564,6 +570,8 @@ func (s *Server) handleLiberated(w http.ResponseWriter, r *http.Request) {
 			Alignment:      a.Wellbeing.Alignment,
 			Wealth:         a.Wealth,
 			Memories:       len(a.Memories),
+			WisdomEffort:   a.Soul.WisdomEffort,
+			Reincarnated:   a.Soul.Reincarnated,
 		})
 	}
 
