@@ -124,6 +124,75 @@ But the doctrine accumulator doesn't model descent. It compounds linearly from a
 
 These two states should be philosophically distinguishable. The redesign in §3 makes them mechanically distinguishable too.
 
+### 1.6 Lesson: the projector cannot approximate gates as flat probabilities
+
+**Surfaced 2026-05-07 in the first /observe post-R88-R91 deploy. Post-mortem captured here so future audits don't repeat the mistake.**
+
+**What we shipped (R89):** `ContemplationEligible` required four raw-needs
+checks, including `Survival > Matter` (≈0.618). The intent was the Buddhist
+*parikkhāra* idea — practice requires "good ground" — modeled as the agent
+having all foundational needs above some threshold.
+
+**What broke:** in production, **no agent ever passed the gate.** Layer 2
+active practice was structurally dormant from the moment of deploy.
+
+**Why it broke:** the system has a long-documented structural pattern (INV-3,
+closed 2026-04-20) where `Wellbeing.Survival` sits universally at ~0.39
+across all occupations. This is *designed scarcity* — agents perpetually
+have "just enough" food, the simulation's intended equilibrium — and
+0.39 < Matter (0.618). The threshold I picked was unreachable not because
+the world is in crisis, but because that's how this world's needs system
+works by design.
+
+**Why the projector missed it:** `cmd/lib_projector` modeled
+`PracticeEligible` as a *flat 60% probability per agent per week*. It
+sidestepped the actual `Survival > Matter` math entirely. The 60% number
+was a hand-waved guess at "fraction of weeks an agent is in good ground."
+The projector's 1.20% (Layer 1+2) and 1.50% (all layers) outcomes were
+calibrated against this approximation — beautifully consistent across
+seeds, beautifully wrong about the gate's reachability.
+
+**The correction (R92):** ContemplationEligible now uses
+`Wellbeing.Satisfaction > Psyche` (≈0.382). Satisfaction is the
+consolidated dual-register measure (R10 wellbeing trinity) that already
+integrates needs over time via EMA — it captures "good ground" semantically
+better than any single raw need value. World-avg Sat is 0.696 in production,
+so most adults easily pass; only those in genuine distress fail. The
+projector was updated to enforce this same gate (PracticeEligible
+probability raised to 85% to match production's actual eligibility rate)
+and re-validated: Layer 1+2+3+4 mean rises to **3.34%** (was 1.50% under
+the broken gate), still in target band.
+
+**The methodological lesson — for any future architectural projector:**
+
+1. **Enforce the actual gate math, not approximate it.** If the gate is
+   `Needs.X > T`, the projector must model `Needs.X` realistically, not
+   substitute a probability. Approximations conceal threshold mis-
+   calibrations against production equilibria.
+
+2. **Audit production equilibria before picking thresholds.** Check
+   `/api/v1/status` for occupation needs distributions. Stable patterns
+   like INV-3 are not corner cases — they're the system's normal state.
+   A threshold above any structural equilibrium is unreachable by design.
+
+3. **Distinguish "structural" from "transient" patterns** when reading
+   memory. INV-3 was closed as a known equilibrium. The closure note
+   was authoritative; future thresholds should respect it.
+
+4. **The post-deploy /observe is the final validator.** A clean projector
+   doesn't prove the production binary works. The first /observe after
+   any architectural deploy must verify the new code path *fired* — by
+   sampling the variable it modifies (here: WisdomEffort > 0). The R92
+   round-trip would have been faster with a built-in canary.
+
+5. **Prefer dual-register / consolidated measures over raw needs** for
+   "agent is in good ground" checks. R10 made Satisfaction the canonical
+   such measure. Future "is the agent OK?" gates should use Sat, not
+   pick individual needs that may be pinned by structural equilibria.
+
+This lesson is also recorded in §8 update history and the platform repo
+roadmap (`docs/ROADMAP.md` #11c).
+
 ---
 
 ## 2. Design principles
@@ -152,9 +221,9 @@ A liberated agent dying does not erase liberation from the world. It creates a s
 
 Each layer ships independently. Each is observable. Each is justified empirically before committing to the next.
 
-### 3.0 Current canonical architecture (validated 2026-05-06 via projector)
+### 3.0 Current canonical architecture (validated 2026-05-06 via projector; corrected 2026-05-07 by R92)
 
-> **Architecture evolved during validation.** The original §3.2 proposed split-fields (`CittaCoherence` + `WisdomEffort` with AND-condition for liberation). After running `cmd/lib_projector` against synthetic populations matching production demographics, a cleaner architecture emerged:
+> **Architecture evolved during validation.** The original §3.2 proposed split-fields (`CittaCoherence` + `WisdomEffort` with AND-condition for liberation). After running `cmd/lib_projector` against synthetic populations matching production demographics, a cleaner architecture emerged. **Then R92 corrected the eligibility gate** — see §1.6 for the full lesson.
 
 > **Single field (`CittaCoherence`) with hard cap at `Matter` (≈0.618) on natural inflows.** Drift fills the Embodied → Awakening band but cannot bridge the Awakening Valley to Liberation. **Only deliberate practice insight events bypass the cap.** This means:
 
@@ -173,6 +242,7 @@ Each layer ships independently. Each is observable. Each is justified empiricall
 > | `InsightProb` | `0.01` | per practice tick, probability of vipassanā insight |
 > | `InsightCoherenceGain` | `0.025` | size of insight bump (when it fires) |
 > | `BasePracticeProb` | `phi.Agnosis³ ≈ 0.013` | per hour when eligible |
+> | `ContemplationEligibility` | **`Wellbeing.Satisfaction > Psyche` (≈0.382)** + `Age >= 16` | R92 correction (see §1.6) — replaced original Survival/Safety/Belonging raw-needs checks that were unreachable due to INV-3 |
 > | `WisdomEffortLiberationGate` | `0` (not used as gate) | counter only |
 > | Cultural drift cut | `0.005 → 0.0017` (3× cut) | + end age 25→22 |
 > | Doctrine boost cut | `0.1 → 0.04` (2.5× cut) | + age 16 gate |
@@ -301,16 +371,31 @@ Each layer ships independently. Each is observable. Each is justified empiricall
 
 **The new action:**
 
+> **R92 correction (2026-05-07):** the eligibility gate originally specified
+> below was structurally unreachable in production due to INV-3 — see §1.6
+> for the lesson and the corrected gate. The historical design intent
+> ("four foundations" — survival, safety, belonging, age) is preserved, but
+> the *mechanism* now uses `Wellbeing.Satisfaction > Psyche` as a single
+> consolidated check rather than three separate raw-needs checks.
+
 ```go
 // ActionContemplate represents a deliberate moment of inner cultivation.
-// Eligibility:
+// Original (broken) eligibility — DO NOT USE:
 //   - Survival > Matter (0.618) — can't practice while starving
 //   - Safety > Matter — can't practice while terrified
 //   - Belonging > Psyche (0.382) — practice without ground crumbles
 //   - Age >= 16 — minors are excluded from this path (reincarnation only, see Layer 3)
-// Effect: WisdomEffort += 1. Rare moments of insight (P = phi.Agnosis³ ≈ 0.013) bump CittaCoherence.
 //
-// "Practice without ground" — the four-foundations gate is non-negotiable.
+// R92 corrected eligibility (live in production):
+//   - Wellbeing.Satisfaction > Psyche (≈0.382)
+//     The dual-register Sat measure (R10) integrates per-tick needs over
+//     time and captures "good ground" semantically. Sat is the canonical
+//     proxy for "agent is in conditions conducive to practice." Production
+//     world-avg Sat ≈ 0.696 — most adults easily pass; only those in
+//     genuine distress (war zones, post-disaster) fail.
+//   - Age >= 16 — unchanged.
+//
+// Effect: WisdomEffort += 1. Rare moments of insight (P = phi.Agnosis³ ≈ 0.013) bump CittaCoherence.
 ActionContemplate Action = ...
 ```
 
@@ -622,6 +707,18 @@ Distribution by occupation in this projection: Scholars 44%, Alchemists 47%, Hun
 **B3. Tier 2 contemplate prompt — DEFERRED to R89 implementation.**
 
 **B4. ~~Schema migration honest vs grandfathered~~ — RESOLVED VIA SPLIT-FIELDS ARCHITECTURE.** The original concern (whether to retroactively un-liberate existing agents) is moot: the revised Layer 2 (see §3.2) splits the liberation criterion into `CittaCoherence ≥ 0.7 AND WisdomEffort ≥ gate`. Existing agents keep their `CittaCoherence`; their new `WisdomEffort` defaults to 0; the AND-condition automatically excludes them from the API definition without any code change to their stored state. **The transition is clean by definition.** The only operator-visible effect is that `/api/v1/liberated` returns 0 immediately on Layer 2 deploy and slowly climbs back to 1-3% over sim-years. A nice newspaper moment: "the age of practice begins."
+
+**B5. NEW (added 2026-05-07 post-R92 post-mortem) — Projector cannot approximate gates as flat probabilities.**
+
+The original §4.2 validation passed `Layer 1+2 mean 1.20%` because the projector approximated `PracticeEligible` as a flat 60% probability — sidestepping the actual `Survival > Matter` math. In production, this gate was unreachable due to INV-3 (Survival universally pinned at ~0.39). **Layer 2 was structurally dormant on first deploy.** R92 corrected the gate to `Wellbeing.Satisfaction > Psyche`, and the projector was updated to enforce the same gate. Post-correction Layer 1+2+3+4 mean: **3.34%** (5-seed sweep, 80 sim-yr) — still in target band, but the original 1.50% was a number against a broken approximation, not a guarantee.
+
+**Required for any future Doc 25 layer that introduces a needs-based gate:**
+- Project against the *actual* gate math, not a probability approximation.
+- Cross-check the gate threshold against `/api/v1/status` per-occupation needs distributions (search for INV-marked structural equilibria first).
+- Prefer `Wellbeing.Satisfaction` or `Wellbeing.Alignment` (R10 dual-register consolidated measures) over raw needs values — these integrate per-tick fluctuations and respect structural design decisions.
+- The first /observe post-deploy is the final validator — verify the new code path *fired* by sampling the variable it modifies. R92 lesson: sampling `Soul.WisdomEffort` after a few sim-hours immediately revealed the dormancy.
+
+See §1.6 for the full lesson narrative.
 
 ### 4.3 Layer 3 validation
 
