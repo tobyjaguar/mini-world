@@ -70,19 +70,25 @@ var classIntention = [...]float64{
 }
 
 // ContemplationEligible returns true if the agent meets the four-foundations
-// gate for deliberate practice. This is checked at action selection time;
-// the cost of practice is the action slot itself (replaces work/socialize).
+// gate for deliberate practice.
+//
+// R92: gate corrected. The original implementation required Survival > Matter
+// (≈0.618) but production has the INV-3 designed-scarcity equilibrium where
+// Survival universally hovers at ~0.39 regardless of actual contentment —
+// no agent ever passed. Layer 2 was structurally dormant in production.
+//
+// The corrected gate uses the consolidated dual-register Satisfaction measure
+// (R10 wellbeing trinity) as the "four foundations" check. Satisfaction is
+// the EMA-driven scalar that already integrates per-tick needs over time and
+// captures the philosophical intent — "good ground" — better than raw needs
+// readings clamped by the simulation's design constraints. Threshold Psyche
+// (~0.382): agents in genuine distress fail, but the average resident in a
+// healthy settlement (Sat ≈ 0.7) easily passes.
 func ContemplationEligible(a *Agent) bool {
 	if a.Age < ContemplateMinAge {
 		return false
 	}
-	if a.Needs.Survival < float32(phi.Matter) {
-		return false
-	}
-	if a.Needs.Safety < float32(phi.Matter) {
-		return false
-	}
-	if a.Needs.Belonging < float32(phi.Psyche) {
+	if a.Wellbeing.Satisfaction < float32(phi.Psyche) {
 		return false
 	}
 	return true

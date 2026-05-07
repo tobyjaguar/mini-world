@@ -178,13 +178,15 @@ func (a *SimAgent) FulfillsDoctrine(rng *rand.Rand) bool {
 }
 
 // Practice eligibility (Layer 2): four-foundations gate.
-// Approximation: about 60% of adults have all four foundations met at any given week.
-// Children excluded. Note: a.Age is in WEEKS, not years.
+// R92: gate corrected to match production (Wellbeing.Satisfaction > Psyche).
+// Production world-avg Sat ≈ 0.696 — most adults pass. Approximation in the
+// projector: ~85% of adults are in good ground at any given week. Children
+// excluded. Note: a.Age is in WEEKS, not years.
 func (a *SimAgent) PracticeEligible(rng *rand.Rand) bool {
 	if a.Age < 16*52 {
 		return false
 	}
-	return rng.Float64() < 0.60
+	return rng.Float64() < 0.85
 }
 
 // Mortality probability per sim-week, age-dependent.
