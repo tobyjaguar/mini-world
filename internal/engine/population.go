@@ -121,27 +121,15 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 	liberationDeaths := 0
 	naturalDeaths := 0
 
-	// R94+ TEMPORARY DEBUG (remove after one observation): track iteration
-	// counts to investigate the natural-death rate anomaly (~1/day observed
-	// vs. ~50-200 expected from agentDailyMortalityChance × adult population).
-	debugIterated := 0
-	debugAlive := 0
-	debugEligible := 0
-	debugMortalitySumX1000 := 0.0
-
 	for _, a := range s.Agents {
-		debugIterated++
 		if !a.Alive {
 			continue
 		}
-		debugAlive++
 
 		// Coherence-scaled mortality: background entropy + age curve + overcap pressure.
 		mortalityChance := agentDailyMortalityChance(a, s.Stats.TotalPopulation)
 
 		if mortalityChance > 0 {
-			debugEligible++
-			debugMortalitySumX1000 += mortalityChance * 1000
 			// Deterministic check: hash agent ID with simDay for stable daily result.
 			hash := (uint64(a.ID)*2654435761 + simDay*40503) % 100000
 			if float64(hash)/100000.0 < mortalityChance {
@@ -278,23 +266,9 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 		}
 	}
 
-	// R94+ TEMPORARY DEBUG: always log to surface the iteration counts.
-	// Expected to reveal the gap between math-predicted and actual death rate.
-	avgMortalityX1000 := 0.0
-	if debugEligible > 0 {
-		avgMortalityX1000 = debugMortalitySumX1000 / float64(debugEligible)
+	if naturalDeaths > 0 || liberationDeaths > 0 {
+		slog.Info("natural deaths", "count", naturalDeaths, "liberation", liberationDeaths, "tick", tick)
 	}
-	expectedDeaths := debugMortalitySumX1000 / 1000
-	slog.Info("natural deaths debug",
-		"count", naturalDeaths,
-		"liberation", liberationDeaths,
-		"tick", tick,
-		"iterated", debugIterated,
-		"alive", debugAlive,
-		"eligible_age16plus", debugEligible,
-		"avg_mortality_per_1000", avgMortalityX1000,
-		"expected_deaths_today", expectedDeaths,
-	)
 }
 
 // agentDailyMortalityChance returns the probability [0,1] that an agent
