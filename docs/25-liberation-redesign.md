@@ -234,6 +234,29 @@ Three phases:
 
 **See also:** ROADMAP #14 (closed) + #14a (trajectory prediction) in the platform repo for the audit-trail version of this finding.
 
+### 1.7.1 First empirical wave-leading-edge check (added 2026-05-12, tick 5,152,998, Year 10 Winter Day 69)
+
+195 sim-days after the projector run in §1.7, a fresh /observe checks the leading edge of the predicted wave against production reality.
+
+| Metric | Projector (sim-yr 10) | Observed (sim-yr 10) | Verdict |
+|---|---|---|---|
+| Adult population (age ≥ 16) | ~9,000 | **316** | Projector overshoots **~28×** |
+| Liberated as % of population | 0.2% | **0.08%** (316 of 397,566) | Below projector |
+| Liberated as % of adults | ~9% (≈ 800/9K) | **71%** (316 / 443 ≈) | **Far above projector** |
+| Age-16-19 adults with non-zero WisdomEffort | n/a | **313 of 316 (99%)** | New |
+
+**Two separate findings.**
+
+1. **Boom-cohort maturation is slower than the projector models.** The projector predicted ~9K adults by sim-yr 10; production has 443. The synthetic agent-ageing model in `cmd/lib_projector` advances the cohort faster than the production tick engine does. Either the projector's age-step or the production AgeMonths cadence diverged. **Future projector runs should re-calibrate the age-up rate against an empirical month-by-month adult count.**
+
+2. **Per-adult liberation rate is *higher* than projected.** When an adult does cross the R92 gate (`Wellbeing.Satisfaction > Psyche` with eligible occupation × class), they almost universally begin accumulating WisdomEffort — 313 of 316 = 99% nonzero, vs the projector's implied ~9% per-adult rate at this sim-year. Practice firing is unanimous among eligible adults in production. **The corrected gate is even less selective in practice than §3.0 anticipated; future tuning that wants a slower wave should add a per-tick rate cap or a coherence prerequisite, not a Sat threshold change.**
+
+**Net population fraction lower than projector predicted, but for the *right* reason** (small adult cohort, not weak practice).
+
+**Top empirical accumulators (sim-yr 10):** Scholar age 18 at WE=219; Alchemist age 17 at WE=152; Alchemist age 16 at WE=102. Top-10 dominated 5 Alchemist / 3 Scholar / 1 Soldier / 1 Farmer — matches R92's occupation × class conducive-weight prediction.
+
+**Open question:** should the projector model `addAgent`'s month-counter directly, or should the production engine expose an age-up rate metric the projector can target? Either fix is a one-day project. Filed as part of the next projector refresh.
+
 ---
 
 ## 2. Design principles
