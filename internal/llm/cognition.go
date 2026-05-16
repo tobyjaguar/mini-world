@@ -44,15 +44,18 @@ type Tier2Context struct {
 }
 
 // GenerateTier2Decision calls Haiku to produce 1-3 weekly actions for a Tier 2 agent.
+// The system prompt is identity-agnostic and selected from a small set of stable
+// strings (general vs merchant), enabling Anthropic prompt caching to amortize
+// its cost across a tier2 batch (~5 agents/TickDay).
 func GenerateTier2Decision(client *Client, ctx *Tier2Context) ([]Tier2Decision, error) {
 	if !client.Enabled() {
 		return nil, fmt.Errorf("LLM client not configured")
 	}
 
-	system := buildTier2SystemPrompt(ctx)
+	system := tier2SystemPrompt(ctx.Occupation == "Merchant")
 	user := buildTier2UserPrompt(ctx)
 
-	response, err := client.CompleteTagged(system, user, 500, "tier2")
+	response, err := client.CompleteTaggedCached(system, user, 500, "tier2")
 	if err != nil {
 		return nil, fmt.Errorf("tier 2 decision: %w", err)
 	}
@@ -60,18 +63,23 @@ func GenerateTier2Decision(client *Client, ctx *Tier2Context) ([]Tier2Decision, 
 	return parseTier2Response(response)
 }
 
-func buildTier2SystemPrompt(ctx *Tier2Context) string {
-	base := fmt.Sprintf(
-		`You are %s, a %d-year-old %s living in %s. You are %s.
-Your coherence is %.2f (%s). You have %d crowns.
-You belong to %s.
+// tier2SystemPrompt returns the stable, identity-agnostic system prompt for
+// tier2 cognition. Two variants: general (used by ~9 of 10 occupations) and
+// merchant (adds scout_route action + trade-network framing). Both are
+// byte-stable so within-batch calls share the same cached prefix.
+func tier2SystemPrompt(merchant bool) string {
+	if merchant {
+		return tier2SystemPromptMerchant
+	}
+	return tier2SystemPromptGeneral
+}
 
-You exist in Crossworlds, an early-industrial world shaped by emanationist philosophy.
-Every soul carries coherence — scattered souls react to circumstances, while unified souls shape them.
-Make decisions that reflect your personality, circumstances, and inner state.
+const tier2SystemPromptGeneral = `You exist in Crossworlds, an early-industrial world shaped by emanationist philosophy. All things arise from a single source and manifest through interference patterns between charging (centripetal) and discharging (centrifugal) pressures. Every soul carries coherence — a measure of how unified or scattered their being is. Scattered souls react to circumstances; unified souls shape them.
+
+You are a named character making weekly decisions about how to spend your time. Make decisions that reflect your personality, circumstances, and inner state — your occupation, age, wealth, mood, coherence, faction, settlement context, recent memories, and relationships will be provided.
 
 Respond ONLY with a JSON array of 1-3 actions. Each action has:
-- "action": one of "work", "trade", "socialize", "advocate", "invest", "recruit", "speak"
+- "action": one of the valid actions listed below
 - "target": who or what the action targets (a name, good, or topic)
 - "reasoning": one sentence explaining why
 
@@ -84,36 +92,36 @@ Valid actions:
 - recruit: try to bring someone into your faction
 - speak: make a public statement (generates narrative color)
 - relocate: move to a named settlement with better resources for your occupation (target = settlement name)
-- retrain: change to a skill-adjacent occupation better suited to local resources (target = new occupation name)`,
-		ctx.Name, ctx.Age, ctx.Occupation, ctx.Settlement, ctx.Mood,
-		ctx.Coherence, ctx.State, ctx.Wealth,
-		ctx.Faction,
-	)
+- retrain: change to a skill-adjacent occupation better suited to local resources (target = new occupation name)`
 
-	if ctx.Occupation == "Merchant" {
-		base += `
+const tier2SystemPromptMerchant = tier2SystemPromptGeneral + `
 
 Your life is the road between settlements — you are a network builder who connects communities through trade.
 You read the markets, judge distances, and decide which routes are worth the risk.
 
 Additional merchant actions:
 - scout_route: survey a nearby settlement for trade opportunities (target = settlement name)`
-		if ctx.TradeContext != "" {
-			base += "\n\n" + ctx.TradeContext
-		}
-	}
-
-	return base
-}
 
 func buildTier2UserPrompt(ctx *Tier2Context) string {
 	var b strings.Builder
+
+	// Identity moved here from system prompt so the system prompt stays
+	// byte-stable for cache hits across the batch.
+	fmt.Fprintf(&b, "You are %s, a %d-year-old %s living in %s. You are %s. Your coherence is %.2f (%s). You have %d crowns. You belong to %s.\n\n",
+		ctx.Name, ctx.Age, ctx.Occupation, ctx.Settlement, ctx.Mood,
+		ctx.Coherence, ctx.State, ctx.Wealth, ctx.Faction)
 
 	fmt.Fprintf(&b, "It is %s in %s. The settlement treasury holds %d crowns under %s governance.\n\n",
 		ctx.Season, ctx.Settlement, ctx.Treasury, ctx.Governance)
 
 	if ctx.Weather != "" {
 		fmt.Fprintf(&b, "Weather: %s\n\n", ctx.Weather)
+	}
+
+	// Merchant trade context (was in system prompt; now in user prompt because
+	// it's dynamic per call — market prices/margins change tick-to-tick).
+	if ctx.TradeContext != "" {
+		fmt.Fprintf(&b, "%s\n", ctx.TradeContext)
 	}
 
 	if len(ctx.Memories) > 0 {

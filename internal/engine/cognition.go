@@ -61,6 +61,10 @@ func (s *Simulation) processTier2Decisions(tick uint64) {
 		ctx := s.buildTier2Context(a, occNames, govNames, stateNames)
 		decisions, err := llm.GenerateTier2Decision(s.LLM, ctx)
 		if err != nil {
+			// Failure visibility is handled by the client circuit breaker
+			// (recordFailure in client.go), which warns on the first failure
+			// of a streak and every 100th thereafter. Per-call logs stay at
+			// Debug to avoid duplication.
 			slog.Debug("tier 2 decision failed, falling back to tier 0",
 				"agent", a.Name, "error", err)
 			continue
@@ -414,23 +418,58 @@ func (s *Simulation) applyTier2Decision(a *agents.Agent, d llm.Tier2Decision, ti
 	slog.Debug("tier 2 action", "agent", a.Name, "action", d.Action, "target", d.Target)
 }
 
-// processOracleVisions runs weekly LLM visions for Liberated agents.
-// ~5 agents max — no batching needed.
+// processOracleVisions runs weekly LLM visions for Liberated Tier 2 agents.
+//
+// LLM cost optimization (2026-05-16):
+//
+//  1. Per-settlement dedup: when multiple Liberated Tier 2 agents share a
+//     settlement, we elect the highest-coherence agent as the "voice" and
+//     make ONE LLM call. The resulting prophecy memory is spread to all
+//     liberated agents in that settlement via applyOracleVision (which
+//     already broadcasts the prophecy at cognition.go:564-571).
+//  2. State-hash gate: if a settlement's (season, treasury bucket, hostile
+//     neighbor count, peace treaty count) signature matches last week's
+//     and the cached vision is <2 weeks old, we reuse the prior vision
+//     without an LLM call.
+//
+// Pre-fix (one call per oracle) burned ~28 calls/TickWeek. Post-fix targets
+// ~8-12 settlements × 50% gate hit rate ≈ ~5 LLM calls/TickWeek.
 func (s *Simulation) processOracleVisions(tick uint64) {
 	if s.LLM == nil || !s.LLM.Enabled() {
 		return
 	}
 
-	// Collect living Liberated Tier 2 agents — these are named characters
-	// with individual LLM cognition. ~5 agents, so ~5 Haiku calls/week.
-	var oracles []*agents.Agent
+	// Group living Liberated Tier 2 agents by home settlement. Per-settlement
+	// dedup: one LLM call per settlement, applied to the highest-coherence
+	// agent (the "voice"). The prophecy memory spreads to all liberated
+	// agents in that settlement inside applyOracleVision.
+	type oracleGroup struct {
+		settID  uint64
+		voice   *agents.Agent
+		members []*agents.Agent
+	}
+	groupsByID := make(map[uint64]*oracleGroup)
 	for _, a := range s.Agents {
-		if a.Alive && a.Tier == agents.Tier2 && a.Soul.State == agents.Liberated {
-			oracles = append(oracles, a)
+		if !a.Alive || a.Tier != agents.Tier2 || a.Soul.State != agents.Liberated {
+			continue
+		}
+		if a.HomeSettID == nil {
+			continue // homeless oracles are skipped — no settlement to act on
+		}
+		settID := *a.HomeSettID
+		g, ok := groupsByID[settID]
+		if !ok {
+			g = &oracleGroup{settID: settID, voice: a}
+			groupsByID[settID] = g
+		}
+		g.members = append(g.members, a)
+		// Highest-coherence agent becomes the voice.
+		if a.Soul.CittaCoherence > g.voice.Soul.CittaCoherence {
+			g.voice = a
 		}
 	}
 
-	if len(oracles) == 0 {
+	if len(groupsByID) == 0 {
 		return
 	}
 
@@ -444,19 +483,89 @@ func (s *Simulation) processOracleVisions(tick uint64) {
 	}
 
 	gini := s.GiniCoefficient()
+	if s.LastVisions == nil {
+		s.LastVisions = make(map[uint64]CachedVision)
+	}
 
-	for _, a := range oracles {
-		ctx := s.buildOracleContext(a, occNames, govNames, stateNames, gini)
-		vision, err := llm.GenerateOracleVision(s.LLM, ctx)
-		if err != nil {
-			slog.Debug("oracle vision failed", "agent", a.Name, "error", err)
+	llmCalls := 0
+	gateHits := 0
+	totalOracles := 0
+	for _, g := range groupsByID {
+		totalOracles += len(g.members)
+		hash := s.oracleStateHash(g.settID)
+		cached, hasCached := s.LastVisions[g.settID]
+		if hasCached && cached.Hash == hash && cached.WeeksReused < oracleMaxReuseWeeks {
+			// State-hash hit: reuse last vision without LLM call. Apply the
+			// vision's mechanics to the voice and spread the prophecy memory
+			// to all liberated agents in this settlement.
+			cached.WeeksReused++
+			s.LastVisions[g.settID] = cached
+			s.applyOracleVision(g.voice, cached.Vision, tick)
+			gateHits++
 			continue
 		}
 
-		s.applyOracleVision(a, vision, tick)
+		ctx := s.buildOracleContext(g.voice, occNames, govNames, stateNames, gini)
+		vision, err := llm.GenerateOracleVision(s.LLM, ctx)
+		llmCalls++
+		if err != nil {
+			// Failure is now visible via the client's circuit breaker — keep
+			// per-call log at Debug to avoid duplicating the Warn.
+			slog.Debug("oracle vision failed", "agent", g.voice.Name, "error", err)
+			continue
+		}
+		s.LastVisions[g.settID] = CachedVision{
+			Hash:        hash,
+			Vision:      vision,
+			WeeksReused: 0,
+		}
+		s.applyOracleVision(g.voice, vision, tick)
 	}
 
-	slog.Info("oracle visions processed", "count", len(oracles))
+	slog.Info("oracle visions processed",
+		"settlements", len(groupsByID),
+		"oracles", totalOracles,
+		"llm_calls", llmCalls,
+		"gate_hits", gateHits,
+	)
+}
+
+// oracleMaxReuseWeeks caps how many consecutive weeks a cached vision can be
+// reused before forcing a refresh. User preference 2026-05-16: bounded reuse
+// to avoid narrative repetition while still cutting LLM cost.
+const oracleMaxReuseWeeks = 2
+
+// oracleStateHash computes a fingerprint of the load-bearing world state for
+// an oracle's settlement. Two consecutive weeks with the same hash are
+// candidates for vision reuse (subject to oracleMaxReuseWeeks cap). Fields
+// chosen to reflect oracle-relevant context without being so granular that
+// the hash never matches: season, treasury bucket (10k crowns), hostile
+// neighbor count, peace treaty count, settlement population bucket (50 pop).
+func (s *Simulation) oracleStateHash(settID uint64) uint64 {
+	sett, ok := s.SettlementIndex[settID]
+	if !ok {
+		return 0
+	}
+	hash := uint64(s.CurrentSeason) << 56
+	hash ^= (sett.Treasury / 10000) << 32
+	hash ^= uint64(len(s.SettlementAgents[settID])/50) << 24
+
+	// Hostile neighbor count (sentiment < -Agnosis).
+	hostile := 0
+	for key, rel := range s.Relations {
+		if key.A != settID && key.B != settID {
+			continue
+		}
+		if rel.Sentiment < -0.236 {
+			hostile++
+		}
+	}
+	hash ^= uint64(hostile) << 16
+
+	// Peace treaty count.
+	hash ^= uint64(len(s.GetSettlementPeace(settID))) << 8
+
+	return hash
 }
 
 func (s *Simulation) buildOracleContext(

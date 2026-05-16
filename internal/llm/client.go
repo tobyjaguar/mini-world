@@ -31,10 +31,18 @@ type Client struct {
 	maxPerMin int
 
 	// Usage tracking.
-	trackMu      sync.Mutex
-	callsByTag   map[string]int64
-	tokensByTag  map[string][2]int64 // [input, output] tokens per tag
-	trackStart   time.Time
+	trackMu          sync.Mutex
+	callsByTag       map[string]int64
+	tokensByTag      map[string][2]int64 // [input, output] uncached tokens per tag
+	cacheTokensByTag map[string][2]int64 // [cache_creation, cache_read] tokens per tag
+	trackStart       time.Time
+
+	// Visibility: circuit breaker on repeated failures (W-15 incident, 2026-05-16).
+	// Pre-fix, all LLM failures logged at slog.Debug; the spend-cap suspension
+	// was invisible at INFO level for ~30 wall-hours. We now warn on the first
+	// failure of a streak and every 100th thereafter, reset on success.
+	failureMu           sync.Mutex
+	consecutiveFailures int
 }
 
 // NewClient creates a new Haiku API client.
@@ -48,10 +56,11 @@ func NewClient(apiKey string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		maxPerMin:   20, // Conservative rate limit
-		callsByTag:  make(map[string]int64),
-		tokensByTag: make(map[string][2]int64),
-		trackStart:  time.Now(),
+		maxPerMin:        20, // Conservative rate limit
+		callsByTag:       make(map[string]int64),
+		tokensByTag:      make(map[string][2]int64),
+		cacheTokensByTag: make(map[string][2]int64),
+		trackStart:       time.Now(),
 	}
 
 	// Start hourly usage summary logger.
@@ -71,7 +80,7 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-// request is the API request body.
+// request is the legacy API request body (system as string, no caching).
 type request struct {
 	Model     string    `json:"model"`
 	MaxTokens int       `json:"max_tokens"`
@@ -79,14 +88,43 @@ type request struct {
 	Messages  []Message `json:"messages"`
 }
 
-// response is the API response body.
+// systemBlock is one content block in the System array. When cache_control is
+// set on the last block, Anthropic caches the prefix up to and including this
+// block. Hit on subsequent calls with the same prefix bills cached tokens at
+// ~10% of the base input rate.
+type systemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+type cacheControl struct {
+	Type string `json:"type"` // "ephemeral" (5-min default TTL)
+}
+
+// cachedRequest is the request body when using prompt caching. The System field
+// is an array of blocks rather than a string; cacheable blocks carry
+// cache_control. The wire protocol accepts either form.
+type cachedRequest struct {
+	Model     string        `json:"model"`
+	MaxTokens int           `json:"max_tokens"`
+	System    []systemBlock `json:"system,omitempty"`
+	Messages  []Message     `json:"messages"`
+}
+
+// response is the API response body. CacheCreationInputTokens and
+// CacheReadInputTokens are non-zero only on cached requests; their billing rate
+// is ~1.25× and ~0.10× the base input rate respectively (Haiku 4.5: $1.25/M
+// cache write, $0.10/M cache read vs $1/M input).
 type response struct {
 	Content []struct {
 		Text string `json:"text"`
 	} `json:"content"`
 	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -97,7 +135,50 @@ func (c *Client) Complete(system, userPrompt string, maxTokens int) (string, err
 }
 
 // CompleteTagged sends a prompt to Haiku and records usage under the given tag.
+// The system prompt is sent uncached. For repeated calls with a stable system
+// prompt, prefer CompleteTaggedCached.
 func (c *Client) CompleteTagged(system, userPrompt string, maxTokens int, tag string) (string, error) {
+	body, err := json.Marshal(request{
+		Model:     model,
+		MaxTokens: maxTokens,
+		System:    system,
+		Messages:  []Message{{Role: "user", Content: userPrompt}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doRequest(body, tag)
+}
+
+// CompleteTaggedCached sends a prompt to Haiku with the system prompt marked
+// for ephemeral (5-min TTL) prompt caching. Subsequent calls with the same
+// system prompt bill cached input tokens at ~10% of the base rate. Cache
+// write on the first call costs ~125% of the base rate, so caching is a net
+// loss for one-off calls and a net win for repeated batches (oracle batches
+// ~10 calls/TickWeek; tier2 batches ~5 calls/TickDay).
+func (c *Client) CompleteTaggedCached(system, userPrompt string, maxTokens int, tag string) (string, error) {
+	body, err := json.Marshal(cachedRequest{
+		Model:     model,
+		MaxTokens: maxTokens,
+		System: []systemBlock{
+			{
+				Type:         "text",
+				Text:         system,
+				CacheControl: &cacheControl{Type: "ephemeral"},
+			},
+		},
+		Messages: []Message{{Role: "user", Content: userPrompt}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal cached request: %w", err)
+	}
+	return c.doRequest(body, tag)
+}
+
+// doRequest sends a pre-marshalled JSON body, enforces rate limiting, parses
+// the response, records usage and cache stats, and updates the failure
+// circuit breaker. Returns the response text or a wrapped error.
+func (c *Client) doRequest(body []byte, tag string) (string, error) {
 	if !c.Enabled() {
 		return "", fmt.Errorf("LLM client not configured")
 	}
@@ -111,27 +192,16 @@ func (c *Client) CompleteTagged(system, userPrompt string, maxTokens int, tag st
 	}
 	if c.callCount >= c.maxPerMin {
 		c.mu.Unlock()
-		return "", fmt.Errorf("rate limit exceeded (%d calls/min)", c.maxPerMin)
+		err := fmt.Errorf("rate limit exceeded (%d calls/min)", c.maxPerMin)
+		c.recordFailure(tag, err)
+		return "", err
 	}
 	c.callCount++
 	c.mu.Unlock()
 
-	req := request{
-		Model:     model,
-		MaxTokens: maxTokens,
-		System:    system,
-		Messages: []Message{
-			{Role: "user", Content: userPrompt},
-		},
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
-	}
-
 	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewReader(body))
 	if err != nil {
+		c.recordFailure(tag, err)
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -140,44 +210,82 @@ func (c *Client) CompleteTagged(system, userPrompt string, maxTokens int, tag st
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		c.recordFailure(tag, err)
 		return "", fmt.Errorf("API call: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		c.recordFailure(tag, err)
 		return "", fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+		apiErr := fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+		c.recordFailure(tag, apiErr)
+		return "", apiErr
 	}
 
 	var apiResp response
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		c.recordFailure(tag, err)
 		return "", fmt.Errorf("unmarshal response: %w", err)
 	}
 
 	if len(apiResp.Content) == 0 {
-		return "", fmt.Errorf("empty response")
+		err := fmt.Errorf("empty response")
+		c.recordFailure(tag, err)
+		return "", err
 	}
 
 	slog.Debug("haiku call",
 		"tag", tag,
 		"input_tokens", apiResp.Usage.InputTokens,
 		"output_tokens", apiResp.Usage.OutputTokens,
+		"cache_write", apiResp.Usage.CacheCreationInputTokens,
+		"cache_read", apiResp.Usage.CacheReadInputTokens,
 	)
 
-	// Record usage.
+	// Record usage. Cache write/read tokens are tracked separately because
+	// they bill at different rates (1.25× and 0.10× respectively).
 	c.trackMu.Lock()
 	c.callsByTag[tag]++
 	tok := c.tokensByTag[tag]
 	tok[0] += int64(apiResp.Usage.InputTokens)
 	tok[1] += int64(apiResp.Usage.OutputTokens)
 	c.tokensByTag[tag] = tok
+	cacheTok := c.cacheTokensByTag[tag]
+	cacheTok[0] += int64(apiResp.Usage.CacheCreationInputTokens)
+	cacheTok[1] += int64(apiResp.Usage.CacheReadInputTokens)
+	c.cacheTokensByTag[tag] = cacheTok
 	c.trackMu.Unlock()
 
+	// Success — reset failure streak.
+	c.failureMu.Lock()
+	c.consecutiveFailures = 0
+	c.failureMu.Unlock()
+
 	return apiResp.Content[0].Text, nil
+}
+
+// recordFailure increments the consecutive-failure counter and emits a
+// Warn-level log on the first failure of a streak and every 100th thereafter.
+// This is the W-15 fix: pre-2026-05-16 all LLM failures went to slog.Debug,
+// so the Anthropic spend-cap suspension on 2026-05-15 went unnoticed for
+// ~30 wall-hours. Now the first failure of a streak is immediately visible.
+func (c *Client) recordFailure(tag string, err error) {
+	c.failureMu.Lock()
+	c.consecutiveFailures++
+	n := c.consecutiveFailures
+	c.failureMu.Unlock()
+	if n == 1 || n%100 == 0 {
+		slog.Warn("LLM call failed",
+			"tag", tag,
+			"consecutive_failures", n,
+			"error", err.Error(),
+		)
+	}
 }
 
 // UsageSummary returns current tracking period counters.
@@ -191,27 +299,36 @@ func (c *Client) UsageSummary() map[string]any {
 	totalCalls := int64(0)
 	totalInput := int64(0)
 	totalOutput := int64(0)
+	totalCacheWrite := int64(0)
+	totalCacheRead := int64(0)
 	perTag := make(map[string]map[string]int64)
 
 	for tag, calls := range c.callsByTag {
 		totalCalls += calls
 		tok := c.tokensByTag[tag]
+		cacheTok := c.cacheTokensByTag[tag]
 		totalInput += tok[0]
 		totalOutput += tok[1]
+		totalCacheWrite += cacheTok[0]
+		totalCacheRead += cacheTok[1]
 		perTag[tag] = map[string]int64{
-			"calls":         calls,
-			"input_tokens":  tok[0],
-			"output_tokens": tok[1],
+			"calls":               calls,
+			"input_tokens":        tok[0],
+			"output_tokens":       tok[1],
+			"cache_write_tokens":  cacheTok[0],
+			"cache_read_tokens":   cacheTok[1],
 		}
 	}
 
 	return map[string]any{
-		"period_start":       c.trackStart.UTC().Format(time.RFC3339),
-		"period_duration":    time.Since(c.trackStart).Truncate(time.Second).String(),
-		"total_calls":        totalCalls,
-		"total_input_tokens": totalInput,
-		"total_output_tokens": totalOutput,
-		"by_tag":             perTag,
+		"period_start":              c.trackStart.UTC().Format(time.RFC3339),
+		"period_duration":           time.Since(c.trackStart).Truncate(time.Second).String(),
+		"total_calls":               totalCalls,
+		"total_input_tokens":        totalInput,
+		"total_output_tokens":       totalOutput,
+		"total_cache_write_tokens":  totalCacheWrite,
+		"total_cache_read_tokens":   totalCacheRead,
+		"by_tag":                    perTag,
 	}
 }
 
@@ -223,19 +340,23 @@ func (c *Client) logUsagePeriodically() {
 	for range ticker.C {
 		c.trackMu.Lock()
 		totalCalls := int64(0)
-		var totalInput, totalOutput int64
+		var totalInput, totalOutput, totalCacheWrite, totalCacheRead int64
 		tags := make([]any, 0, len(c.callsByTag)*2)
 		for tag, calls := range c.callsByTag {
 			totalCalls += calls
 			tok := c.tokensByTag[tag]
+			cacheTok := c.cacheTokensByTag[tag]
 			totalInput += tok[0]
 			totalOutput += tok[1]
+			totalCacheWrite += cacheTok[0]
+			totalCacheRead += cacheTok[1]
 			tags = append(tags, tag, calls)
 		}
 
 		// Reset counters for next period.
 		c.callsByTag = make(map[string]int64)
 		c.tokensByTag = make(map[string][2]int64)
+		c.cacheTokensByTag = make(map[string][2]int64)
 		c.trackStart = time.Now()
 		c.trackMu.Unlock()
 
@@ -244,6 +365,8 @@ func (c *Client) logUsagePeriodically() {
 			"total_calls", totalCalls,
 			"input_tokens", totalInput,
 			"output_tokens", totalOutput,
+			"cache_write_tokens", totalCacheWrite,
+			"cache_read_tokens", totalCacheRead,
 		}
 		args = append(args, tags...)
 		slog.Info("llm usage summary", args...)

@@ -126,6 +126,27 @@ type Simulation struct {
 	// stable hex assignment via ID % totalWeight.
 	prodHexCache     map[prodHexKey]*hexDist
 	prodHexCacheTick uint64
+
+	// Per-settlement cached oracle vision. Used by processOracleVisions to
+	// skip redundant LLM calls when settlement state is unchanged across
+	// weeks. See oracleStateHash for the hash inputs. Transient — cleared
+	// on restart (visions will refresh on first post-restart TickWeek).
+	LastVisions map[uint64]CachedVision
+
+	// Season at last archetype-template refresh. Archetype updates moved
+	// from per-TickWeek to per-season transition (2026-05-16) — weekly
+	// nudges produced minimal behavioral signal but burned ~20 calls/day.
+	LastArchetypeSeason uint8
+	archetypeInitialized bool
+}
+
+// CachedVision holds a reused oracle vision and tracks how many weeks it has
+// been reused. Reuse is capped at oracleMaxReuseWeeks (2) to bound narrative
+// repetition.
+type CachedVision struct {
+	Hash        uint64
+	Vision      *llm.OracleVision
+	WeeksReused int
 }
 
 // CurrentTick returns the most recently processed tick number.
@@ -545,7 +566,16 @@ func (s *Simulation) TickWeek(tick uint64) {
 	s.processSpiritsPoolDecay()  // R90 Layer 3: spirits not claimed slowly fade
 	s.computeMonasticBoosts()     // R91 Layer 4: refresh per-agent practice multipliers
 	s.processWeeklyTier2Replenishment()
-	s.updateArchetypeTemplates(tick)
+	// Archetype templates: refresh only on season transition (~13 TickWeeks
+	// apart), not every TickWeek. World state moves slowly enough that
+	// weekly nudges produced minimal behavioral signal but burned ~20
+	// calls/day. The `archetypeInitialized` flag ensures the first
+	// post-restart TickWeek always refreshes regardless of season.
+	if !s.archetypeInitialized || s.CurrentSeason != s.LastArchetypeSeason {
+		s.updateArchetypeTemplates(tick)
+		s.LastArchetypeSeason = s.CurrentSeason
+		s.archetypeInitialized = true
+	}
 	s.processOracleVisions(tick)
 	s.processRandomEvents(tick)
 	s.narrateRecentMajorEvents(tick)

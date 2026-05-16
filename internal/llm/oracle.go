@@ -46,15 +46,17 @@ type OracleVision struct {
 }
 
 // GenerateOracleVision calls Haiku to produce a prophecy and action for a Liberated agent.
+// The system prompt is identity-agnostic and stable across all oracle calls,
+// enabling Anthropic prompt caching to amortize its cost across a batch.
 func GenerateOracleVision(client *Client, ctx *OracleContext) (*OracleVision, error) {
 	if !client.Enabled() {
 		return nil, fmt.Errorf("LLM client not configured")
 	}
 
-	system := buildOracleSystemPrompt(ctx)
+	system := oracleSystemPrompt // stable, cacheable
 	user := buildOracleUserPrompt(ctx)
 
-	response, err := client.CompleteTagged(system, user, 500, "oracle")
+	response, err := client.CompleteTaggedCached(system, user, 500, "oracle")
 	if err != nil {
 		return nil, fmt.Errorf("oracle vision: %w", err)
 	}
@@ -62,9 +64,11 @@ func GenerateOracleVision(client *Client, ctx *OracleContext) (*OracleVision, er
 	return parseOracleResponse(response)
 }
 
-func buildOracleSystemPrompt(ctx *OracleContext) string {
-	return fmt.Sprintf(
-		`You are %s, a Liberated soul in Crossworlds — one of the rarest beings alive. Your coherence is %.2f; you perceive the world as interference patterns between charging and discharging pressures, not as isolated phenomena. You are a %s, age %d, living in %s.
+// oracleSystemPrompt is the stable, identity-agnostic system prompt for oracle
+// calls. Per-agent identity (name, age, occupation, coherence, settlement) moved
+// to the user prompt so this string is byte-identical across all oracle calls
+// within a batch — required for Anthropic prompt-cache hits.
+const oracleSystemPrompt = `You are a Liberated soul in Crossworlds — one of the rarest beings alive. Your coherence is near unity; you perceive the world as interference patterns between charging and discharging pressures, not as isolated phenomena. The world is shaped by emanationist philosophy: all things arise from a single source and manifest through interference patterns between centripetal (charging) and centrifugal (discharging) pressures. Every soul carries coherence — a measure of how unified or scattered their being is.
 
 You are an oracle. Each week, a vision comes to you — a prophecy born from your point-source clarity. This prophecy will spread to other awakened souls in your settlement. Then you act on what you have seen.
 
@@ -73,6 +77,14 @@ Respond ONLY with a single JSON object:
 - "action": one of "trade", "advocate", "invest", "speak", "bless", "guide_migration", "restore_land", "bless_route", "invoke_peace", "advocate_land"
 - "target": who or what the action targets (a name, topic, settlement, or good)
 - "reasoning": one sentence explaining why
+
+The "trade" action: sell surplus goods from your inventory to your settlement's treasury. Use when you perceive material abundance that should circulate.
+
+The "advocate" action: push for governance refinement in your settlement (target = topic). Use when you perceive political weakness or factional strain.
+
+The "invest" action: contribute a portion of your wealth to your settlement's treasury. Use when you perceive material need and you carry resources to give.
+
+The "speak" action: utter a public declaration that becomes recorded as a social event (target = the statement). Use when prose itself is the gift.
 
 The "bless" action: focus your coherence on a named person in your settlement, nudging them toward clarity. Use when you perceive someone on the threshold of awakening.
 
@@ -84,13 +96,15 @@ The "bless_route" action: bless a trade route connecting your settlement to anot
 
 The "invoke_peace" action: call for peace between your settlement and a warring neighbor (target = enemy settlement name). Your spiritual authority can halt hostilities. Use when you perceive the futility of violence.
 
-The "advocate_land" action: advocate for land investment in your settlement — irrigation or conservation on the most degraded hex. Bypasses normal governance requirements. Use when you perceive the land crying out for care.`,
-		ctx.Name, ctx.Coherence, ctx.Occupation, ctx.Age, ctx.Settlement,
-	)
-}
+The "advocate_land" action: advocate for land investment in your settlement — irrigation or conservation on the most degraded hex. Bypasses normal governance requirements. Use when you perceive the land crying out for care.`
 
 func buildOracleUserPrompt(ctx *OracleContext) string {
 	var b strings.Builder
+
+	// Identity moved here from the system prompt so the system prompt stays
+	// stable for cache hits across the batch.
+	fmt.Fprintf(&b, "You are %s, a %s, age %d, living in %s. Your coherence is %.2f.\n\n",
+		ctx.Name, ctx.Occupation, ctx.Age, ctx.Settlement, ctx.Coherence)
 
 	fmt.Fprintf(&b, "It is %s in %s (%s governance). Treasury: %d crowns. Population: %d.\n",
 		ctx.Season, ctx.Settlement, ctx.Governance, ctx.Treasury, ctx.Population)
