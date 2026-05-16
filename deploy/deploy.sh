@@ -78,6 +78,12 @@ OVERRIDE="${OVERRIDE}\nEnvironment=\"PORT=${WORLDSIM_PORT}\""
 [ -n "${RANDOM_ORG_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"RANDOM_ORG_API_KEY=${RANDOM_ORG_API_KEY}\""
 [ -n "${CORS_ORIGINS:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"CORS_ORIGINS=${CORS_ORIGINS}\""
 [ -n "${GOGC:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"GOGC=${GOGC}\""
+# R96 (2026-05-16): GOMEMLIMIT soft ceiling on Go heap. Tells the runtime to
+# GC aggressively before approaching the OS OOM-killer threshold. Default
+# 1500MiB chosen for the 2GB instance constraint (target: ~75% of total RAM,
+# leaving ~500MiB for buff/cache + daily SQLite backup + non-heap allocations).
+# Override in config.local if running on a larger box.
+OVERRIDE="${OVERRIDE}\nEnvironment=\"GOMEMLIMIT=${GOMEMLIMIT:-1500MiB}\""
 
 # Gardener override — talks to worldsim on its local port.
 GOVERRIDE="[Service]"
@@ -190,8 +196,15 @@ if [ "$S3_BACKUP_ENABLED" = "true" ]; then
         sudo systemctl start worldsim-backup-s3.timer && \
         sudo systemctl list-timers worldsim-backup.timer worldsim-backup-s3.timer --no-pager"
 else
+    # R96 (2026-05-16): explicitly disable the timer when S3_BUCKET is unset.
+    # Pre-fix this branch only printed a message — if S3 was previously enabled
+    # and then turned off in config.local, the timer kept firing. The May 16
+    # 04:36 UTC OOM was caused by aws CLI multipart-upload memory pressure
+    # against a worldsim already at 1.79 GB RSS on a 2 GB instance.
     echo "=== S3 backup disabled (S3_BUCKET not set in config.local) ==="
     echo "    See deploy/setup-s3-bucket.sh for one-time bucket setup."
+    $SSH_CMD "sudo systemctl disable --now worldsim-backup-s3.timer 2>/dev/null || true; \
+        sudo systemctl disable --now worldsim-backup-s3.service 2>/dev/null || true" || true
 fi
 
 echo "=== Checking status ==="

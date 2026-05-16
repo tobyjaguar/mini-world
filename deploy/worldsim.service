@@ -12,6 +12,11 @@ Restart=always
 RestartSec=5
 TimeoutStopSec=180
 
+# Environment is injected by deploy.sh as a systemd drop-in override that
+# reads config.local. GOGC + GOMEMLIMIT are runtime knobs on the Go GC,
+# load-bearing for the 2GB-instance design constraint. See deploy.sh and
+# config.local.example for the operator-facing values.
+
 # Logging goes to journald.
 StandardOutput=journal
 StandardError=journal
