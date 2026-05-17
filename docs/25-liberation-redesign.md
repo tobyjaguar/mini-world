@@ -257,6 +257,32 @@ Three phases:
 
 **Open question:** should the projector model `addAgent`'s month-counter directly, or should the production engine expose an age-up rate metric the projector can target? Either fix is a one-day project. Filed as part of the next projector refresh.
 
+### 1.7.2 Second empirical check — the wave RETREATS at year 11 (added 2026-05-17, tick 5,446,541, Autumn Day 3 Year 11)
+
+190 sim-days after §1.7.1, a fresh /observe surfaced the W-14 finding: the adult-liberated cohort **shrunk** from 316 → 234 (-26%). Projector trajectory re-run (seed=42, weeks=624, agents=50K, start=`production_actual_2026_05_07`) compared against the new production observation:
+
+| Metric | Projector (sim-yr 11) | Observed (sim-yr 11) | Verdict |
+|---|---|---|---|
+| Total adults (age ≥ 16) | 45,646 | **407** | Projector still ~113× too many |
+| Adult liberated (absolute) | 125 | **234** | Production higher |
+| Per-adult liberation rate | 0.27% | **57.5%** (234/407) | Production ~213× higher |
+| Per-adult rate **trend** vs sim-yr 10 | **RISING** (0.15% → 0.27%) | **FALLING** (71% → 57.5%) | **Opposite direction** |
+| Liberation deaths over 190 sim-days | implied minor | ~24 max (per `liberation=0..1`/25-day debug log) | accounts for at most ~30% of -82 loss |
+| Max WisdomEffort | n/a | **384** (Magnus Deepwell, Scholar 18 @ Blackgate) | depth growing despite cohort shrinking |
+| Age 20-29 bucket | n/a | 13 → **16** (+3) | older edge slowly filling |
+
+**Three findings.**
+
+1. **Projector adult-ageing gap unchanged at year 11.** The 113× overshoot at year 11 (vs 28× at year 10) confirms the gap GROWS with sim-time — the synthetic agent-ageing in `cmd/lib_projector` advances ~28-113× faster than production's `AgeMonths` cadence over the boom-cohort timeframe. **Filed for the next projector refresh as in §1.7.1.** Treating this as an upper-bound bias on projector adult-population predictions is now standard practice.
+
+2. **The wave RETREATS at year 11, opposite to the projector's prediction.** This is the headline structural finding. Production lost 82 adult-liberated over 190 sim-days. **Deaths can only explain ~24 of them** (`liberation=0..1` per 25-sim-day debug log × 8 windows ≈ 24 max). The remaining ~58 must have **dropped out of the liberated band via coherence < 0.7**. This means **R88 Layer 1 trauma decay is eroding the lower portion of the liberated band faster than R92 practice (Layer 2) is replenishing it** for marginal agents (those whose practice rate barely tops the decay). The 97% nonzero-WisdomEffort rate among survivors (down slightly from 99% on May 12) suggests the practice-gate is still firing, but the COHERENCE side of the gate is leaking.
+
+3. **The wave has likely bottomed.** Two observational signals: (a) the 16-19 → 20-29 transition is finally filling (13 → 14 → 16 over wall-day, +2 in last 10 hours), (b) net cohort movement was +1 in 10 hours overnight 2026-05-17 (233 → 234), (c) max WisdomEffort climbed +165 (219 → 384), so the surviving cohort is the high-practice, high-coherence subset that drift can't easily erode. **Future observations should confirm whether the adult-cohort stabilizes around 230-250 or continues to drift downward.**
+
+**Design implication.** If the cohort stabilizes, the current architecture is producing emergent equilibrium between drift and practice — the design intent. If it keeps drifting, a future R-round may want to (a) add an "anchor" mechanic where liberated agents resist trauma decay (precedent: `IsLiberated` could shave a fraction off `AdjustCoherence` for negative deltas), or (b) accelerate practice efficacy modestly for low-margin cases. **Per the memory's "production-mutation proposals rejected" lesson, the default action is `accept and observe` until the trajectory is clearer.** No code change recommended yet.
+
+**Updated projector lesson.** Year-11 reconciliation reinforces §1.7.1: the projector cannot be trusted on per-population absolute counts when the adult-cohort size differs from production. **What it CAN do well**: relative trends (rising vs falling) on a fixed population. But production's year-11 trend is OPPOSITE to projector's — so the projector also missed the drift > practice dynamic for marginal cases. A future projector update should add a `CoherenceDrift` field on each tick and track whether marginal-liberated agents fall back below the threshold, not just aggregate counts.
+
 ---
 
 ## 2. Design principles
