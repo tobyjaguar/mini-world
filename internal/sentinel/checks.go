@@ -40,6 +40,7 @@ type HealthSnapshot struct {
 	Satisfaction    float64 `json:"satisfaction"`
 	AvgSettHealth   float64 `json:"avg_sett_health"`
 	Population      int     `json:"population"`
+	MortalityRate   float64 `json:"mortality_rate"` // deaths per sim-day as fraction of population
 }
 
 // The 8 main occupations for Tier 2 vitality check.
@@ -48,7 +49,7 @@ var mainOccupations = []string{
 	"Soldier", "Scholar", "Fisher", "Hunter",
 }
 
-// RunChecks runs all 8 health checks against a snapshot and returns the results
+// RunChecks runs all 9 health checks against a snapshot and returns the results
 // plus a HealthSnapshot for trend storage.
 func RunChecks(snap *WorldSnapshot, state *SentinelState) ([]CheckResult, HealthSnapshot) {
 	hs := extractMetrics(snap)
@@ -62,6 +63,7 @@ func RunChecks(snap *WorldSnapshot, state *SentinelState) ([]CheckResult, Health
 		checkTier2Vitality(snap),
 		checkSatisfactionTrend(hs, state),
 		checkLandHealth(hs),
+		checkMortalitySpike(snap, hs),
 	}
 
 	// Guard: replace +Inf/-Inf/NaN values that break JSON marshaling.
@@ -113,6 +115,9 @@ func extractMetrics(snap *WorldSnapshot) HealthSnapshot {
 
 	// D:B ratio from stats history deltas.
 	hs.DeathBirthRatio = computeDeathBirthRatio(snap.History)
+
+	// Mortality rate: deaths per sim-day as a fraction of population.
+	hs.MortalityRate = computeMortalityRate(snap.History)
 
 	// Average settlement health.
 	if len(snap.Settlements) > 0 {
@@ -168,7 +173,89 @@ func computeDeathBirthRatio(history []StatsHistoryRow) float64 {
 	return 1.0
 }
 
+// computeMortalityRate returns deaths per sim-day as a fraction of population,
+// from the most recent valid consecutive history pair. History is sorted by
+// tick DESC, so [0] is newest. Returns 0 if no valid pair (insufficient
+// history or counter reset across every pair).
+//
+// Added 2026-05-21 after the W-19 Winter illness die-off — ~13,400 deaths in
+// 8 sim-days went completely undetected by sentinel, which had no mortality
+// signal. Normal mortality is ~1-50 deaths/sim-day (rate ~1e-5); the die-off
+// peaked at ~5,277/sim-day (rate ~0.014).
+const ticksPerSimDay = 1440
+
+func computeMortalityRate(history []StatsHistoryRow) float64 {
+	if len(history) < 2 {
+		return 0
+	}
+	for i := 0; i < len(history)-1; i++ {
+		newer := history[i]
+		older := history[i+1]
+
+		// Counter reset detection (deploy/restart restores cumulative counters).
+		if newer.Deaths < older.Deaths || newer.Tick <= older.Tick {
+			continue
+		}
+		deltaDeaths := newer.Deaths - older.Deaths
+		deltaTicks := newer.Tick - older.Tick
+		if deltaTicks == 0 || newer.Population <= 0 {
+			continue
+		}
+		simDays := float64(deltaTicks) / float64(ticksPerSimDay)
+		if simDays <= 0 {
+			continue
+		}
+		deathsPerSimDay := float64(deltaDeaths) / simDays
+		return deathsPerSimDay / float64(newer.Population)
+	}
+	return 0
+}
+
 // --- Individual checks ---
+
+// checkMortalitySpike flags anomalous death rates. Thresholds are Φ powers of
+// the daily death fraction:
+//
+//	HEALTHY:  rate <= Agnosis⁵ (~0.073%/day — natural-mortality ceiling)
+//	WATCH:    rate >  Agnosis⁵ (clear anomaly, ~20-30× normal)
+//	WARNING:  rate >  Agnosis⁴ (~0.31%/day — sustained cull)
+//	CRITICAL: rate >  Agnosis³ (~1.3%/day — mass die-off, W-19 peaked here)
+//
+// Normal mortality (~1-50 deaths/sim-day) sits far below Agnosis⁵, so this
+// check stays HEALTHY in steady state and only fires on real spikes (plague,
+// winter illness, starvation cascade, over-capacity culling).
+func checkMortalitySpike(snap *WorldSnapshot, hs HealthSnapshot) CheckResult {
+	cr := CheckResult{
+		Name:  "mortality_spike",
+		Value: hs.MortalityRate,
+	}
+
+	agnosis3 := phi.Agnosis * phi.Agnosis * phi.Agnosis
+	agnosis4 := agnosis3 * phi.Agnosis
+	agnosis5 := agnosis4 * phi.Agnosis
+
+	// Approximate deaths/sim-day for the human-readable detail.
+	deathsPerDay := hs.MortalityRate * float64(hs.Population)
+
+	switch {
+	case hs.MortalityRate > agnosis3:
+		cr.Status = LevelCritical
+		cr.Threshold = fmt.Sprintf("rate > %.4f (Agnosis³, ~1.3%%/day)", agnosis3)
+	case hs.MortalityRate > agnosis4:
+		cr.Status = LevelWarning
+		cr.Threshold = fmt.Sprintf("rate > %.4f (Agnosis⁴, ~0.31%%/day)", agnosis4)
+	case hs.MortalityRate > agnosis5:
+		cr.Status = LevelWatch
+		cr.Threshold = fmt.Sprintf("rate > %.5f (Agnosis⁵, ~0.073%%/day)", agnosis5)
+	default:
+		cr.Status = LevelHealthy
+		cr.Threshold = fmt.Sprintf("rate <= %.5f (Agnosis⁵)", agnosis5)
+	}
+
+	cr.Detail = fmt.Sprintf("~%.0f deaths/sim-day (rate %.5f of %dK pop)",
+		deathsPerDay, hs.MortalityRate, hs.Population/1000)
+	return cr
+}
 
 func checkPopulationVitality(snap *WorldSnapshot, hs HealthSnapshot) CheckResult {
 	cr := CheckResult{

@@ -30,7 +30,7 @@ The full design specification lives in `docs/worldsim-design.md` (~1,500 lines, 
 - **Event Journal**: Append-only log, news generation, newspaper endpoint
 - **HTTP API**: Query interface for checking in on the world
 - **Claude Gardener**: Autonomous steward that observes the world and intervenes via admin API
-- **Sentinel**: Read-only structural health monitor — 8 checks, trend detection, alerts (every 30 min)
+- **Sentinel**: Read-only structural health monitor — 9 checks, trend detection, alerts (every 30 min)
 
 ### Key Design Principles
 1. Emergence over scripting — never hard-code storylines
@@ -165,7 +165,7 @@ mini-world/
 │   │   └── memory.go            #   Cycle memory persistence (last 10 cycles)
 │   ├── sentinel/                # Sentinel — structural health monitor (read-only)
 │   │   ├── observe.go           #   API data collection → WorldSnapshot
-│   │   ├── checks.go            #   8 health checks with Φ-derived thresholds
+│   │   ├── checks.go            #   9 health checks with Φ-derived thresholds
 │   │   ├── trends.go            #   Ring buffer trend computation
 │   │   ├── alerts.go            #   State transition detection + cooldown
 │   │   ├── report.go            #   JSON report builder + slog output

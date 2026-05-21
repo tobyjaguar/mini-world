@@ -32,6 +32,7 @@ var checkMetrics = map[string]struct {
 	"governance_diversity": {func(s HealthSnapshot) float64 { return s.GovScore }, lowerIsBetter},
 	"satisfaction_trend":  {func(s HealthSnapshot) float64 { return s.Satisfaction }, higherIsBetter},
 	"land_health":         {func(s HealthSnapshot) float64 { return s.AvgSettHealth }, higherIsBetter},
+	"mortality_spike":     {func(s HealthSnapshot) float64 { return s.MortalityRate }, lowerIsBetter},
 }
 
 // ComputeTrend compares the current value to the rolling average of the last 5 snapshots.

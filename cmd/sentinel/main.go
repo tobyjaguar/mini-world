@@ -1,5 +1,5 @@
 // Command sentinel runs the structural health monitor for Crossworlds.
-// It observes world state via the public API, runs 8 health checks,
+// It observes world state via the public API, runs 9 health checks,
 // detects trends, and raises alerts on state transitions.
 // It never modifies the simulation — it observes and reports.
 package main
