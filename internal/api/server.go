@@ -2262,14 +2262,22 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run the full save inside the tick-loop goroutine (W-21 fix). Saving from
-	// this HTTP goroutine raced the running tick loop: SaveAgents iterates
-	// sim.Agents while the loop concurrently mutates it, producing a transient
-	// duplicate id in the DELETE+INSERT batch → "UNIQUE constraint failed:
-	// agents.id". The daily/shutdown saves never race because they run in-loop.
-	// Routing the snapshot through the loop makes it observe consistent,
-	// mutation-free state — at the cost of briefly pausing ticks during the save.
-	save := func() error { return s.DB.SaveWorldStateFull(s.Sim) }
+	// Run the save inside the tick-loop goroutine (W-21 fix). Saving from this
+	// HTTP goroutine raced the running tick loop: SaveAgents iterates sim.Agents
+	// while the loop concurrently mutates it, producing a transient duplicate id
+	// in the DELETE+INSERT batch → "UNIQUE constraint failed: agents.id". The
+	// daily/shutdown saves never race because they run in-loop. Routing the
+	// snapshot through the loop makes it observe consistent, mutation-free state.
+	//
+	// Use the FAST save (SaveWorldState), NOT the full save. Because the task
+	// runs in-loop it pauses ticks for its whole duration, and the full save's
+	// memories+relationships pass takes many minutes for a large world — which
+	// froze the live sim when first deployed. The fast save (~20s) persists all
+	// critical state (agents, settlements, factions, hex, and the registry:
+	// relations/agreements/trade routes/peace/etc.) — the same set the daily
+	// save writes. Memories and relationships are still captured by the graceful
+	// shutdown save (SaveWorldStateFull).
+	save := func() error { return s.DB.SaveWorldState(s.Sim) }
 
 	if s.Eng == nil {
 		// No engine wired (e.g. tests) — fall back to a direct save.
@@ -2291,7 +2299,9 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "snapshot failed", http.StatusInternalServerError)
 				return
 			}
-		case <-time.After(5 * time.Minute):
+		case <-time.After(90 * time.Second):
+			// The fast save is ~20s; 90s is generous headroom. (The loop task
+			// still completes even if we stop waiting here.)
 			http.Error(w, "snapshot timed out", http.StatusGatewayTimeout)
 			return
 		}
