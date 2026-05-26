@@ -10,10 +10,10 @@ import (
 
 // TickSchedule defines when each system runs relative to the tick counter.
 const (
-	TicksPerSimHour   = 60       // 60 ticks = 1 sim-hour
-	TicksPerSimDay    = 1440     // 24 hours × 60
-	TicksPerSimWeek   = 10080    // 7 days × 1440
-	TicksPerSimSeason = 90000    // ~62.5 days
+	TicksPerSimHour   = 60    // 60 ticks = 1 sim-hour
+	TicksPerSimDay    = 1440  // 24 hours × 60
+	TicksPerSimWeek   = 10080 // 7 days × 1440
+	TicksPerSimSeason = 90000 // ~62.5 days
 )
 
 // Engine drives the simulation forward.
@@ -24,11 +24,11 @@ type Engine struct {
 	Running  bool
 
 	// Callbacks for each tick layer — populated during setup.
-	OnTick       func(tick uint64) // Every tick (sim-minute)
-	OnHour       func(tick uint64) // Every 60 ticks
-	OnDay        func(tick uint64) // Every 1440 ticks
-	OnWeek       func(tick uint64) // Every 10080 ticks
-	OnSeason     func(tick uint64) // Every ~90000 ticks
+	OnTick   func(tick uint64) // Every tick (sim-minute)
+	OnHour   func(tick uint64) // Every 60 ticks
+	OnDay    func(tick uint64) // Every 1440 ticks
+	OnWeek   func(tick uint64) // Every 10080 ticks
+	OnSeason func(tick uint64) // Every ~90000 ticks
 }
 
 // NewEngine creates a simulation engine with default settings.
@@ -104,19 +104,29 @@ func (e *Engine) step() {
 }
 
 // SimTime returns a human-readable simulation time string from a tick number.
+//
+// The season MUST be derived from TicksPerSimSeason — the same basis the engine
+// uses in processSeason (`(tick / TicksPerSimSeason) % 4`) — so the displayed
+// season always matches the season that actually drives mechanics (winter
+// hardship, seasonal regen, crop yields). The old implementation assumed a
+// 90-day season (129,600 ticks); with TicksPerSimSeason at 90,000 ticks
+// (~62.5 days) the two clocks drifted apart, so the string reported "Winter"
+// while the engine was mechanically in "Summer". Day-in-season and year are now
+// expressed on the same TicksPerSimSeason basis for internal consistency.
 func SimTime(tick uint64) string {
-	totalMinutes := tick
-	minutes := totalMinutes % 60
-	totalHours := totalMinutes / 60
-	hours := totalHours % 24
-	totalDays := totalHours / 24
-	days := totalDays%90 + 1
-	seasons := totalDays / 90
-	season := seasons % 4
-	years := seasons/4 + 1
+	minutes := tick % 60
+	hours := (tick / 60) % 24
+
+	seasonIndex := tick / TicksPerSimSeason
+	season := seasonIndex % 4
+	years := seasonIndex/4 + 1
+
+	// Day within the current mechanical season (1-based).
+	ticksIntoSeason := tick % TicksPerSimSeason
+	dayInSeason := ticksIntoSeason/TicksPerSimDay + 1
 
 	seasonNames := [4]string{"Spring", "Summer", "Autumn", "Winter"}
 
 	return fmt.Sprintf("%s Day %d, %d:%02d Year %d",
-		seasonNames[season], days, hours, minutes, years)
+		seasonNames[season], dayInSeason, hours, minutes, years)
 }

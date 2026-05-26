@@ -8,8 +8,8 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/eventproto"
+	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/phi"
 	"github.com/talgya/mini-world/internal/social"
 	"github.com/talgya/mini-world/internal/world"
@@ -43,7 +43,8 @@ func (s *Simulation) processPopulation(tick uint64) {
 		s.ageAgentsMonthly(tick)
 	}
 
-	// Daily: natural death checks and birth checks.
+	// Daily: passive health recovery, then natural death and birth checks.
+	s.processHealthRecovery()
 	s.processNaturalDeaths(tick)
 	s.processBirths(tick)
 	s.processAntiCollapse(tick)
@@ -88,7 +89,7 @@ func (s *Simulation) ageAgentsMonthly(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s comes of age in %s", a.Name, settName),
-					Category: eventproto.CategorySocial,
+					Category:    eventproto.CategorySocial,
 					Meta: map[string]any{
 						"agent_id":        a.ID,
 						"agent_name":      a.Name,
@@ -170,7 +171,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: desc,
-					Category: eventproto.CategoryDeath,
+					Category:    eventproto.CategoryDeath,
 					Meta: map[string]any{
 						"agent_id":      a.ID,
 						"agent_name":    a.Name,
@@ -253,7 +254,7 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 				s.EmitEvent(Event{
 					Tick:        tick,
 					Description: fmt.Sprintf("%s has died of illness", a.Name),
-					Category: eventproto.CategoryDeath,
+					Category:    eventproto.CategoryDeath,
 					Meta: map[string]any{
 						"agent_id":      a.ID,
 						"agent_name":    a.Name,
@@ -347,11 +348,20 @@ func agentDailyMortalityChance(a *agents.Agent, population int) float64 {
 		var weight float64
 		switch {
 		case a.Age < 2:
-			weight = phi.Agnosis // ~0.236
+			weight = phi.Agnosis // ~0.236 — sheltered by family
 		case a.Age < 16:
-			weight = phi.Psyche // ~0.382
+			weight = phi.Psyche // ~0.382 — growing, protected by community
+		case a.Age >= 18 && a.Age <= 45:
+			// R97-3: protect the reproductive core. The old weight (1.0) meant
+			// over-capacity pressure culled adults far harder than children,
+			// hollowing out the 18-45 breeding band whenever the world overshot
+			// the cap — a primary driver of the W-20 age-structure collapse (the
+			// boom cohort could never age into a surviving reproductive
+			// generation). Population control now comes from the soft birth cap
+			// (R97-2), not from killing the agents the world needs to perpetuate.
+			weight = phi.Psyche // ~0.382 — same shelter as children
 		default:
-			weight = 1.0
+			weight = 1.0 // 16-17 and 46+ carry the full over-capacity burden
 		}
 
 		chance += pressure * weight
@@ -365,8 +375,21 @@ func (s *Simulation) processBirths(tick uint64) {
 	if s.Spawner == nil {
 		return
 	}
-	if s.Stats.TotalPopulation >= MaxWorldPopulation {
-		return
+
+	// Soft birth cap (R97-2): births taper toward zero as population approaches
+	// MaxWorldPopulation, instead of the old hard `>= cap → 0` cliff. The hard
+	// cliff shut off all births simultaneously the moment the world hit the cap,
+	// synchronizing the last-born into a single cohort pulse — the root of the
+	// W-20 age-structure collapse (one giant cohort, no continuous age
+	// distribution). The taper begins within Agnosis (~23.6%) of the cap and
+	// scales birthChance per settlement, so the population approaches the cap
+	// smoothly and keeps producing a spread of ages.
+	capFactor := float64(MaxWorldPopulation-s.Stats.TotalPopulation) / (float64(MaxWorldPopulation) * phi.Agnosis)
+	if capFactor <= 0 {
+		return // at or above cap — no births
+	}
+	if capFactor > 1.0 {
+		capFactor = 1.0
 	}
 
 	simDay := tick / TicksPerSimDay
@@ -400,7 +423,7 @@ func (s *Simulation) processBirths(tick uint64) {
 			prosperityMod = 1.0
 		}
 
-		birthChance := float64(len(eligibleParents)) / 30.0 * (0.5 + prosperityMod)
+		birthChance := float64(len(eligibleParents)) / 30.0 * (0.5 + prosperityMod) * capFactor
 		// Deterministic: use simDay and settlement ID for consistent births.
 		birthCount := int(birthChance)
 		fractional := birthChance - float64(birthCount)
@@ -440,7 +463,7 @@ func (s *Simulation) processBirths(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%s is born in %s", child.Name, sett.Name),
-				Category: eventproto.CategoryBirth,
+				Category:    eventproto.CategoryBirth,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -448,6 +471,46 @@ func (s *Simulation) processBirths(tick uint64) {
 			})
 			s.Stats.Births++
 			sett.Population++
+		}
+	}
+}
+
+// processHealthRecovery applies passive daily Health recovery toward a
+// coherence-set ceiling (R97-1). Before this, Health only recovered via the
+// rest action (behavior.go, +0.05), which is gated behind survival priorities
+// in decideSurvival — the subsistence cohort (Survival ~0.39) almost never
+// reaches the rest branch, so its Health equilibrium sat at ~0.29, one winter
+// hardship hit (−0.05) above the illness-death threshold (0.15). That left the
+// whole population perpetually one shock from the death band (W-19 winter
+// die-off) and below the Health>0.5 birth gate (W-20 birth freeze). See
+// docs/health-reports/2026-05-26-demographic-collapse-analysis.md.
+//
+// The recovery ceiling runs from Matter (~0.618, the body's well-fed/rested
+// baseline) up to Nous (~0.764, near-liberated vitality), scaled by coherence.
+// The Matter FLOOR is deliberate and load-bearing: it sits above both the
+// illness-death band (0.15) and the Health>0.5 birth gate, for EVERY agent
+// regardless of coherence. An earlier coherence-only target (Psyche-floored)
+// failed in the projector because newborns seed at low coherence (~Agnosis),
+// so their ceiling fell below the birth gate and later generations couldn't
+// reproduce — re-collapsing the population over ~40 sim-years. Anchoring the
+// floor at Matter decouples physical recovery from spiritual coherence enough
+// to keep every generation breedable, while coherence still earns extra
+// vitality. Winters (−0.05) and plague still bite, but from a survivable
+// baseline — winter becomes economic hardship, not an extinction event.
+// Recovery is one-directional (toward the ceiling); rest and discoveries can
+// still push Health higher. See
+// docs/health-reports/2026-05-26-demographic-collapse-analysis.md.
+func (s *Simulation) processHealthRecovery() {
+	for _, a := range s.Agents {
+		if !a.Alive {
+			continue
+		}
+		target := phi.Matter + float64(a.Soul.CittaCoherence)*(phi.Nous-phi.Matter)
+		if float64(a.Health) < target {
+			a.Health += float32((target - float64(a.Health)) * phi.Agnosis * 0.1)
+			if a.Health > 1.0 {
+				a.Health = 1.0
+			}
 		}
 	}
 }
@@ -493,7 +556,7 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("%d refugees arrive in %s", needed, sett.Name),
-				Category: eventproto.CategorySocial,
+				Category:    eventproto.CategorySocial,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -512,7 +575,7 @@ func (s *Simulation) processAntiCollapse(tick uint64) {
 			s.EmitEvent(Event{
 				Tick:        tick,
 				Description: fmt.Sprintf("Emergency food relief arrives in %s", sett.Name),
-				Category: eventproto.CategoryEconomy,
+				Category:    eventproto.CategoryEconomy,
 				Meta: map[string]any{
 					"settlement_id":   sett.ID,
 					"settlement_name": sett.Name,
@@ -638,7 +701,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 			s.EmitEvent(Event{
 				Tick:        s.LastTick,
 				Description: fmt.Sprintf("%s rises to prominence in %s", best.Name, occupationLabel(best.Occupation)),
-				Category: eventproto.CategorySocial,
+				Category:    eventproto.CategorySocial,
 				Meta: map[string]any{
 					"agent_id":   best.ID,
 					"agent_name": best.Name,
@@ -701,7 +764,7 @@ func (s *Simulation) processWeeklyTier2Replenishment() {
 				s.EmitEvent(Event{
 					Tick:        s.LastTick,
 					Description: fmt.Sprintf("%s rises to prominence in %s", a.Name, occupationLabel(a.Occupation)),
-					Category: eventproto.CategorySocial,
+					Category:    eventproto.CategorySocial,
 					Meta: map[string]any{
 						"agent_id":   a.ID,
 						"agent_name": a.Name,
