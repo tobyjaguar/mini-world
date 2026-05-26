@@ -5,6 +5,8 @@ package engine
 import (
 	"fmt"
 	"log/slog"
+	"math"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,10 +20,15 @@ const (
 
 // Engine drives the simulation forward.
 type Engine struct {
-	Tick     uint64        // Current tick counter (monotonic, never resets)
-	Speed    float64       // Multiplier: 1.0 = real-time, 0 = paused
+	Tick     uint64        // Current tick counter (monotonic, never resets; tick-loop goroutine only)
 	Interval time.Duration // Base tick interval (default 1 second)
-	Running  bool
+
+	// speed and running are read by the tick loop and read/written by HTTP
+	// handler goroutines (handleSpeed / handleStatus / metrics), so they are
+	// atomic. Use Speed()/SetSpeed() and IsRunning()/Stop(). speed holds a
+	// float64 multiplier via math.Float64bits (0 = paused).
+	speed   atomic.Uint64
+	running atomic.Bool
 
 	// Callbacks for each tick layer — populated during setup.
 	OnTick   func(tick uint64) // Every tick (sim-minute)
@@ -29,26 +36,35 @@ type Engine struct {
 	OnDay    func(tick uint64) // Every 1440 ticks
 	OnWeek   func(tick uint64) // Every 10080 ticks
 	OnSeason func(tick uint64) // Every ~90000 ticks
+
+	// loopTasks carries functions to run synchronously inside the tick-loop
+	// goroutine at a safe point between ticks (no agent mutation in flight).
+	// Used for consistent full-state snapshots that must not race the loop.
+	// See SubmitLoopTask / drainLoopTasks (W-21 fix).
+	loopTasks chan func()
 }
 
 // NewEngine creates a simulation engine with default settings.
 func NewEngine() *Engine {
-	return &Engine{
-		Tick:     0,
-		Speed:    1.0,
-		Interval: time.Second,
-		Running:  false,
+	e := &Engine{
+		Interval:  time.Second,
+		loopTasks: make(chan func(), 8),
 	}
+	e.SetSpeed(1.0)
+	return e
 }
 
 // Run starts the simulation loop. Blocks until Stop() is called.
 func (e *Engine) Run() {
-	e.Running = true
-	slog.Info("simulation engine started", "tick", e.Tick, "speed", e.Speed)
+	e.running.Store(true)
+	slog.Info("simulation engine started", "tick", e.Tick, "speed", e.Speed())
 
-	for e.Running {
-		if e.Speed <= 0 {
-			// Paused — sleep briefly and check again.
+	for e.running.Load() {
+		sp := e.Speed()
+		if sp <= 0 {
+			// Paused — service queued loop tasks (the sim is idle, so this is a
+			// safe, mutation-free point), then sleep briefly and check again.
+			e.drainLoopTasks()
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
@@ -57,9 +73,13 @@ func (e *Engine) Run() {
 
 		e.step()
 
+		// Safe point: the tick's mutations are complete and the next tick has
+		// not begun, so queued tasks (e.g. snapshots) observe consistent state.
+		e.drainLoopTasks()
+
 		// Sleep for the remainder of the tick interval, adjusted for speed.
 		elapsed := time.Since(start)
-		target := time.Duration(float64(e.Interval) / e.Speed)
+		target := time.Duration(float64(e.Interval) / sp)
 		if elapsed < target {
 			time.Sleep(target - elapsed)
 		}
@@ -68,9 +88,58 @@ func (e *Engine) Run() {
 	slog.Info("simulation engine stopped", "tick", e.Tick)
 }
 
-// Stop halts the simulation loop.
+// Stop halts the simulation loop. Safe to call from any goroutine.
 func (e *Engine) Stop() {
-	e.Running = false
+	e.running.Store(false)
+}
+
+// IsRunning reports whether the simulation loop is active. Safe from any goroutine.
+func (e *Engine) IsRunning() bool {
+	return e.running.Load()
+}
+
+// Speed returns the current speed multiplier (1.0 = real-time, 0 = paused).
+// Safe from any goroutine.
+func (e *Engine) Speed() float64 {
+	return math.Float64frombits(e.speed.Load())
+}
+
+// SetSpeed sets the speed multiplier (1.0 = real-time, 0 = paused).
+// Safe from any goroutine.
+func (e *Engine) SetSpeed(s float64) {
+	e.speed.Store(math.Float64bits(s))
+}
+
+// SubmitLoopTask enqueues fn to run synchronously inside the tick-loop
+// goroutine at the next safe point between ticks (where no agent mutation is in
+// flight). Returns false if the queue cannot accept the task within a short
+// window (engine stalled or stopped). Callers needing the result should have fn
+// signal completion (e.g. via a channel) and apply their own timeout.
+//
+// This exists so consistency-sensitive operations — notably a full-state
+// snapshot — run without racing the tick loop. Saving from an HTTP goroutine
+// while the loop mutated sim.Agents produced transient duplicate ids and a
+// "UNIQUE constraint failed: agents.id" save failure (W-21).
+func (e *Engine) SubmitLoopTask(fn func()) bool {
+	select {
+	case e.loopTasks <- fn:
+		return true
+	case <-time.After(2 * time.Second):
+		return false
+	}
+}
+
+// drainLoopTasks runs all currently-queued loop tasks. Called from the tick-loop
+// goroutine between ticks, so tasks observe a consistent, mutation-free state.
+func (e *Engine) drainLoopTasks() {
+	for {
+		select {
+		case fn := <-e.loopTasks:
+			fn()
+		default:
+			return
+		}
+	}
 }
 
 // step advances the simulation by one tick.

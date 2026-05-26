@@ -19,9 +19,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/agents"
 	"github.com/talgya/mini-world/internal/engine"
-	"github.com/talgya/mini-world/eventproto"
 	"github.com/talgya/mini-world/internal/llm"
 	"github.com/talgya/mini-world/internal/persistence"
 	"github.com/talgya/mini-world/internal/social"
@@ -44,10 +44,10 @@ type Server struct {
 	sseConns int32
 
 	// Cached newspaper (regenerated at most once per cache interval).
-	newspaperMu             sync.Mutex
-	cachedPaper             *llm.Newspaper
-	lastPaperTime           time.Time
-	newspaperCacheInterval  time.Duration
+	newspaperMu            sync.Mutex
+	cachedPaper            *llm.Newspaper
+	lastPaperTime          time.Time
+	newspaperCacheInterval time.Duration
 
 	// Cached biographies (agent ID → cached bio).
 	bioMu    sync.Mutex
@@ -294,8 +294,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"tick":                  s.Sim.CurrentTick(),
 		"sim_time":              engine.SimTime(s.Sim.CurrentTick()),
 		"season":                engine.SeasonName(s.Sim.CurrentSeason),
-		"speed":                 s.Eng.Speed,
-		"running":               s.Eng.Running,
+		"speed":                 s.Eng.Speed(),
+		"running":               s.Eng.IsRunning(),
 		"population":            s.Sim.Stats.TotalPopulation,
 		"deaths":                s.Sim.Stats.Deaths,
 		"births":                s.Sim.Stats.Births,
@@ -444,12 +444,14 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 // R87: paginated + server-side sort + min_age filter. Surfaced 2026-05-06
 // when the unpaginated response reached 221,683 agents / 83 MB / 90s+
 // load times, freezing the frontend on client-side sort. Query params:
-//   limit    — page size (default 100, max 1000)
-//   offset   — page start (default 0)
-//   sort     — coherence|age|alignment|satisfaction|mood|memories|wealth|name (default coherence)
-//   order    — asc|desc (default desc; for name, default asc)
-//   min_age  — minimum age filter (default 0; reserved for the upcoming
-//              "what does liberation mean for children?" design conversation)
+//
+//	limit    — page size (default 100, max 1000)
+//	offset   — page start (default 0)
+//	sort     — coherence|age|alignment|satisfaction|mood|memories|wealth|name (default coherence)
+//	order    — asc|desc (default desc; for name, default asc)
+//	min_age  — minimum age filter (default 0; reserved for the upcoming
+//	           "what does liberation mean for children?" design conversation)
+//
 // Response: {agents, count, total, threshold, limit, offset, sort, order}.
 // `count` retained for backwards compat = total matching agents (pre-slice).
 func (s *Server) handleLiberated(w http.ResponseWriter, r *http.Request) {
@@ -829,11 +831,11 @@ func (s *Server) handleSpeed(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "speed must be 0-1000", http.StatusBadRequest)
 			return
 		}
-		s.Eng.Speed = req.Speed
+		s.Eng.SetSpeed(req.Speed)
 		slog.Info("speed changed", "speed", req.Speed)
 	}
 
-	writeJSON(w, map[string]float64{"speed": s.Eng.Speed})
+	writeJSON(w, map[string]float64{"speed": s.Eng.Speed()})
 }
 
 func (s *Server) handleNewspaper(w http.ResponseWriter, r *http.Request) {
@@ -894,7 +896,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "# HELP worldsim_speed Simulation speed multiplier.\n")
 	fmt.Fprintf(w, "# TYPE worldsim_speed gauge\n")
-	fmt.Fprintf(w, "worldsim_speed %g\n", s.Eng.Speed)
+	fmt.Fprintf(w, "worldsim_speed %g\n", s.Eng.Speed())
 
 	fmt.Fprintf(w, "# HELP worldsim_population Total living agents.\n")
 	fmt.Fprintf(w, "# TYPE worldsim_population gauge\n")
@@ -1494,13 +1496,13 @@ func (s *Server) handleEconomy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := map[string]any{
-		"total_crowns":       totalAgentWealth + totalTreasury,
-		"agent_wealth":       totalAgentWealth,
-		"treasury_wealth":    totalTreasury,
-		"avg_market_health":  avgMarketHealth,
-		"trade_volume":       s.Sim.Stats.TradeVolume,
-		"most_inflated":      inflated,
-		"most_deflated":      deflated,
+		"total_crowns":      totalAgentWealth + totalTreasury,
+		"agent_wealth":      totalAgentWealth,
+		"treasury_wealth":   totalTreasury,
+		"avg_market_health": avgMarketHealth,
+		"trade_volume":      s.Sim.Stats.TradeVolume,
+		"most_inflated":     inflated,
+		"most_deflated":     deflated,
 		"wealth_distribution": map[string]any{
 			"poorest_50_pct_share": poorest50Share,
 			"richest_10_pct_share": richest10Share,
@@ -1523,9 +1525,9 @@ func (s *Server) handleEconomy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 	// Faction summaries.
 	type factionInfo struct {
-		Name          string             `json:"name"`
-		Treasury      uint64             `json:"treasury"`
-		TotalMembers  int                `json:"total_members"`
+		Name           string             `json:"name"`
+		Treasury       uint64             `json:"treasury"`
+		TotalMembers   int                `json:"total_members"`
 		TopSettlements map[string]float64 `json:"top_settlements"`
 	}
 
@@ -1559,9 +1561,9 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 		}
 
 		factions = append(factions, factionInfo{
-			Name:          f.Name,
-			Treasury:      f.Treasury,
-			TotalMembers:  factionMembers[uint64(f.ID)],
+			Name:           f.Name,
+			Treasury:       f.Treasury,
+			TotalMembers:   factionMembers[uint64(f.ID)],
 			TopSettlements: topSetts,
 		})
 	}
@@ -1647,8 +1649,8 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{
 		"factions": factions,
 		"governance": map[string]any{
-			"avg_score":            avgGovScore,
-			"at_risk_settlements":  atRiskSettlements,
+			"avg_score":           avgGovScore,
+			"at_risk_settlements": atRiskSettlements,
 		},
 		"relationships": map[string]any{
 			"avg_sentiment": avgSentiment,
@@ -1666,7 +1668,7 @@ func (s *Server) handleSocial(w http.ResponseWriter, r *http.Request) {
 			"liberated": liberated,
 		},
 		"recent_political_events": politicalEvents,
-		"diplomacy":              s.Sim.DiplomacySummary(),
+		"diplomacy":               s.Sim.DiplomacySummary(),
 	}
 
 	writeJSON(w, result)
@@ -1987,26 +1989,26 @@ func (s *Server) handleSettlementDetail(w http.ResponseWriter, r *http.Request) 
 			"road_level":   sett.RoadLevel,
 			"market_level": sett.MarketLevel,
 		},
-		"relations":             relations,
-		"trade_routes":          s.Sim.GetSettlementRoutes(sett.ID),
-		"agreements":            s.Sim.GetSettlementAgreements(sett.ID),
-		"peace_treaties":        s.Sim.GetSettlementPeace(sett.ID),
-		"occupations":          occupations,
-		"avg_mood":             avgMood,
-		"avg_satisfaction":     avgSat,
-		"avg_alignment":        avgAlign,
-		"recent_trade_volume":  recentTradeVolume,
-		"most_traded_good":     mostTradedGood,
-		"market":               market,
-		"top_agents":           topAgents,
-		"faction_presence":     factionCounts,
-		"carrying_capacity":    carryingCapacity,
-		"population_pressure":  populationPressure,
-		"recent_events":        recentEvents,
-		"terrain":              terrain,
-		"mood_by_occupation":   moodByOcc,
-		"needs_summary":        needsSummary,
-		"wealth_median":        wealthMedian,
+		"relations":           relations,
+		"trade_routes":        s.Sim.GetSettlementRoutes(sett.ID),
+		"agreements":          s.Sim.GetSettlementAgreements(sett.ID),
+		"peace_treaties":      s.Sim.GetSettlementPeace(sett.ID),
+		"occupations":         occupations,
+		"avg_mood":            avgMood,
+		"avg_satisfaction":    avgSat,
+		"avg_alignment":       avgAlign,
+		"recent_trade_volume": recentTradeVolume,
+		"most_traded_good":    mostTradedGood,
+		"market":              market,
+		"top_agents":          topAgents,
+		"faction_presence":    factionCounts,
+		"carrying_capacity":   carryingCapacity,
+		"population_pressure": populationPressure,
+		"recent_events":       recentEvents,
+		"terrain":             terrain,
+		"mood_by_occupation":  moodByOcc,
+		"needs_summary":       needsSummary,
+		"wealth_median":       wealthMedian,
 	}
 	writeJSON(w, result)
 }
@@ -2117,13 +2119,13 @@ func (s *Server) handleFactionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := map[string]any{
-		"id":             faction.ID,
-		"name":           faction.Name,
-		"treasury":       faction.Treasury,
-		"members":        members,
-		"member_count":   len(members),
-		"top_influence":  topInfluence,
-		"relations":      relations,
+		"id":            faction.ID,
+		"name":          faction.Name,
+		"treasury":      faction.Treasury,
+		"members":       members,
+		"member_count":  len(members),
+		"top_influence": topInfluence,
+		"relations":     relations,
 		"policies": map[string]any{
 			"tax_preference":      faction.TaxPreference,
 			"trade_preference":    faction.TradePreference,
@@ -2230,22 +2232,22 @@ func (s *Server) handleHexDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := map[string]any{
-		"q":                  q,
-		"r":                  rr,
-		"terrain":            terrainName,
-		"elevation":          hex.Elevation,
-		"rainfall":           hex.Rainfall,
-		"temperature":        hex.Temperature,
-		"health":             hex.Health,
+		"q":                   q,
+		"r":                   rr,
+		"terrain":             terrainName,
+		"elevation":           hex.Elevation,
+		"rainfall":            hex.Rainfall,
+		"temperature":         hex.Temperature,
+		"health":              hex.Health,
 		"last_extracted_tick": hex.LastExtractedTick,
-		"irrigation_level":   hex.IrrigationLevel,
-		"conservation_level": hex.ConservationLevel,
-		"claimed_by":         hex.ClaimedBy,
-		"resources":          resources,
-		"settlement":         settlement,
-		"agent_count":        agentCount,
-		"agents":             agentsOnHex,
-		"neighbors":          neighbors,
+		"irrigation_level":    hex.IrrigationLevel,
+		"conservation_level":  hex.ConservationLevel,
+		"claimed_by":          hex.ClaimedBy,
+		"resources":           resources,
+		"settlement":          settlement,
+		"agent_count":         agentCount,
+		"agents":              agentsOnHex,
+		"neighbors":           neighbors,
 	}
 	writeJSON(w, result)
 }
@@ -2260,10 +2262,39 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.DB.SaveWorldStateFull(s.Sim); err != nil {
-		slog.Error("snapshot save failed", "error", err)
-		http.Error(w, "snapshot failed", http.StatusInternalServerError)
-		return
+	// Run the full save inside the tick-loop goroutine (W-21 fix). Saving from
+	// this HTTP goroutine raced the running tick loop: SaveAgents iterates
+	// sim.Agents while the loop concurrently mutates it, producing a transient
+	// duplicate id in the DELETE+INSERT batch → "UNIQUE constraint failed:
+	// agents.id". The daily/shutdown saves never race because they run in-loop.
+	// Routing the snapshot through the loop makes it observe consistent,
+	// mutation-free state — at the cost of briefly pausing ticks during the save.
+	save := func() error { return s.DB.SaveWorldStateFull(s.Sim) }
+
+	if s.Eng == nil {
+		// No engine wired (e.g. tests) — fall back to a direct save.
+		if err := save(); err != nil {
+			slog.Error("snapshot save failed", "error", err)
+			http.Error(w, "snapshot failed", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		resultCh := make(chan error, 1)
+		if !s.Eng.SubmitLoopTask(func() { resultCh <- save() }) {
+			http.Error(w, "snapshot queue unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		select {
+		case err := <-resultCh:
+			if err != nil {
+				slog.Error("snapshot save failed", "error", err)
+				http.Error(w, "snapshot failed", http.StatusInternalServerError)
+				return
+			}
+		case <-time.After(5 * time.Minute):
+			http.Error(w, "snapshot timed out", http.StatusGatewayTimeout)
+			return
+		}
 	}
 
 	writeJSON(w, map[string]any{

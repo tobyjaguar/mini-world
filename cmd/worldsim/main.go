@@ -409,7 +409,7 @@ func main() {
 
 	eng := engine.NewEngine()
 	eng.Tick = startTick
-	eng.Speed = 1
+	eng.SetSpeed(1)
 
 	// Wire tick callbacks — auto-save every sim-day.
 	eng.OnTick = sim.TickMinute
