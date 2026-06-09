@@ -178,3 +178,42 @@ first; consider 786-settlement seeding for the second.
 `Agnosis⁷` floor (two clicks of R51's documented knob), keep onset at 16,
 change neither the 18-45 birth gate nor the ripple. Re-validate at
 kidcoh 0.40-0.45 before deploy.
+
+---
+
+## Addendum 2 (same day): projector v2 + rate corrections
+
+**Rate corrections.** Two unit errors in the original report, caught while
+building the hindcast fixture: stats_history rows are exactly 1440 ticks =
+1 sim-day apart, so live rates are **deaths ~155/day, births ~39/day**
+(7-day trailing; the report said ~108/28 by misconverting ticks/day), and the
+post-R97 window is **778 sim-days** on the 1440-tick agent-age calendar (the
+"3.1 sim-years" used the separate 360,000-tick season calendar). The implied
+16+ death rate is therefore ~0.34%/day — higher than the curve at the world
+mean coherence 0.53, implying the 16+ cohort's own coherence is well below the
+world mean (the under-16 mass carries the legacy high coherence). Structural
+conclusions unchanged; the wall is somewhat *worse* than first quoted.
+
+**Projector v2** (`cmd/pop_projector`, committed this session): dynamic
+coherence (sage-death ripple, baseline drift, practice with samatha+insight,
+newborn inheritance capped at Matter), live full-scale seeding from
+`/api/v1/agents?tier=0` + `/api/v1/settlements` dumps (real settlement-size
+distribution — fixes the 4× births overestimate from uniform buckets),
+`-hindcast` backtest mode, `-runs N` envelopes, and a Nous constant fix
+(0.7639 → Φ²=2.618, mirroring phi.Nous in the R97-1 health target).
+
+**Hindcast (May-26 seed → 778 days, pre-R98 mortality, vs today's actuals):**
+population +1.0%, under-16 −1.3%, age 16-17 +10.2%, births/day +9.8%, mean
+coherence 0.576 vs 0.533 (+8%) — the ripple spiral reproduces. Residuals:
+tail deaths −30% and 18-29 2× over (coherence falls slightly too slowly);
+30-45/46+ bands are sampling noise (≈120 real agents at 1:3 scale). The v1
+static model predicted a *rebound* at this epoch; v2 predicts the decline.
+
+**Live-seeded R98 forecast (271K real agents, real settlements, 20 yr):**
+STABLE — recovery to the cap in ~3 sim-years, repro pool 1,159 → ~180K by
+yr 5, echo waves at yr 16-20 absorbed. 5-seed envelope: 5/5 STABLE, final pop
+398,646-398,752. New structural prediction: mean coherence settles toward
+~0.26 long-run as Matter-capped newborns dilute the legacy cohort — today's
+53%-Liberated world was a transient; the steady state has liberation rare,
+consistent with Doc 25 §3.0's calibrated ~1.2%. Expect the Liberated count to
+keep falling post-R98 *without* that being a pathology signal.

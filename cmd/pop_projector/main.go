@@ -2,10 +2,11 @@
 //
 // Unlike cmd/lib_projector (which models liberation/coherence trajectories),
 // this projector models the POPULATION dynamics that drive the W-19 winter
-// illness die-off and the W-20 birth freeze / age-structure collapse:
+// illness die-off, the W-20 age-structure collapse, and the W-22 adolescent
+// mortality wall:
 //
-//   - age structure (seeded from the real 2026-05-26 histogram, tick 6.21M)
-//   - agent Health (seeded from a live API sample, n=500)
+//   - age structure (live-seeded via -seed-agents, or the 2026-05-26 histogram)
+//   - agent Health (R97-1 recovery toward Matter + c·(Nous−Matter))
 //   - the survival↔rest↔health coupling (health self-regulates near the 0.30
 //     rest trigger, but survival-stressed agents can't rest and ratchet down)
 //   - winter hardship (−0.05 Health/winter to warmth-less agents, once per
@@ -14,22 +15,37 @@
 //   - coherence/age/over-capacity natural mortality (population.go math)
 //   - births (processBirths gate: ≥2 co-located adults 18-45, Health>0.5,
 //     Survival>0.3) with newborns at Health 1.0 / Survival 0.8
+//   - DYNAMIC COHERENCE (v2): sage-death ripple (−Agnosis·0.05×c to all
+//     settlement witnesses), baseline drift toward Matter (age>20), practice
+//     (samatha + vipassanā insights, the only path past Matter), newborn
+//     coherence with parental inheritance capped at Matter. The W-22 review
+//     proved static coherence was the projector's largest forecast error:
+//     it seeded the boom cohort at 0.85 while the live ripple spiral pulled
+//     0.71→0.53, doubling realized mortality.
 //
 // It enforces the ACTUAL production gate math (the lib_projector lesson:
 // approximating gates as flat probabilities hid the R89 dormancy). All
-// constants mirror internal/engine and internal/phi.
+// constants mirror internal/engine, internal/agents, and internal/phi.
 //
-// The baseline scenario is calibrated to reproduce the two observables:
-// health equilibrium ~0.29 and a winter die-off in the tens of thousands.
-// Scenarios then show the RELATIVE effect of each candidate counter-measure.
+// v2 (2026-06-09, W-22/R98 session) is NOT bit-comparable with the archived
+// May-26 R97 validation runs: coherence is now dynamic by default, the Nous
+// constant was corrected to mirror phi.Nous=Φ² (the old 0.7639 understated
+// the R97-1 health target), and legacy-histogram seeding now uses the real
+// per-settlement density (~393/sett). Approximate legacy behavior:
+// -dyncoh=false -bgpow 4 -kidcoh 0.85 (see git history for exact).
 //
 // Usage:
 //
-//	go run ./cmd/pop_projector -scenario baseline -years 20
-//	go run ./cmd/pop_projector -scenario all -years 20
+//	go run ./cmd/pop_projector -scenario R97_full -years 20            # legacy histogram seed
+//	go run ./cmd/pop_projector -scenario R97_full -years 20 \
+//	    -seed-agents data/projector-seeds/2026-06-09-agents.json \
+//	    -seed-setts  data/projector-seeds/2026-06-09-settlements.json  # live full-scale seed
+//	go run ./cmd/pop_projector -hindcast                               # 05-26→06-09 backtest vs actuals
+//	go run ./cmd/pop_projector -scenario R97_full -runs 7              # multi-seed envelope
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -40,10 +56,13 @@ import (
 
 // ---- Φ constants (mirror internal/phi) ----
 const (
-	Agnosis = 0.2360679774997897 // φ⁻¹·... (1/φ² roughly; matches phi.Agnosis)
-	Psyche  = 0.3819660112501051 // 1/φ²·... (phi.Psyche)
-	Matter  = 0.6180339887498949 // 1/φ (phi.Matter)
-	Nous    = 0.7639320225002102 // phi.Nous
+	Agnosis = 0.2360679774997897 // phi.Agnosis = Φ⁻³
+	Psyche  = 0.3819660112501051 // phi.Psyche = Φ⁻²
+	Matter  = 0.6180339887498949 // phi.Matter = Φ⁻¹
+	// Nous mirrors phi.Nous = Φ² (v2 fix: v1 used 0.7639, which understated
+	// the R97-1 health target Matter + c·(Nous−Matter); production clamps
+	// health at 1.0, reached for any c ≥ ~0.19).
+	Nous = 2.618033988749895
 )
 
 // ---- engine constants (mirror internal/engine) ----
@@ -55,27 +74,82 @@ const (
 	seasonWinter       = 3
 )
 
-// Seed scale: model SCALE× fewer agents for speed, then report scaled-up
-// population numbers. 100K agents representing ~307K (scale ~3.07).
-const targetSample = 100_000
+// ---- coherence dynamics constants (mirror internal/agents) ----
+const (
+	samathaPerTick  = 0.0005                      // contemplation.go SamathaPerTick (uncapped)
+	insightProb     = 0.01                        // InsightProb per practice tick
+	insightGain     = 0.025                       // InsightCoherenceGain (uncapped)
+	contemplateBase = Agnosis * Agnosis * Agnosis // ContemplationProbability base, per sim-hour
+	driftPerDay     = Agnosis * 0.001             // processBaselineCoherence, age>20, NaturalCap at Matter
+	rippleScale     = Agnosis * 0.05              // sage-death ripple × witness coherence, un-gated
+	liberatedAt     = 0.7                         // StateFromCoherence Liberated threshold
+)
 
-// Sensitivity knobs (set from flags in main). Defaults mirror production
-// post-R98. To reproduce the 2026-05-26 R97 validation runs exactly, use
-// `-bgpow 4 -kidcoh 0.85` (pre-R98 mortality + the May 26 coherence estimate).
+// Production satisfaction is flat ~0.70 (well above both the practice gate
+// Psyche and the drift gate Matter), so the satisfaction gates are modeled
+// as always-pass. Ordinary-death witness gains (relationship-gated, rare)
+// are deliberately omitted.
+
+// Practice weight = occupationConducive × classIntention, sampled from the
+// live occupation mix (2026-06-09 counts) × uniform class. Expected practice
+// ticks/day for an eligible agent = contemplateBase × pw × 24.
+var occMix = []struct {
+	share float64
+	w     float64
+}{
+	{107200, Agnosis},          // Farmer
+	{36005, 1.0},               // Alchemist
+	{32535, Psyche},            // Fisher
+	{16606, Agnosis},           // Laborer
+	{15951, Psyche},            // Soldier
+	{15042, 1.618033988749895}, // Scholar (Being)
+	{14704, Matter},            // Merchant
+	{5571, Matter},             // Hunter
+	{4620, Agnosis},            // Crafter
+	{4362, Agnosis},            // Miner
+}
+
+var classWeights = []float64{Matter, Psyche, Agnosis, 1.618033988749895}
+
+var occMixTotal float64
+
+func init() {
+	for _, o := range occMix {
+		occMixTotal += o.share
+	}
+}
+
+func samplePracticeWeight(rng *rand.Rand) float64 {
+	r := rng.Float64() * occMixTotal
+	cum := 0.0
+	occW := Agnosis
+	for _, o := range occMix {
+		cum += o.share
+		if r <= cum {
+			occW = o.w
+			break
+		}
+	}
+	return occW * classWeights[rng.Intn(len(classWeights))]
+}
+
+// Sensitivity knobs (set from flags in main).
 var (
-	kidCohMean = 0.53 // boom-cohort seed coherence mean (live 2026-06-09)
-	bgPower    = 6    // background scatter scale = Agnosis^bgPower (R98)
-	bgOnsetAge = 16   // background mortality onset age
+	kidCohMean = 0.53 // boom-cohort seed coherence mean (legacy histogram seeding)
+	bgPower    = 6    // background scatter scale = Agnosis^bgPower (R98; pre-R98: 4)
+	bgOnsetAge = 16   // background mortality onset age (prod: 16)
+	dynCoh     = true // dynamic coherence (ripple + drift + practice)
 )
 
 type Agent struct {
-	age       int     // sim-years
+	age       int     // sim-years (360-day agent-age calendar)
 	months    int     // month counter (age++ every 12)
 	health    float64 // 0..1 vitality
 	survival  float64 // Needs.Survival
 	coherence float64 // CittaCoherence — drives background mortality
+	pw        float64 // practice weight (occW × clsW)
 	warmth    bool    // has Clothing/Furs (suppresses winter hardship)
-	sett      int     // settlement id
+	sett      int32   // settlement id
 	alive     bool
 }
 
@@ -101,7 +175,7 @@ func scenarios() []Scenario {
 		{name: "passive_regen_0.01", passiveRegen: 0.01, birthHealthGate: 0.5},
 		{name: "warmth_provision", provideWarmth: true, birthHealthGate: 0.5},
 		{name: "birth_healthgate_0.3", birthHealthGate: 0.3},
-		// The systemic combo I hypothesize as the long-term fix:
+		// The systemic combo hypothesized pre-R97:
 		{name: "COMBO_regen+healthgate", passiveRegen: 0.01, birthHealthGate: 0.3, smoothBirthCap: true},
 		// R97 as actually implemented in internal/engine (full structural fix):
 		{name: "R97_full", coherenceRegen: true, softCap: true, protectRepro: true, birthHealthGate: 0.5},
@@ -110,6 +184,7 @@ func scenarios() []Scenario {
 
 // realAgeHistogram is the full-population age histogram pulled 2026-05-26
 // (tick 6,213,048) from /api/v1/agents?tier=0. Index = age, value = count.
+// Used by legacy seeding and by -hindcast.
 var realAgeHistogram = map[int]int{
 	0: 113, 1: 1105, 2: 263, 3: 186, 4: 116, 5: 331, 6: 919, 7: 2127,
 	8: 3679, 9: 6358, 10: 28282, 11: 69548, 12: 51226, 13: 56899,
@@ -117,8 +192,8 @@ var realAgeHistogram = map[int]int{
 	21: 3, 32: 1,
 }
 
-// healthBands is the sampled Health distribution (n=500, 2026-05-26):
-// {upper, fraction}. Agents are seeded uniformly within each band.
+// healthBands is the sampled Health distribution (n=500, 2026-05-26, PRE-R97):
+// {lo, hi, fraction}. Agents are seeded uniformly within each band.
 var healthBands = []struct {
 	lo, hi, frac float64
 }{
@@ -128,6 +203,31 @@ var healthBands = []struct {
 	{0.50, 0.70, 0.004},
 	{0.70, 1.00, 0.074},
 }
+
+// hindcastActuals are the live observations at tick 7,339,822 (2026-06-09),
+// 778 sim-days (1440-tick days) after the R97 deploy restore at tick
+// 6,219,979. Rates are 7-day trailing averages from stats_history (rows are
+// exactly 1440 ticks apart).
+var hindcastActuals = struct {
+	days                            int
+	pop                             int
+	u16, a1617, a1829, a3045, a46up int
+	cohMean                         float64
+	deathsPerDay, birthsPerDay      float64
+}{
+	days: 778, pop: 270916,
+	u16: 225047, a1617: 44821, a1829: 1038, a3045: 121, a46up: 23,
+	cohMean:      0.5328,
+	deathsPerDay: 155.4, birthsPerDay: 38.6,
+}
+
+const targetSample = 100_000
+
+// realSettDensity is agents-per-settlement in production (May 26: 307K/781;
+// June 9: 271K/786 — both ≈ 350-395). Legacy/hindcast seeding sizes its
+// settlement count so the births co-location gate (≥2 eligible parents in
+// one settlement) sees realistic local density at sample scale.
+const realSettDensity = 393
 
 func seedHealth(rng *rand.Rand) float64 {
 	r := rng.Float64()
@@ -141,17 +241,28 @@ func seedHealth(rng *rand.Rand) float64 {
 	return 0.25
 }
 
-func seedPopulation(rng *rand.Rand) []Agent {
+// seedCoherenceHindcast reproduces the 2026-05-26 live coherence distribution:
+// Liberated (c≥0.7) = 164,695/307,174 = 53.6%, world mean 0.7075.
+func seedCoherenceHindcast(rng *rand.Rand) float64 {
+	if rng.Float64() < 0.536 {
+		return 0.7 + rng.Float64()*0.3 // U(0.7, 1.0), mean 0.85
+	}
+	return clamp(0.54+rng.NormFloat64()*0.10, 0.05, 0.699)
+}
+
+// seedPopulation seeds from the hardcoded 2026-05-26 histogram at sample
+// scale. hindcastCoh switches the coherence seed from the kidCohMean blanket
+// to the bimodal May-26 distribution.
+func seedPopulation(rng *rand.Rand, hindcastCoh bool) ([]Agent, float64, int) {
 	total := 0
 	for _, c := range realAgeHistogram {
 		total += c
 	}
 	scale := float64(targetSample) / float64(total)
+	scaleUp := float64(total) / float64(targetSample)
 	var agents []Agent
 	id := 0
-	// 200 settlements keeps ~500 agents/settlement (close to the real
-	// ~393/settlement ratio so birth co-location behaves realistically).
-	const numSett = 200
+	numSett := targetSample / realSettDensity // ~254 — real per-settlement density
 	ages := make([]int, 0, len(realAgeHistogram))
 	for a := range realAgeHistogram {
 		ages = append(ages, a)
@@ -161,16 +272,16 @@ func seedPopulation(rng *rand.Rand) []Agent {
 		n := int(float64(realAgeHistogram[age])*scale + 0.5)
 		for i := 0; i < n; i++ {
 			h := seedHealth(rng)
-			// Newborns/young start healthier in reality; the sampled bands
-			// already reflect the aged-down equilibrium, so use them directly.
-			coh := 0.7 + rng.NormFloat64()*0.15
-			if age < 16 {
-				// boom cohort coherence: default 0.85 (2026-05-26 estimate);
-				// override with -kidcoh to match later live observations
-				// (2026-06-09 live mean: 0.53 and falling — sage-ripple drain).
-				coh = kidCohMean + rng.NormFloat64()*0.10
+			var coh float64
+			if hindcastCoh {
+				coh = seedCoherenceHindcast(rng)
+			} else {
+				coh = 0.7 + rng.NormFloat64()*0.15
+				if age < 16 {
+					coh = kidCohMean + rng.NormFloat64()*0.10
+				}
+				coh = clamp(coh, 0.05, 1.0)
 			}
-			coh = clamp(coh, 0.05, 1.0)
 			// Survival: designed-scarcity equilibrium ~0.39 with spread; a
 			// chronic-stress tail (survival 0.1-0.3) cannot rest.
 			surv := clamp(0.39+rng.NormFloat64()*0.10, 0.02, 0.95)
@@ -180,32 +291,111 @@ func seedPopulation(rng *rand.Rand) []Agent {
 				health:    h,
 				survival:  surv,
 				coherence: coh,
+				pw:        samplePracticeWeight(rng),
 				warmth:    rng.Float64() < 0.02, // ~2% can afford warmth
-				sett:      id % numSett,
+				sett:      int32(id % numSett),
 				alive:     true,
 			})
 			id++
 		}
 	}
-	return agents
+	return agents, scaleUp, numSett
+}
+
+type liveAgentJSON struct {
+	Age       int     `json:"age"`
+	Coherence float64 `json:"coherence"`
+}
+
+type liveSettJSON struct {
+	Population int `json:"population"`
+}
+
+// seedFromLive seeds one model agent per real agent (full scale, scaleUp=1)
+// from /api/v1/agents?tier=0 and /api/v1/settlements dumps. Agents are
+// assigned to settlements preserving the real settlement-size distribution
+// (the births co-location gate is superlinear in local density — the W-22
+// review measured a 4× births overestimate from uniform 500-agent buckets).
+// Health is seeded at the R97-1 recovery target (production converges there
+// at ~10%/day of the gap); survival at the INV-3 equilibrium.
+func seedFromLive(rng *rand.Rand, agentsPath, settsPath string) ([]Agent, float64, int, error) {
+	ab, err := os.ReadFile(agentsPath)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("read agents seed: %w", err)
+	}
+	var live []liveAgentJSON
+	if err := json.Unmarshal(ab, &live); err != nil {
+		return nil, 0, 0, fmt.Errorf("parse agents seed: %w", err)
+	}
+
+	// Settlement size distribution: real if provided, else uniform at real density.
+	var pops []int
+	if settsPath != "" {
+		sb, err := os.ReadFile(settsPath)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("read settlements seed: %w", err)
+		}
+		var setts []liveSettJSON
+		if err := json.Unmarshal(sb, &setts); err != nil {
+			return nil, 0, 0, fmt.Errorf("parse settlements seed: %w", err)
+		}
+		for _, s := range setts {
+			pops = append(pops, s.Population)
+		}
+	} else {
+		n := len(live) / realSettDensity
+		for i := 0; i < n; i++ {
+			pops = append(pops, realSettDensity)
+		}
+	}
+
+	// Quota-fill settlements in shuffled agent order.
+	totalPop := 0
+	for _, p := range pops {
+		totalPop += p
+	}
+	order := rng.Perm(len(live))
+	agents := make([]Agent, 0, len(live))
+	sett, filled := 0, 0
+	quota := func(s int) int {
+		return int(float64(pops[s]) * float64(len(live)) / float64(totalPop))
+	}
+	for _, idx := range order {
+		la := live[idx]
+		for sett < len(pops)-1 && filled >= quota(sett) {
+			sett++
+			filled = 0
+		}
+		c := clamp(la.Coherence, 0.0, 1.0)
+		target := math.Min(1.0, Matter+c*(Nous-Matter))
+		agents = append(agents, Agent{
+			age:       la.Age,
+			months:    rng.Intn(12),
+			health:    target,
+			survival:  clamp(0.39+rng.NormFloat64()*0.10, 0.02, 0.95),
+			coherence: c,
+			pw:        samplePracticeWeight(rng),
+			warmth:    rng.Float64() < 0.02,
+			sett:      int32(sett),
+			alive:     true,
+		})
+		filled++
+	}
+	return agents, 1.0, len(pops), nil
 }
 
 // dailyMortality mirrors agentDailyMortalityChance (population.go).
 func dailyMortality(a *Agent, pop int, protectRepro bool) float64 {
-	if a.age < 16 {
-		// children exempt from natural mortality...
-		// (over-capacity pressure below still applies, weighted down)
-	}
 	var chance float64
 	if a.age >= bgOnsetAge {
 		// Background scatter scale: Agnosis^bgPower (prod post-R98: 6;
 		// pre-R98: 4). R98 applied the R51 design comment's own tuning note
 		// ("if too aggressive, reduce background by one Φ power") twice.
 		// Floor stays one power below the base.
-		ag4 := math.Pow(Agnosis, float64(bgPower))
-		ag5 := ag4 * Agnosis
+		base := math.Pow(Agnosis, float64(bgPower))
+		floor := base * Agnosis
 		scatter := 1.0 - a.coherence
-		chance = ag5 + ag4*scatter
+		chance = floor + base*scatter
 		ag3 := Agnosis * Agnosis * Agnosis
 		off := float64(a.age) - 50.0
 		sig := 1.0 / (1.0 + math.Exp(-off/12.0))
@@ -239,18 +429,35 @@ type yearStat struct {
 	deathsNatural          int
 	births                 int
 	meanHealth             float64
+	meanCoh                float64
 	maxAge                 int
 }
 
-func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []yearStat {
-	agents := seedPopulation(rng)
+type runResult struct {
+	stats                  []yearStat
+	final                  []Agent
+	tailDeaths, tailBirths int // counts over the trailing tailDays
+	tailDays               int
+}
+
+func runScenario(sc Scenario, totalDays int, scaleUp float64, numSett int, agents []Agent, rng *rand.Rand) runResult {
 	var stats []yearStat
 
-	tick := uint64(6_213_048) // start at the real current tick (mechanical Summer)
+	tick := uint64(6_219_979) // R97 deploy restore tick (mechanical Summer)
 	prevSeason := int((tick / TicksPerSimSeason) % 4)
 
-	totalDays := years * 360 // age-system year = 360 sim-days
 	var illnessDeaths, naturalDeaths, births int
+	res := runResult{tailDays: 30}
+	if res.tailDays > totalDays {
+		res.tailDays = totalDays
+	}
+
+	// Settlement membership index (agent indices) for the sage-death ripple.
+	settMembers := make([][]int32, numSett)
+	for i := range agents {
+		s := agents[i].sett
+		settMembers[s] = append(settMembers[s], int32(i))
+	}
 
 	livePop := func() int {
 		n := 0
@@ -266,6 +473,7 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 		tick += TicksPerSimDay
 		pop := livePop()
 		scaledPop := int(float64(pop) * scaleUp)
+		inTail := day >= totalDays-res.tailDays
 
 		season := int((tick / TicksPerSimSeason) % 4)
 		enteredWinter := season != prevSeason && season == seasonWinter
@@ -291,7 +499,6 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 		// --- weekly plague (1%/7d): hits ~6.5% of pop (epicenter+spread) ---
 		if day%7 == 0 && rng.Float64() < 0.01 {
 			severity := Agnosis + rng.Float64()*Psyche
-			// approximate: damage a random ~6.5% of the population
 			for i := range agents {
 				if agents[i].alive && rng.Float64() < 0.065 {
 					agents[i].health -= severity * 0.3
@@ -302,7 +509,7 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 			}
 		}
 
-		// --- daily: aging, mortality, illness, survival/rest/health ---
+		// --- daily: aging, mortality (+ ripple), illness, health, coherence ---
 		for i := range agents {
 			a := &agents[i]
 			if !a.alive {
@@ -313,6 +520,21 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 			if rng.Float64() < dailyMortality(a, scaledPop, sc.protectRepro) {
 				a.alive = false
 				naturalDeaths++
+				if inTail {
+					res.tailDeaths++
+				}
+				// Sage-death ripple (population.go processNaturalDeaths):
+				// a Liberated death drains every settlement witness by
+				// rippleScale × witness coherence, un-gated. This is the
+				// coherence→scatter→mortality spiral W-22 observed live.
+				if dynCoh && a.coherence >= liberatedAt {
+					for _, wi := range settMembers[a.sett] {
+						w := &agents[wi]
+						if w.alive && int(wi) != i {
+							w.coherence -= rippleScale * w.coherence
+						}
+					}
+				}
 				continue
 			}
 
@@ -326,6 +548,9 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 				if a.health <= 0 {
 					a.alive = false
 					illnessDeaths++
+					if inTail {
+						res.tailDeaths++
+					}
 					continue
 				}
 			}
@@ -340,6 +565,9 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 				if a.health <= 0 {
 					a.alive = false
 					illnessDeaths++
+					if inTail {
+						res.tailDeaths++
+					}
 					continue
 				}
 			}
@@ -370,6 +598,32 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 				}
 			}
 
+			// Coherence dynamics (daily aggregation of per-tick mechanics).
+			if dynCoh {
+				// Practice (contemplation.go): age≥16, sat gate ~always
+				// passes in production. Expected practice ticks/day
+				// e = base × pw × 24; samatha applied as e×rate (uncapped),
+				// insight as one Bernoulli(e×p) draw per day.
+				if a.age >= 16 && a.pw > 0 {
+					e := contemplateBase * a.pw * 24
+					a.coherence += e * samathaPerTick
+					if rng.Float64() < e*insightProb {
+						a.coherence += insightGain
+					}
+					if a.coherence > 1 {
+						a.coherence = 1
+					}
+				}
+				// Baseline drift (processBaselineCoherence): age>20,
+				// NaturalCap at Matter — fills the Embodied band only.
+				if a.age > 20 && a.coherence < Matter {
+					a.coherence += driftPerDay
+					if a.coherence > Matter {
+						a.coherence = Matter
+					}
+				}
+			}
+
 			// aging: months++ every 30 days; age++ every 12 months
 			if day%30 == 0 && day > 0 {
 				a.months++
@@ -393,16 +647,17 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 			}
 		}
 		if !capBlocked {
-			// group eligible parents by settlement
-			perSett := map[int][]*Agent{}
+			// group eligible parents by settlement (indices — appends below
+			// reallocate the agents slice, so pointers would go stale)
+			perSett := map[int32][]int32{}
 			for i := range agents {
 				a := &agents[i]
 				if a.alive && a.age >= 18 && a.age <= 45 &&
 					a.health > sc.birthHealthGate && a.survival > 0.3 {
-					perSett[a.sett] = append(perSett[a.sett], a)
+					perSett[a.sett] = append(perSett[a.sett], int32(i))
 				}
 			}
-			for _, parents := range perSett {
+			for sett, parents := range perSett {
 				if len(parents) < 2 {
 					continue
 				}
@@ -415,13 +670,26 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 					bc = 3 // cap per settlement/day
 				}
 				for b := 0; b < bc; b++ {
-					sett := parents[0].sett
+					// Newborn coherence (spawner.go SpawnChild): base around
+					// Agnosis + parental cultural transmission, hard-capped
+					// at Matter (R88 — no inherited Liberation).
+					parent := agents[parents[(day+b)%len(parents)]]
+					c := clamp(Agnosis+rng.NormFloat64()*Agnosis*0.5, 0.01, Matter)
+					c += parent.coherence * Agnosis * 0.5
+					if c > Matter {
+						c = Matter
+					}
 					agents = append(agents, Agent{
 						age: 0, months: 0, health: 1.0, survival: 0.8,
-						coherence: clamp(Agnosis+rng.NormFloat64()*Agnosis*0.5, 0.05, Matter),
+						coherence: c,
+						pw:        samplePracticeWeight(rng),
 						warmth:    rng.Float64() < 0.02, sett: sett, alive: true,
 					})
+					settMembers[sett] = append(settMembers[sett], int32(len(agents)-1))
 					births++
+					if inTail {
+						res.tailBirths++
+					}
 				}
 			}
 		}
@@ -433,14 +701,16 @@ func runScenario(sc Scenario, years int, scaleUp float64, rng *rand.Rand) []year
 		}
 	}
 	// final snapshot
-	stats = append(stats, snapshot(agents, years, scaleUp, illnessDeaths, naturalDeaths, births, sc.birthHealthGate))
-	return stats
+	stats = append(stats, snapshot(agents, (totalDays+359)/360, scaleUp, illnessDeaths, naturalDeaths, births, sc.birthHealthGate))
+	res.stats = stats
+	res.final = agents
+	return res
 }
 
 func snapshot(agents []Agent, year int, scaleUp float64, ill, nat, b int, bhg float64) yearStat {
 	var ys yearStat
 	ys.year = year
-	var hsum float64
+	var hsum, csum float64
 	for i := range agents {
 		a := &agents[i]
 		if !a.alive {
@@ -448,6 +718,7 @@ func snapshot(agents []Agent, year int, scaleUp float64, ill, nat, b int, bhg fl
 		}
 		ys.pop++
 		hsum += a.health
+		csum += a.coherence
 		if a.age > ys.maxAge {
 			ys.maxAge = a.age
 		}
@@ -465,12 +736,68 @@ func snapshot(agents []Agent, year int, scaleUp float64, ill, nat, b int, bhg fl
 	}
 	if ys.pop > 0 {
 		ys.meanHealth = hsum / float64(ys.pop)
+		ys.meanCoh = csum / float64(ys.pop)
 	}
 	su := func(x int) int { return int(float64(x) * scaleUp) }
 	ys.pop, ys.kids, ys.adults = su(ys.pop), su(ys.kids), su(ys.adults)
 	ys.repro, ys.eligibleParents = su(ys.repro), su(ys.eligibleParents)
 	ys.deathsIllness, ys.deathsNatural, ys.births = su(ill), su(nat), su(b)
 	return ys
+}
+
+// hindcastReport compares the model's end state against the 2026-06-09 live
+// observations and prints per-metric errors.
+func hindcastReport(res runResult, scaleUp float64) {
+	var pop, u16, a1617, a1829, a3045, a46 int
+	var csum float64
+	for i := range res.final {
+		a := &res.final[i]
+		if !a.alive {
+			continue
+		}
+		pop++
+		csum += a.coherence
+		switch {
+		case a.age < 16:
+			u16++
+		case a.age < 18:
+			a1617++
+		case a.age < 30:
+			a1829++
+		case a.age < 46:
+			a3045++
+		default:
+			a46++
+		}
+	}
+	cohMean := 0.0
+	if pop > 0 {
+		cohMean = csum / float64(pop)
+	}
+	su := func(x int) int { return int(float64(x) * scaleUp) }
+	dpd := float64(su(res.tailDeaths)) / float64(res.tailDays)
+	bpd := float64(su(res.tailBirths)) / float64(res.tailDays)
+
+	act := hindcastActuals
+	row := func(name string, model, actual float64) {
+		errPct := math.Inf(1)
+		if actual != 0 {
+			errPct = (model - actual) / actual * 100
+		}
+		fmt.Printf("│ %-22s %12.1f %12.1f %+9.1f%%\n", name, model, actual, errPct)
+	}
+	fmt.Printf("┌─ Hindcast vs 2026-06-09 actuals (tick 7,339,822, %d sim-days post-R97)\n", act.days)
+	fmt.Printf("│ %-22s %12s %12s %10s\n", "metric", "model", "actual", "err")
+	row("population", float64(su(pop)), float64(act.pop))
+	row("age <16", float64(su(u16)), float64(act.u16))
+	row("age 16-17", float64(su(a1617)), float64(act.a1617))
+	row("age 18-29", float64(su(a1829)), float64(act.a1829))
+	row("age 30-45", float64(su(a3045)), float64(act.a3045))
+	row("age 46+", float64(su(a46)), float64(act.a46up))
+	row("mean coherence", cohMean, act.cohMean)
+	row("deaths/day (30d tail)", dpd, act.deathsPerDay)
+	row("births/day (30d tail)", bpd, act.birthsPerDay)
+	fmt.Printf("└─\n\n")
 }
 
 func clamp(x, lo, hi float64) float64 {
@@ -483,24 +810,46 @@ func clamp(x, lo, hi float64) float64 {
 	return x
 }
 
+func verdictOf(first, final yearStat) string {
+	switch {
+	case final.pop < first.pop/10:
+		return "COLLAPSE"
+	case final.pop < first.pop/2:
+		return "DECLINE"
+	case final.pop > first.pop*2:
+		return "REBOUND"
+	}
+	return "STABLE"
+}
+
 func main() {
-	scenarioFlag := flag.String("scenario", "all", "baseline|agegate_illness|passive_regen_0.01|warmth_provision|birth_healthgate_0.3|COMBO_regen+healthgate|all")
+	scenarioFlag := flag.String("scenario", "all", "baseline|agegate_illness|passive_regen_0.01|warmth_provision|birth_healthgate_0.3|COMBO_regen+healthgate|R97_full|all")
 	years := flag.Int("years", 20, "sim-years to project")
 	seed := flag.Int64("seed", 42, "RNG seed")
-	flag.Float64Var(&kidCohMean, "kidcoh", 0.53, "boom-cohort (age<16) seed coherence mean (live 2026-06-09: 0.53)")
+	runs := flag.Int("runs", 1, "independent runs (seed, seed+1, ...) — prints min/median/max envelope")
+	seedAgentsPath := flag.String("seed-agents", "", "live /api/v1/agents?tier=0 JSON dump — full-scale seeding (age+coherence per agent)")
+	seedSettsPath := flag.String("seed-setts", "", "live /api/v1/settlements JSON dump — real settlement-size distribution (with -seed-agents)")
+	hindcast := flag.Bool("hindcast", false, "backtest: seed from the 2026-05-26 histogram + bimodal coherence, run 778 days under pre-R98 mortality, compare vs 2026-06-09 actuals")
+	flag.Float64Var(&kidCohMean, "kidcoh", 0.53, "boom-cohort (age<16) seed coherence mean (legacy histogram seeding)")
 	flag.IntVar(&bgPower, "bgpow", 6, "background scatter mortality Φ-power (prod post-R98: Agnosis^6; pre-R98: 4; floor one power below)")
 	flag.IntVar(&bgOnsetAge, "onset", 16, "background mortality onset age (prod: 16)")
+	flag.BoolVar(&dynCoh, "dyncoh", true, "dynamic coherence: sage-death ripple + baseline drift + practice")
 	flag.Parse()
-
-	var total int
-	for _, c := range realAgeHistogram {
-		total += c
-	}
-	scaleUp := float64(total) / float64(targetSample)
 
 	all := scenarios()
 	var toRun []Scenario
-	if *scenarioFlag == "all" {
+	if *hindcast {
+		// Hindcast = what production actually ran: R97 levers + pre-R98 mortality.
+		for _, s := range all {
+			if s.name == "R97_full" {
+				toRun = append(toRun, s)
+			}
+		}
+		if bgPower != 4 {
+			fmt.Fprintf(os.Stderr, "hindcast: forcing -bgpow 4 (pre-R98 production mortality)\n")
+			bgPower = 4
+		}
+	} else if *scenarioFlag == "all" {
 		toRun = all
 	} else {
 		for _, s := range all {
@@ -514,33 +863,77 @@ func main() {
 		}
 	}
 
-	fmt.Printf("=== Crossworlds Demographic Projector ===\n")
-	fmt.Printf("Seed: real age histogram (tick 6.21M, 2026-05-26) + sampled Health (n=500)\n")
-	fmt.Printf("Modeled agents: %d (scale ×%.2f → ~%d world pop)\n", targetSample, scaleUp, total)
-	fmt.Printf("Projection: %d sim-years\n\n", *years)
+	fmt.Printf("=== Crossworlds Demographic Projector (v2: dynamic coherence) ===\n")
+	switch {
+	case *hindcast:
+		fmt.Printf("Mode: HINDCAST — 2026-05-26 seed (bimodal coherence, mean 0.7075) → %d days, pre-R98 mortality\n", hindcastActuals.days)
+	case *seedAgentsPath != "":
+		fmt.Printf("Seed: live agent dump %s (full scale)\n", *seedAgentsPath)
+	default:
+		fmt.Printf("Seed: 2026-05-26 age histogram at 1:%d sample scale, kidcoh=%.2f\n", int(307166/targetSample)+1, kidCohMean)
+	}
+	fmt.Printf("Mortality: Agnosis^%d background (onset %d), dynamic coherence: %v\n\n", bgPower, bgOnsetAge, dynCoh)
 
 	for _, sc := range toRun {
-		rng := rand.New(rand.NewSource(*seed))
-		stats := runScenario(sc, *years, scaleUp, rng)
-		fmt.Printf("┌─ Scenario: %s\n", sc.name)
-		fmt.Printf("│ %-4s %10s %10s %9s %8s %9s %9s %7s %6s\n",
-			"yr", "pop", "kids", "repro18-45", "eligPar", "ill_d", "nat_d", "births", "maxAge")
-		for _, s := range stats {
-			fmt.Printf("│ %-4d %10d %10d %9d %8d %9d %9d %7d %6d  mh=%.3f\n",
+		type runOut struct {
+			res     runResult
+			scaleUp float64
+		}
+		var outs []runOut
+		for r := 0; r < *runs; r++ {
+			rng := rand.New(rand.NewSource(*seed + int64(r)))
+			var agents []Agent
+			var scaleUp float64
+			var numSett int
+			var err error
+			if *seedAgentsPath != "" {
+				agents, scaleUp, numSett, err = seedFromLive(rng, *seedAgentsPath, *seedSettsPath)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+			} else {
+				agents, scaleUp, numSett = seedPopulation(rng, *hindcast)
+			}
+			totalDays := *years * 360
+			if *hindcast {
+				totalDays = hindcastActuals.days
+			}
+			outs = append(outs, runOut{runScenario(sc, totalDays, scaleUp, numSett, agents, rng), scaleUp})
+		}
+
+		// Print the first run's trajectory in full.
+		first := outs[0]
+		fmt.Printf("┌─ Scenario: %s (seed %d)\n", sc.name, *seed)
+		fmt.Printf("│ %-4s %10s %10s %9s %8s %9s %9s %7s %6s %6s %6s\n",
+			"yr", "pop", "kids", "repro18-45", "eligPar", "ill_d", "nat_d", "births", "maxAge", "mh", "coh")
+		for _, s := range first.res.stats {
+			fmt.Printf("│ %-4d %10d %10d %9d %8d %9d %9d %7d %6d %6.3f %6.3f\n",
 				s.year, s.pop, s.kids, s.repro, s.eligibleParents,
-				s.deathsIllness, s.deathsNatural, s.births, s.maxAge, s.meanHealth)
+				s.deathsIllness, s.deathsNatural, s.births, s.maxAge, s.meanHealth, s.meanCoh)
 		}
-		final := stats[len(stats)-1]
-		first := stats[0]
-		verdict := "STABLE"
-		if final.pop < first.pop/10 {
-			verdict = "COLLAPSE"
-		} else if final.pop < first.pop/2 {
-			verdict = "DECLINE"
-		} else if final.pop > first.pop*2 {
-			verdict = "REBOUND"
-		}
+		f0 := first.res.stats[0]
+		fN := first.res.stats[len(first.res.stats)-1]
 		fmt.Printf("└─ verdict: %s  (pop %d → %d, eligible parents %d → %d)\n\n",
-			verdict, first.pop, final.pop, first.eligibleParents, final.eligibleParents)
+			verdictOf(f0, fN), f0.pop, fN.pop, f0.eligibleParents, fN.eligibleParents)
+
+		if *hindcast {
+			hindcastReport(first.res, first.scaleUp)
+		}
+
+		// Multi-run envelope.
+		if *runs > 1 {
+			finals := make([]int, 0, *runs)
+			verdicts := map[string]int{}
+			for _, o := range outs {
+				s0 := o.res.stats[0]
+				sN := o.res.stats[len(o.res.stats)-1]
+				finals = append(finals, sN.pop)
+				verdicts[verdictOf(s0, sN)]++
+			}
+			sort.Ints(finals)
+			fmt.Printf("   envelope over %d runs: final pop min %d / median %d / max %d — verdicts: %v\n\n",
+				*runs, finals[0], finals[len(finals)/2], finals[len(finals)-1], verdicts)
+		}
 	}
 }
