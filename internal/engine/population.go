@@ -275,8 +275,8 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 // agentDailyMortalityChance returns the probability [0,1] that an agent
 // dies today from background entropy + age. Two stacking curves:
 //
-//  1. Background mortality — Agnosis⁴ × scatter (~0.26%/day at c=0.15).
-//     Four-fold entropy of embodied scatter. Floor at Agnosis⁵ (~0.07%/day)
+//  1. Background mortality — Agnosis⁶ × scatter (~0.015%/day at c=0.15).
+//     Entropy of embodied scatter. Floor at Agnosis⁷ (~0.004%/day)
 //     ensures even liberated agents are mortal.
 //
 //  2. Age mortality — Agnosis³ × sigmoid² (~0.04% at age 32, ~0.88% at 70).
@@ -284,21 +284,36 @@ func (s *Simulation) processNaturalDeaths(tick uint64) {
 //
 // Children (age < 16) return 0 — protected by family and community.
 //
-// Expected rates at current population (~494K, avg age 32, avg coherence 0.512):
+// R98 (2026-06-09) — background recalibrated Agnosis⁴→Agnosis⁶ (W-22):
+// The original Agnosis⁴ scale was internally inconsistent with the age curve
+// in this same function: even at coherence 1.0 the Agnosis⁵ floor gave a mean
+// lifespan of ~3.8 sim-years past 16 (death ~age 20), so the age-50 sigmoid —
+// designed around agents routinely reaching 50-70 — was unreachable dead code
+// (survival 16→50 ≈ e⁻⁹). It also annihilated any young cohort in the two
+// years between mortality onset (16) and the birth gate (18-45): at c≈0.53,
+// 0.22%/day → only ~20% survived 16→18, leaving 1,038 agents aged 18-29 in a
+// world of 271K (the W-22 adolescent mortality wall). The hot rate's real job
+// was one-time population reduction (494K→400K); that job now belongs to the
+// R97-2 soft birth cap. Validated via cmd/pop_projector (-bgpow 6): real age
+// pyramid forms (adults 40-50%, max age 41+ and rising, age curve expresses),
+// robust at pessimistic coherence 0.40. See
+// docs/health-reports/2026-06-09-adolescent-mortality-wall.md.
 //
-//	c=0.5, age 16: bg 0.23% + age ~0.00% = ~0.23%/day
-//	c=0.5, age 32: bg 0.23% + age  0.04% = ~0.27%/day
-//	c=0.5, age 50: bg 0.23% + age  0.33% = ~0.56%/day
-//	c=0.5, age 60: bg 0.23% + age  0.69% = ~0.92%/day
-//	c=0.5, age 70: bg 0.23% + age  0.98% = ~1.21%/day
-//	c=0.1, age 32: bg 0.36% + age  0.04% = ~0.40%/day (scatter vulnerable)
-//	c=0.9, age 32: bg 0.10% + age  0.04% = ~0.14%/day (liberation protective)
+// Expected rates after R98:
 //
-// Initial deaths: ~1,505/day at 494K. Population declines toward 400K
-// (MaxWorldPopulation gates births), then oscillates tightly as births
-// toggle on/off at the cap boundary.
+//	c=0.5, age 16: bg 0.013% + age ~0.00% = ~0.013%/day (≈22yr mean past 16)
+//	c=0.5, age 32: bg 0.013% + age  0.04% = ~0.05%/day
+//	c=0.5, age 50: bg 0.013% + age  0.33% = ~0.34%/day
+//	c=0.5, age 60: bg 0.013% + age  0.69% = ~0.70%/day
+//	c=0.5, age 70: bg 0.013% + age  0.98% = ~0.99%/day
+//	c=0.1, age 32: bg 0.020% + age  0.04% = ~0.06%/day (scatter vulnerable)
+//	c=0.9, age 32: bg 0.006% + age  0.04% = ~0.05%/day (liberation protective)
 //
-// Tuning: if too aggressive, reduce background by one Φ power (Agnosis⁵ base).
+// Age now dominates from ~40 onward — agents die mostly of age, scaled by
+// scatter in youth. Population control comes from the R97-2 soft birth cap,
+// not from background culling.
+//
+// Tuning: if too aggressive, reduce background by one Φ power (Agnosis⁷ base).
 // If too slow, increase age scale to Agnosis². Onset (50) and steepness (12)
 // can also be adjusted independently.
 func agentDailyMortalityChance(a *agents.Agent, population int) float64 {
@@ -311,12 +326,12 @@ func agentDailyMortalityChance(a *agents.Agent, population int) float64 {
 		coherence := float64(a.Soul.CittaCoherence)
 
 		// Background: scatter-driven daily death risk.
-		// Base at Agnosis⁴ (~0.00311) — four-fold entropy of embodied scatter.
-		// Floor at Agnosis⁵ (~0.000734) — even liberated agents are mortal.
-		agnosis4 := phi.Agnosis * phi.Agnosis * phi.Agnosis * phi.Agnosis
-		agnosis5 := agnosis4 * phi.Agnosis
+		// Base at Agnosis⁶ (~0.000173) — entropy of embodied scatter (R98).
+		// Floor at Agnosis⁷ (~0.0000409) — even liberated agents are mortal.
+		agnosis6 := phi.Agnosis * phi.Agnosis * phi.Agnosis * phi.Agnosis * phi.Agnosis * phi.Agnosis
+		agnosis7 := agnosis6 * phi.Agnosis
 		scatter := 1.0 - coherence
-		chance = agnosis5 + agnosis4*scatter
+		chance = agnosis7 + agnosis6*scatter
 
 		// Age: logistic sigmoid curve, universal.
 		// Onset at 50, steepness 12 sim-years, scaled by Agnosis³ (~0.01315).

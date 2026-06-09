@@ -59,6 +59,15 @@ const (
 // population numbers. 100K agents representing ~307K (scale ~3.07).
 const targetSample = 100_000
 
+// Sensitivity knobs (set from flags in main). Defaults mirror production
+// post-R98. To reproduce the 2026-05-26 R97 validation runs exactly, use
+// `-bgpow 4 -kidcoh 0.85` (pre-R98 mortality + the May 26 coherence estimate).
+var (
+	kidCohMean = 0.53 // boom-cohort seed coherence mean (live 2026-06-09)
+	bgPower    = 6    // background scatter scale = Agnosis^bgPower (R98)
+	bgOnsetAge = 16   // background mortality onset age
+)
+
 type Agent struct {
 	age       int     // sim-years
 	months    int     // month counter (age++ every 12)
@@ -156,7 +165,10 @@ func seedPopulation(rng *rand.Rand) []Agent {
 			// already reflect the aged-down equilibrium, so use them directly.
 			coh := 0.7 + rng.NormFloat64()*0.15
 			if age < 16 {
-				coh = 0.85 + rng.NormFloat64()*0.10 // boom cohort: high coherence
+				// boom cohort coherence: default 0.85 (2026-05-26 estimate);
+				// override with -kidcoh to match later live observations
+				// (2026-06-09 live mean: 0.53 and falling — sage-ripple drain).
+				coh = kidCohMean + rng.NormFloat64()*0.10
 			}
 			coh = clamp(coh, 0.05, 1.0)
 			// Survival: designed-scarcity equilibrium ~0.39 with spread; a
@@ -185,8 +197,12 @@ func dailyMortality(a *Agent, pop int, protectRepro bool) float64 {
 		// (over-capacity pressure below still applies, weighted down)
 	}
 	var chance float64
-	if a.age >= 16 {
-		ag4 := Agnosis * Agnosis * Agnosis * Agnosis
+	if a.age >= bgOnsetAge {
+		// Background scatter scale: Agnosis^bgPower (prod post-R98: 6;
+		// pre-R98: 4). R98 applied the R51 design comment's own tuning note
+		// ("if too aggressive, reduce background by one Φ power") twice.
+		// Floor stays one power below the base.
+		ag4 := math.Pow(Agnosis, float64(bgPower))
 		ag5 := ag4 * Agnosis
 		scatter := 1.0 - a.coherence
 		chance = ag5 + ag4*scatter
@@ -471,6 +487,9 @@ func main() {
 	scenarioFlag := flag.String("scenario", "all", "baseline|agegate_illness|passive_regen_0.01|warmth_provision|birth_healthgate_0.3|COMBO_regen+healthgate|all")
 	years := flag.Int("years", 20, "sim-years to project")
 	seed := flag.Int64("seed", 42, "RNG seed")
+	flag.Float64Var(&kidCohMean, "kidcoh", 0.53, "boom-cohort (age<16) seed coherence mean (live 2026-06-09: 0.53)")
+	flag.IntVar(&bgPower, "bgpow", 6, "background scatter mortality Φ-power (prod post-R98: Agnosis^6; pre-R98: 4; floor one power below)")
+	flag.IntVar(&bgOnsetAge, "onset", 16, "background mortality onset age (prod: 16)")
 	flag.Parse()
 
 	var total int
