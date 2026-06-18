@@ -37,28 +37,29 @@ type Client struct {
 	cacheTokensByTag map[string][2]int64 // [cache_creation, cache_read] tokens per tag
 	trackStart       time.Time
 
-	// Visibility: circuit breaker on repeated failures (W-15 incident, 2026-05-16).
+	// Visibility: per-provider failure counters (W-15 incident, 2026-05-16).
 	// Pre-fix, all LLM failures logged at slog.Debug; the spend-cap suspension
 	// was invisible at INFO level for ~30 wall-hours. We now warn on the first
-	// failure of a streak and every 100th thereafter, reset on success.
-	failureMu           sync.Mutex
-	consecutiveFailures int
-	fallbackFailures    int // visibility counter for the fallback path
+	// failure of a provider's streak and every 100th thereafter, reset on
+	// success — keyed by provider so a chain failure names the source.
+	failureMu          sync.Mutex
+	failuresByProvider map[string]int
 
-	// Fallback provider (2026-06-18). When Anthropic fails, retry against an
-	// OpenAI-compatible provider (DeepSeek/xAI/Venice). nil if not configured.
-	fallback             *fallbackProvider
-	cooldownMu           sync.Mutex
-	primaryCooldownUntil time.Time // skip Anthropic until this time after a cap error
+	// Provider chain (2026-06-18). Tried in priority order per call; each entry
+	// has its own post-cap cooldown. Resolved from LLM_PROVIDERS / per-provider
+	// key env vars. See providers.go.
+	providers  []*provider
+	cooldownMu sync.Mutex
+	cooldowns  map[string]time.Time // provider name → skip-until time
 }
 
-// NewClient creates a new Haiku API client with an optional OpenAI-compatible
-// fallback provider resolved from the environment (LLM_FALLBACK_*). The client
-// is usable if EITHER the Anthropic key OR a fallback provider is configured;
-// returns nil only when neither is set (LLM features fully disabled).
+// NewClient creates an LLM client backed by a provider chain resolved from the
+// environment (LLM_PROVIDERS + per-provider key vars), with apiKey supplying the
+// Anthropic entry. Returns nil only when the chain is empty (no provider has a
+// usable key — LLM features fully disabled).
 func NewClient(apiKey string) *Client {
-	fallback := fallbackFromEnv()
-	if apiKey == "" && fallback == nil {
+	providers := resolveProviders(apiKey)
+	if len(providers) == 0 {
 		return nil
 	}
 	c := &Client{
@@ -66,22 +67,17 @@ func NewClient(apiKey string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		maxPerMin:        20, // Conservative rate limit
-		callsByTag:       make(map[string]int64),
-		tokensByTag:      make(map[string][2]int64),
-		cacheTokensByTag: make(map[string][2]int64),
-		trackStart:       time.Now(),
-		fallback:         fallback,
+		maxPerMin:          20, // Conservative rate limit (shared across providers)
+		callsByTag:         make(map[string]int64),
+		tokensByTag:        make(map[string][2]int64),
+		cacheTokensByTag:   make(map[string][2]int64),
+		trackStart:         time.Now(),
+		providers:          providers,
+		cooldowns:          make(map[string]time.Time),
+		failuresByProvider: make(map[string]int),
 	}
 
-	if fallback != nil {
-		mode := "fallback"
-		if apiKey != "" {
-			mode = "primary=Anthropic, fallback"
-		}
-		slog.Info("LLM fallback provider configured", "mode", mode,
-			"provider", fallback.name, "model", fallback.model)
-	}
+	slog.Info("LLM provider chain configured", "order", providerNames(providers))
 
 	// Start hourly usage summary logger.
 	go c.logUsagePeriodically()
@@ -89,10 +85,9 @@ func NewClient(apiKey string) *Client {
 	return c
 }
 
-// Enabled returns true if the client can serve calls via either the Anthropic
-// key or a configured fallback provider.
+// Enabled returns true if the client has at least one configured provider.
 func (c *Client) Enabled() bool {
-	return c != nil && (c.apiKey != "" || c.fallback != nil)
+	return c != nil && len(c.providers) > 0
 }
 
 // Message represents a chat message.
@@ -159,45 +154,7 @@ func (c *Client) Complete(system, userPrompt string, maxTokens int) (string, err
 // The system prompt is sent uncached. For repeated calls with a stable system
 // prompt, prefer CompleteTaggedCached.
 func (c *Client) CompleteTagged(system, userPrompt string, maxTokens int, tag string) (string, error) {
-	body, err := json.Marshal(request{
-		Model:     model,
-		MaxTokens: maxTokens,
-		System:    system,
-		Messages:  []Message{{Role: "user", Content: userPrompt}},
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
-	}
-	return c.completeWithFallback(system, userPrompt, maxTokens, tag, body)
-}
-
-// completeWithFallback runs the Anthropic request (primaryBody), and on failure
-// — or when Anthropic is in a post-cap cooldown, or has no key — routes to the
-// configured fallback provider. A usage-cap error on the primary arms the
-// cooldown so subsequent calls skip the doomed Anthropic request until the cap
-// is re-probed. With no fallback configured, behavior is unchanged: the primary
-// error propagates.
-func (c *Client) completeWithFallback(system, userPrompt string, maxTokens int, tag string, primaryBody []byte) (string, error) {
-	// No primary key, or primary in cooldown → straight to fallback.
-	if c.fallback != nil && (c.apiKey == "" || c.inPrimaryCooldown()) {
-		return c.callFallback(system, userPrompt, maxTokens, tag)
-	}
-
-	out, err := c.doRequest(primaryBody, tag)
-	if err == nil {
-		return out, nil
-	}
-	if c.fallback == nil {
-		return "", err
-	}
-	// Primary failed with a fallback available. Cool down Anthropic on a
-	// usage-cap suspension so we stop issuing doomed requests until it resets.
-	if isCapError(err) {
-		c.setPrimaryCooldown()
-		slog.Warn("Anthropic usage cap hit — routing to fallback provider",
-			"provider", c.fallback.name, "cooldown", primaryCooldown.String())
-	}
-	return c.callFallback(system, userPrompt, maxTokens, tag)
+	return c.dispatch(system, userPrompt, maxTokens, tag, false)
 }
 
 // CompleteTaggedCached sends a prompt to Haiku with the system prompt marked
@@ -207,27 +164,13 @@ func (c *Client) completeWithFallback(system, userPrompt string, maxTokens int, 
 // loss for one-off calls and a net win for repeated batches (oracle batches
 // ~10 calls/TickWeek; tier2 batches ~5 calls/TickDay).
 func (c *Client) CompleteTaggedCached(system, userPrompt string, maxTokens int, tag string) (string, error) {
-	body, err := json.Marshal(cachedRequest{
-		Model:     model,
-		MaxTokens: maxTokens,
-		System: []systemBlock{
-			{
-				Type:         "text",
-				Text:         system,
-				CacheControl: &cacheControl{Type: "ephemeral"},
-			},
-		},
-		Messages: []Message{{Role: "user", Content: userPrompt}},
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshal cached request: %w", err)
-	}
-	return c.completeWithFallback(system, userPrompt, maxTokens, tag, body)
+	return c.dispatch(system, userPrompt, maxTokens, tag, true)
 }
 
-// rateLimit enforces the shared max-calls-per-minute budget across both the
-// primary and fallback providers. Returns an error (already recorded against
-// the failure breaker) when the budget is exhausted for the current window.
+// rateLimit enforces the shared max-calls-per-minute budget across all
+// providers. Returns an error when the budget is exhausted for the current
+// window; logged at Debug (a benign local throttle, not a provider failure, so
+// it does not advance the chain's failure counters).
 func (c *Client) rateLimit(tag string) error {
 	c.mu.Lock()
 	now := time.Now()
@@ -237,21 +180,20 @@ func (c *Client) rateLimit(tag string) error {
 	}
 	if c.callCount >= c.maxPerMin {
 		c.mu.Unlock()
-		err := fmt.Errorf("rate limit exceeded (%d calls/min)", c.maxPerMin)
-		c.recordFailure(tag, err)
-		return err
+		slog.Debug("LLM local rate limit hit", "tag", tag, "max_per_min", c.maxPerMin)
+		return fmt.Errorf("rate limit exceeded (%d calls/min)", c.maxPerMin)
 	}
 	c.callCount++
 	c.mu.Unlock()
 	return nil
 }
 
-// doRequest sends a pre-marshalled JSON body, enforces rate limiting, parses
-// the response, records usage and cache stats, and updates the failure
-// circuit breaker. Returns the response text or a wrapped error.
-func (c *Client) doRequest(body []byte, tag string) (string, error) {
-	if !c.Enabled() {
-		return "", fmt.Errorf("LLM client not configured")
+// doRequest sends a pre-marshalled Anthropic body, enforces rate limiting,
+// parses the response, records usage and cache stats, and updates the named
+// provider's failure counter. Returns the response text or a wrapped error.
+func (c *Client) doRequest(body []byte, tag, providerName string) (string, error) {
+	if c.apiKey == "" {
+		return "", fmt.Errorf("anthropic provider not configured")
 	}
 
 	if err := c.rateLimit(tag); err != nil {
@@ -260,7 +202,7 @@ func (c *Client) doRequest(body []byte, tag string) (string, error) {
 
 	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewReader(body))
 	if err != nil {
-		c.recordFailure(tag, err)
+		c.recordProviderFailure(providerName, tag, err)
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -269,32 +211,32 @@ func (c *Client) doRequest(body []byte, tag string) (string, error) {
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		c.recordFailure(tag, err)
+		c.recordProviderFailure(providerName, tag, err)
 		return "", fmt.Errorf("API call: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.recordFailure(tag, err)
+		c.recordProviderFailure(providerName, tag, err)
 		return "", fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		apiErr := fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
-		c.recordFailure(tag, apiErr)
+		c.recordProviderFailure(providerName, tag, apiErr)
 		return "", apiErr
 	}
 
 	var apiResp response
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		c.recordFailure(tag, err)
+		c.recordProviderFailure(providerName, tag, err)
 		return "", fmt.Errorf("unmarshal response: %w", err)
 	}
 
 	if len(apiResp.Content) == 0 {
 		err := fmt.Errorf("empty response")
-		c.recordFailure(tag, err)
+		c.recordProviderFailure(providerName, tag, err)
 		return "", err
 	}
 
@@ -320,31 +262,8 @@ func (c *Client) doRequest(body []byte, tag string) (string, error) {
 	c.cacheTokensByTag[tag] = cacheTok
 	c.trackMu.Unlock()
 
-	// Success — reset failure streak.
-	c.failureMu.Lock()
-	c.consecutiveFailures = 0
-	c.failureMu.Unlock()
-
+	c.resetProviderFailures(providerName)
 	return apiResp.Content[0].Text, nil
-}
-
-// recordFailure increments the consecutive-failure counter and emits a
-// Warn-level log on the first failure of a streak and every 100th thereafter.
-// This is the W-15 fix: pre-2026-05-16 all LLM failures went to slog.Debug,
-// so the Anthropic spend-cap suspension on 2026-05-15 went unnoticed for
-// ~30 wall-hours. Now the first failure of a streak is immediately visible.
-func (c *Client) recordFailure(tag string, err error) {
-	c.failureMu.Lock()
-	c.consecutiveFailures++
-	n := c.consecutiveFailures
-	c.failureMu.Unlock()
-	if n == 1 || n%100 == 0 {
-		slog.Warn("LLM call failed",
-			"tag", tag,
-			"consecutive_failures", n,
-			"error", err.Error(),
-		)
-	}
 }
 
 // UsageSummary returns current tracking period counters.

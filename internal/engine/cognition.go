@@ -61,10 +61,10 @@ func (s *Simulation) processTier2Decisions(tick uint64) {
 		ctx := s.buildTier2Context(a, occNames, govNames, stateNames)
 		decisions, err := llm.GenerateTier2Decision(s.LLM, ctx)
 		if err != nil {
-			// Failure visibility is handled by the client circuit breaker
-			// (recordFailure in client.go), which warns on the first failure
-			// of a streak and every 100th thereafter. Per-call logs stay at
-			// Debug to avoid duplication.
+			// Failure visibility is handled by the client's per-provider
+			// failure counter (recordProviderFailure in providers.go), which
+			// warns on the first failure of a streak and every 100th
+			// thereafter. Per-call logs stay at Debug to avoid duplication.
 			slog.Debug("tier 2 decision failed, falling back to tier 0",
 				"agent", a.Name, "error", err)
 			continue

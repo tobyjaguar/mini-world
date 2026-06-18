@@ -17,25 +17,42 @@ WEATHER_API_KEY=your-openweathermap-api-key
 WEATHER_LOCATION=San Diego,US
 RANDOM_ORG_API_KEY=your-random-org-api-key
 
-# LLM fallback provider (2026-06-18). When the Anthropic call fails — most
-# importantly when its monthly spend cap is tripped — calls retry against an
-# OpenAI-compatible provider so the world's cognition/narrative layer keeps
-# running. On a usage-cap error the primary is cooled down for 30 min and
-# re-probed, so the world auto-returns to Anthropic when the cap resets.
-# Works even with ANTHROPIC_API_KEY unset (fallback-only).
+# LLM provider chain (2026-06-18). Calls try the providers in LLM_PROVIDERS
+# order until one succeeds. Put a cheap provider first to cut cost; later
+# providers cover failures (Anthropic's monthly spend cap trips every call with
+# a 400 until the 1st of next month). A provider that returns a usage/quota cap
+# error is cooled down 30 min and skipped, then re-probed — so the chain
+# auto-returns to it once its cap resets.
 #
-#   PROVIDER: deepseek | xai | venice | custom
-#   MODEL:    optional override (per-provider default below); slugs evolve
-#   BASE_URL: optional endpoint override; REQUIRED when PROVIDER=custom
+#   LLM_PROVIDERS: ordered CSV of: anthropic | deepseek | xai | venice | custom
+#                  (default when unset: anthropic)
+#   Each provider reads its own key env var; model is overridable per provider.
 #
-# Per-provider defaults:
-#   deepseek → https://api.deepseek.com/chat/completions   model deepseek-chat
-#   xai      → https://api.x.ai/v1/chat/completions        model grok-3
-#   venice   → https://api.venice.ai/api/v1/chat/completions model llama-3.3-70b
-LLM_FALLBACK_PROVIDER=
-LLM_FALLBACK_API_KEY=
-# LLM_FALLBACK_MODEL=
-# LLM_FALLBACK_BASE_URL=
+#   provider   key env            default endpoint / model                       model override
+#   anthropic  ANTHROPIC_API_KEY  (above) / claude-haiku-4-5-20251001            ANTHROPIC_MODEL
+#   deepseek   DEEPSEEK_API_KEY   api.deepseek.com/chat/completions / deepseek-chat   DEEPSEEK_MODEL
+#   xai        XAI_API_KEY        api.x.ai/v1/chat/completions / grok-3          XAI_MODEL
+#   venice     VENICE_API_KEY     api.venice.ai/api/v1/chat/completions / llama-3.3-70b  VENICE_MODEL
+#   custom     CUSTOM_API_KEY     CUSTOM_BASE_URL (required) / CUSTOM_MODEL (required)
+#
+# Cost-saving example — DeepSeek primary, Anthropic only as backup:
+#   LLM_PROVIDERS=deepseek,anthropic
+#   DEEPSEEK_API_KEY=sk-...
+# Or DeepSeek-only (omit anthropic from the chain):
+#   LLM_PROVIDERS=deepseek
+LLM_PROVIDERS=
+DEEPSEEK_API_KEY=
+XAI_API_KEY=
+VENICE_API_KEY=
+# Optional per-provider model overrides:
+# ANTHROPIC_MODEL=
+# DEEPSEEK_MODEL=
+# XAI_MODEL=
+# VENICE_MODEL=
+# Custom OpenAI-compatible endpoint (only if "custom" is in LLM_PROVIDERS):
+# CUSTOM_API_KEY=
+# CUSTOM_BASE_URL=
+# CUSTOM_MODEL=
 
 # Frontend CORS — comma-separated allowed origins
 CORS_ORIGINS=https://crossworlds.xyz,https://www.crossworlds.xyz
