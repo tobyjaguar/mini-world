@@ -253,7 +253,7 @@ func seedCoherenceHindcast(rng *rand.Rand) float64 {
 // seedPopulation seeds from the hardcoded 2026-05-26 histogram at sample
 // scale. hindcastCoh switches the coherence seed from the kidCohMean blanket
 // to the bimodal May-26 distribution.
-func seedPopulation(rng *rand.Rand, hindcastCoh bool) ([]Agent, float64, int) {
+func seedPopulation(rng *rand.Rand, hindcastCoh bool) ([]Agent, float64, int, []float64) {
 	total := 0
 	for _, c := range realAgeHistogram {
 		total += c
@@ -299,7 +299,15 @@ func seedPopulation(rng *rand.Rand, hindcastCoh bool) ([]Agent, float64, int) {
 			id++
 		}
 	}
-	return agents, scaleUp, numSett
+	// Legacy/hindcast path has no settlement treasury data, so the birth
+	// prosperity factor stays at the 0.75 default (preserves the validated
+	// 2026-06-09 hindcast — during the pre-R98 wall births were parent-starved,
+	// not prosperity-limited, so the factor barely moved the result anyway).
+	settFactor := make([]float64, numSett)
+	for i := range settFactor {
+		settFactor[i] = 0.75
+	}
+	return agents, scaleUp, numSett, settFactor
 }
 
 type liveAgentJSON struct {
@@ -308,7 +316,25 @@ type liveAgentJSON struct {
 }
 
 type liveSettJSON struct {
-	Population int `json:"population"`
+	Population int     `json:"population"`
+	Treasury   float64 `json:"treasury"`
+}
+
+// birthProsperityFactor mirrors processBirths: (0.5 + prosperityMod) where
+// prosperityMod = min(1.0, log1p(treasury/(pop+1)) × Agnosis). v2.1 fix —
+// the v2 projector hard-coded this at 0.75 ("mid prosperity"), but live
+// settlement treasuries are healthy enough that prosperityMod pins at its
+// 1.0 cap in most settlements → real factor mean ≈ 1.35, median 1.50. The
+// 0.75 constant understated births ~1.8× (the 2026-06-18 forecast undershoot).
+func birthProsperityFactor(treasury float64, pop int) float64 {
+	if pop <= 0 {
+		return 0.75 // legacy/unknown — preserve the old default
+	}
+	pm := math.Log1p(treasury/(float64(pop)+1)) * Agnosis
+	if pm > 1.0 {
+		pm = 1.0
+	}
+	return 0.5 + pm
 }
 
 // seedFromLive seeds one model agent per real agent (full scale, scaleUp=1)
@@ -318,34 +344,38 @@ type liveSettJSON struct {
 // review measured a 4× births overestimate from uniform 500-agent buckets).
 // Health is seeded at the R97-1 recovery target (production converges there
 // at ~10%/day of the gap); survival at the INV-3 equilibrium.
-func seedFromLive(rng *rand.Rand, agentsPath, settsPath string) ([]Agent, float64, int, error) {
+func seedFromLive(rng *rand.Rand, agentsPath, settsPath string) ([]Agent, float64, int, []float64, error) {
 	ab, err := os.ReadFile(agentsPath)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("read agents seed: %w", err)
+		return nil, 0, 0, nil, fmt.Errorf("read agents seed: %w", err)
 	}
 	var live []liveAgentJSON
 	if err := json.Unmarshal(ab, &live); err != nil {
-		return nil, 0, 0, fmt.Errorf("parse agents seed: %w", err)
+		return nil, 0, 0, nil, fmt.Errorf("parse agents seed: %w", err)
 	}
 
-	// Settlement size distribution: real if provided, else uniform at real density.
+	// Settlement size + treasury: real if provided, else uniform at real density.
+	// settFactor is the per-settlement birth prosperity multiplier (v2.1).
 	var pops []int
+	var settFactor []float64
 	if settsPath != "" {
 		sb, err := os.ReadFile(settsPath)
 		if err != nil {
-			return nil, 0, 0, fmt.Errorf("read settlements seed: %w", err)
+			return nil, 0, 0, nil, fmt.Errorf("read settlements seed: %w", err)
 		}
 		var setts []liveSettJSON
 		if err := json.Unmarshal(sb, &setts); err != nil {
-			return nil, 0, 0, fmt.Errorf("parse settlements seed: %w", err)
+			return nil, 0, 0, nil, fmt.Errorf("parse settlements seed: %w", err)
 		}
 		for _, s := range setts {
 			pops = append(pops, s.Population)
+			settFactor = append(settFactor, birthProsperityFactor(s.Treasury, s.Population))
 		}
 	} else {
 		n := len(live) / realSettDensity
 		for i := 0; i < n; i++ {
 			pops = append(pops, realSettDensity)
+			settFactor = append(settFactor, 0.75) // no treasury data — legacy default
 		}
 	}
 
@@ -381,7 +411,7 @@ func seedFromLive(rng *rand.Rand, agentsPath, settsPath string) ([]Agent, float6
 		})
 		filled++
 	}
-	return agents, 1.0, len(pops), nil
+	return agents, 1.0, len(pops), settFactor, nil
 }
 
 // dailyMortality mirrors agentDailyMortalityChance (population.go).
@@ -440,7 +470,7 @@ type runResult struct {
 	tailDays               int
 }
 
-func runScenario(sc Scenario, totalDays int, scaleUp float64, numSett int, agents []Agent, rng *rand.Rand) runResult {
+func runScenario(sc Scenario, totalDays int, scaleUp float64, numSett int, settFactor []float64, agents []Agent, rng *rand.Rand) runResult {
 	var stats []yearStat
 
 	tick := uint64(6_219_979) // R97 deploy restore tick (mechanical Summer)
@@ -661,7 +691,13 @@ func runScenario(sc Scenario, totalDays int, scaleUp float64, numSett int, agent
 				if len(parents) < 2 {
 					continue
 				}
-				birthChance := float64(len(parents)) / 30.0 * 0.75 * capFactor // mid prosperity × soft cap
+				// Per-settlement prosperity multiplier (0.5 + prosperityMod),
+				// from real treasuries when available; 0.75 fallback (v2.1).
+				pf := 0.75
+				if int(sett) < len(settFactor) {
+					pf = settFactor[sett]
+				}
+				birthChance := float64(len(parents)) / 30.0 * pf * capFactor // prosperity × soft cap
 				bc := int(birthChance)
 				if rng.Float64() < birthChance-float64(bc) {
 					bc++
@@ -885,21 +921,22 @@ func main() {
 			var agents []Agent
 			var scaleUp float64
 			var numSett int
+			var settFactor []float64
 			var err error
 			if *seedAgentsPath != "" {
-				agents, scaleUp, numSett, err = seedFromLive(rng, *seedAgentsPath, *seedSettsPath)
+				agents, scaleUp, numSett, settFactor, err = seedFromLive(rng, *seedAgentsPath, *seedSettsPath)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}
 			} else {
-				agents, scaleUp, numSett = seedPopulation(rng, *hindcast)
+				agents, scaleUp, numSett, settFactor = seedPopulation(rng, *hindcast)
 			}
 			totalDays := *years * 360
 			if *hindcast {
 				totalDays = hindcastActuals.days
 			}
-			outs = append(outs, runOut{runScenario(sc, totalDays, scaleUp, numSett, agents, rng), scaleUp})
+			outs = append(outs, runOut{runScenario(sc, totalDays, scaleUp, numSett, settFactor, agents, rng), scaleUp})
 		}
 
 		// Print the first run's trajectory in full.
