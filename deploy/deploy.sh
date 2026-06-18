@@ -73,6 +73,11 @@ OVERRIDE="${OVERRIDE}\nEnvironment=\"WORLDSIM_ADMIN_KEY=${ADMIN_KEY}\""
 OVERRIDE="${OVERRIDE}\nEnvironment=\"PORT=${WORLDSIM_PORT}\""
 [ -n "${RELAY_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"WORLDSIM_RELAY_KEY=${RELAY_KEY}\""
 [ -n "${ANTHROPIC_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\""
+# LLM fallback provider (DeepSeek/xAI/Venice) — keeps cognition alive when Anthropic's cap is tripped.
+[ -n "${LLM_FALLBACK_PROVIDER:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"LLM_FALLBACK_PROVIDER=${LLM_FALLBACK_PROVIDER}\""
+[ -n "${LLM_FALLBACK_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}\""
+[ -n "${LLM_FALLBACK_MODEL:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"LLM_FALLBACK_MODEL=${LLM_FALLBACK_MODEL}\""
+[ -n "${LLM_FALLBACK_BASE_URL:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"LLM_FALLBACK_BASE_URL=${LLM_FALLBACK_BASE_URL}\""
 [ -n "${WEATHER_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"WEATHER_API_KEY=${WEATHER_API_KEY}\""
 [ -n "${WEATHER_LOCATION:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"WEATHER_LOCATION=${WEATHER_LOCATION}\""
 [ -n "${RANDOM_ORG_API_KEY:-}" ] && OVERRIDE="${OVERRIDE}\nEnvironment=\"RANDOM_ORG_API_KEY=${RANDOM_ORG_API_KEY}\""
@@ -90,6 +95,11 @@ GOVERRIDE="[Service]"
 GOVERRIDE="${GOVERRIDE}\nEnvironment=\"WORLDSIM_API_URL=http://localhost:${WORLDSIM_PORT}\""
 GOVERRIDE="${GOVERRIDE}\nEnvironment=\"WORLDSIM_ADMIN_KEY=${ADMIN_KEY}\""
 [ -n "${ANTHROPIC_API_KEY:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\""
+# Gardener shares the LLM fallback so its Haiku decisions survive an Anthropic cap too.
+[ -n "${LLM_FALLBACK_PROVIDER:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"LLM_FALLBACK_PROVIDER=${LLM_FALLBACK_PROVIDER}\""
+[ -n "${LLM_FALLBACK_API_KEY:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}\""
+[ -n "${LLM_FALLBACK_MODEL:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"LLM_FALLBACK_MODEL=${LLM_FALLBACK_MODEL}\""
+[ -n "${LLM_FALLBACK_BASE_URL:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"LLM_FALLBACK_BASE_URL=${LLM_FALLBACK_BASE_URL}\""
 [ -n "${GARDENER_INTERVAL:-}" ] && GOVERRIDE="${GOVERRIDE}\nEnvironment=\"GARDENER_INTERVAL=${GARDENER_INTERVAL}\""
 
 # Sentinel override — read-only, no admin key needed.

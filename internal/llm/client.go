@@ -43,12 +43,22 @@ type Client struct {
 	// failure of a streak and every 100th thereafter, reset on success.
 	failureMu           sync.Mutex
 	consecutiveFailures int
+	fallbackFailures    int // visibility counter for the fallback path
+
+	// Fallback provider (2026-06-18). When Anthropic fails, retry against an
+	// OpenAI-compatible provider (DeepSeek/xAI/Venice). nil if not configured.
+	fallback             *fallbackProvider
+	cooldownMu           sync.Mutex
+	primaryCooldownUntil time.Time // skip Anthropic until this time after a cap error
 }
 
-// NewClient creates a new Haiku API client.
-// Returns nil if apiKey is empty (LLM features disabled).
+// NewClient creates a new Haiku API client with an optional OpenAI-compatible
+// fallback provider resolved from the environment (LLM_FALLBACK_*). The client
+// is usable if EITHER the Anthropic key OR a fallback provider is configured;
+// returns nil only when neither is set (LLM features fully disabled).
 func NewClient(apiKey string) *Client {
-	if apiKey == "" {
+	fallback := fallbackFromEnv()
+	if apiKey == "" && fallback == nil {
 		return nil
 	}
 	c := &Client{
@@ -61,6 +71,16 @@ func NewClient(apiKey string) *Client {
 		tokensByTag:      make(map[string][2]int64),
 		cacheTokensByTag: make(map[string][2]int64),
 		trackStart:       time.Now(),
+		fallback:         fallback,
+	}
+
+	if fallback != nil {
+		mode := "fallback"
+		if apiKey != "" {
+			mode = "primary=Anthropic, fallback"
+		}
+		slog.Info("LLM fallback provider configured", "mode", mode,
+			"provider", fallback.name, "model", fallback.model)
 	}
 
 	// Start hourly usage summary logger.
@@ -69,9 +89,10 @@ func NewClient(apiKey string) *Client {
 	return c
 }
 
-// Enabled returns true if the client has a valid API key.
+// Enabled returns true if the client can serve calls via either the Anthropic
+// key or a configured fallback provider.
 func (c *Client) Enabled() bool {
-	return c != nil && c.apiKey != ""
+	return c != nil && (c.apiKey != "" || c.fallback != nil)
 }
 
 // Message represents a chat message.
@@ -147,7 +168,36 @@ func (c *Client) CompleteTagged(system, userPrompt string, maxTokens int, tag st
 	if err != nil {
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doRequest(body, tag)
+	return c.completeWithFallback(system, userPrompt, maxTokens, tag, body)
+}
+
+// completeWithFallback runs the Anthropic request (primaryBody), and on failure
+// — or when Anthropic is in a post-cap cooldown, or has no key — routes to the
+// configured fallback provider. A usage-cap error on the primary arms the
+// cooldown so subsequent calls skip the doomed Anthropic request until the cap
+// is re-probed. With no fallback configured, behavior is unchanged: the primary
+// error propagates.
+func (c *Client) completeWithFallback(system, userPrompt string, maxTokens int, tag string, primaryBody []byte) (string, error) {
+	// No primary key, or primary in cooldown → straight to fallback.
+	if c.fallback != nil && (c.apiKey == "" || c.inPrimaryCooldown()) {
+		return c.callFallback(system, userPrompt, maxTokens, tag)
+	}
+
+	out, err := c.doRequest(primaryBody, tag)
+	if err == nil {
+		return out, nil
+	}
+	if c.fallback == nil {
+		return "", err
+	}
+	// Primary failed with a fallback available. Cool down Anthropic on a
+	// usage-cap suspension so we stop issuing doomed requests until it resets.
+	if isCapError(err) {
+		c.setPrimaryCooldown()
+		slog.Warn("Anthropic usage cap hit — routing to fallback provider",
+			"provider", c.fallback.name, "cooldown", primaryCooldown.String())
+	}
+	return c.callFallback(system, userPrompt, maxTokens, tag)
 }
 
 // CompleteTaggedCached sends a prompt to Haiku with the system prompt marked
@@ -172,18 +222,13 @@ func (c *Client) CompleteTaggedCached(system, userPrompt string, maxTokens int, 
 	if err != nil {
 		return "", fmt.Errorf("marshal cached request: %w", err)
 	}
-	return c.doRequest(body, tag)
+	return c.completeWithFallback(system, userPrompt, maxTokens, tag, body)
 }
 
-// doRequest sends a pre-marshalled JSON body, enforces rate limiting, parses
-// the response, records usage and cache stats, and updates the failure
-// circuit breaker. Returns the response text or a wrapped error.
-func (c *Client) doRequest(body []byte, tag string) (string, error) {
-	if !c.Enabled() {
-		return "", fmt.Errorf("LLM client not configured")
-	}
-
-	// Rate limiting.
+// rateLimit enforces the shared max-calls-per-minute budget across both the
+// primary and fallback providers. Returns an error (already recorded against
+// the failure breaker) when the budget is exhausted for the current window.
+func (c *Client) rateLimit(tag string) error {
 	c.mu.Lock()
 	now := time.Now()
 	if now.After(c.resetAt) {
@@ -194,10 +239,24 @@ func (c *Client) doRequest(body []byte, tag string) (string, error) {
 		c.mu.Unlock()
 		err := fmt.Errorf("rate limit exceeded (%d calls/min)", c.maxPerMin)
 		c.recordFailure(tag, err)
-		return "", err
+		return err
 	}
 	c.callCount++
 	c.mu.Unlock()
+	return nil
+}
+
+// doRequest sends a pre-marshalled JSON body, enforces rate limiting, parses
+// the response, records usage and cache stats, and updates the failure
+// circuit breaker. Returns the response text or a wrapped error.
+func (c *Client) doRequest(body []byte, tag string) (string, error) {
+	if !c.Enabled() {
+		return "", fmt.Errorf("LLM client not configured")
+	}
+
+	if err := c.rateLimit(tag); err != nil {
+		return "", err
+	}
 
 	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewReader(body))
 	if err != nil {
@@ -312,23 +371,23 @@ func (c *Client) UsageSummary() map[string]any {
 		totalCacheWrite += cacheTok[0]
 		totalCacheRead += cacheTok[1]
 		perTag[tag] = map[string]int64{
-			"calls":               calls,
-			"input_tokens":        tok[0],
-			"output_tokens":       tok[1],
-			"cache_write_tokens":  cacheTok[0],
-			"cache_read_tokens":   cacheTok[1],
+			"calls":              calls,
+			"input_tokens":       tok[0],
+			"output_tokens":      tok[1],
+			"cache_write_tokens": cacheTok[0],
+			"cache_read_tokens":  cacheTok[1],
 		}
 	}
 
 	return map[string]any{
-		"period_start":              c.trackStart.UTC().Format(time.RFC3339),
-		"period_duration":           time.Since(c.trackStart).Truncate(time.Second).String(),
-		"total_calls":               totalCalls,
-		"total_input_tokens":        totalInput,
-		"total_output_tokens":       totalOutput,
-		"total_cache_write_tokens":  totalCacheWrite,
-		"total_cache_read_tokens":   totalCacheRead,
-		"by_tag":                    perTag,
+		"period_start":             c.trackStart.UTC().Format(time.RFC3339),
+		"period_duration":          time.Since(c.trackStart).Truncate(time.Second).String(),
+		"total_calls":              totalCalls,
+		"total_input_tokens":       totalInput,
+		"total_output_tokens":      totalOutput,
+		"total_cache_write_tokens": totalCacheWrite,
+		"total_cache_read_tokens":  totalCacheRead,
+		"by_tag":                   perTag,
 	}
 }
 

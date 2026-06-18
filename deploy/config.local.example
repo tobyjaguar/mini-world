@@ -17,6 +17,26 @@ WEATHER_API_KEY=your-openweathermap-api-key
 WEATHER_LOCATION=San Diego,US
 RANDOM_ORG_API_KEY=your-random-org-api-key
 
+# LLM fallback provider (2026-06-18). When the Anthropic call fails — most
+# importantly when its monthly spend cap is tripped — calls retry against an
+# OpenAI-compatible provider so the world's cognition/narrative layer keeps
+# running. On a usage-cap error the primary is cooled down for 30 min and
+# re-probed, so the world auto-returns to Anthropic when the cap resets.
+# Works even with ANTHROPIC_API_KEY unset (fallback-only).
+#
+#   PROVIDER: deepseek | xai | venice | custom
+#   MODEL:    optional override (per-provider default below); slugs evolve
+#   BASE_URL: optional endpoint override; REQUIRED when PROVIDER=custom
+#
+# Per-provider defaults:
+#   deepseek → https://api.deepseek.com/chat/completions   model deepseek-chat
+#   xai      → https://api.x.ai/v1/chat/completions        model grok-3
+#   venice   → https://api.venice.ai/api/v1/chat/completions model llama-3.3-70b
+LLM_FALLBACK_PROVIDER=
+LLM_FALLBACK_API_KEY=
+# LLM_FALLBACK_MODEL=
+# LLM_FALLBACK_BASE_URL=
+
 # Frontend CORS — comma-separated allowed origins
 CORS_ORIGINS=https://crossworlds.xyz,https://www.crossworlds.xyz
 
