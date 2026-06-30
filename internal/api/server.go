@@ -70,6 +70,10 @@ func (s *Server) Start() {
 	}
 	s.newspaperCacheInterval = time.Duration(cacheHours) * time.Hour
 
+	// Restore persisted (LLM-generated, Tier 1+) biographies so deploys don't
+	// trigger a regeneration wave on next view (docs/26 #2).
+	s.loadBiographies()
+
 	// Rate limiters for LLM-consuming endpoints.
 	storyLimiter := NewRateLimiter(10, time.Hour)
 	newspaperLimiter := NewRateLimiter(30, time.Hour)
@@ -666,6 +670,28 @@ func (s *Server) handleAgentRoutes(storyLimiter *RateLimiter) http.HandlerFunc {
 	}
 }
 
+// loadBiographies restores persisted biographies into the in-memory cache on
+// startup. No-op without a DB. Safe before serving (single-threaded here).
+func (s *Server) loadBiographies() {
+	if s.DB == nil {
+		return
+	}
+	rows, err := s.DB.LoadBiographies()
+	if err != nil {
+		slog.Warn("biography cache load failed", "error", err)
+		return
+	}
+	if s.bioCache == nil {
+		s.bioCache = make(map[agents.AgentID]cachedBio)
+	}
+	for _, r := range rows {
+		s.bioCache[agents.AgentID(r.AgentID)] = cachedBio{Biography: r.Biography, GeneratedAt: r.GeneratedAt}
+	}
+	if len(rows) > 0 {
+		slog.Info("biographies restored", "count", len(rows))
+	}
+}
+
 func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent *agents.Agent) {
 	refresh := r.URL.Query().Get("refresh") == "true"
 
@@ -677,7 +703,8 @@ func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent 
 		}
 	}
 
-	// Check cache.
+	// Check cache (holds LLM-generated Tier 1+ biographies; Tier 0 is templated
+	// fresh each request and never cached).
 	s.bioMu.Lock()
 	if s.bioCache == nil {
 		s.bioCache = make(map[agents.AgentID]cachedBio)
@@ -690,6 +717,7 @@ func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent 
 			"name":         agent.Name,
 			"biography":    cached.Biography,
 			"generated_at": cached.GeneratedAt,
+			"source":       "llm",
 		})
 		return
 	}
@@ -753,6 +781,21 @@ func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent 
 		}
 	}
 
+	// Cost gate (docs/26): Tier 0 is ~95% of agents and near-identical state
+	// machines — generating bespoke Haiku prose for a randomly-browsed Tier 0
+	// citizen was ~60% of all LLM calls. Tier 0 gets a deterministic templated
+	// chronicle (no LLM, not cached — it is cheap to rebuild). Only notable
+	// agents (Tier 1+) get an LLM biography, which is cached and persisted.
+	if agent.Tier == agents.Tier0 {
+		writeJSON(w, map[string]any{
+			"name":         agent.Name,
+			"biography":    templateBiography(ctx),
+			"generated_at": engine.SimTime(s.Sim.CurrentTick()),
+			"source":       "template",
+		})
+		return
+	}
+
 	// Top memories by importance.
 	if len(agent.Memories) > 0 {
 		sorted := make([]agents.Memory, len(agent.Memories))
@@ -777,12 +820,64 @@ func (s *Server) handleAgentStory(w http.ResponseWriter, r *http.Request, agent 
 	s.bioMu.Lock()
 	s.bioCache[agent.ID] = cachedBio{Biography: bio, GeneratedAt: genTime}
 	s.bioMu.Unlock()
+	// Write-through persistence (docs/26 #2): notable biographies survive
+	// restarts instead of being regenerated on next view after every deploy.
+	if s.DB != nil {
+		if err := s.DB.SaveBiography(uint64(agent.ID), bio, genTime); err != nil {
+			slog.Warn("biography persist failed", "error", err, "agent", agent.Name)
+		}
+	}
 
 	writeJSON(w, map[string]any{
 		"name":         agent.Name,
 		"biography":    bio,
 		"generated_at": genTime,
+		"source":       "llm",
 	})
+}
+
+// templateBiography builds a deterministic, period-appropriate chronicle entry
+// from an agent's structured state — no LLM call. Used for Tier 0 agents (the
+// ~95% majority) so that browsing ordinary citizens costs nothing. Reads as a
+// brief factual record rather than the bespoke prose reserved for notables.
+func templateBiography(ctx llm.BiographyContext) string {
+	place := ctx.Settlement
+	if place == "" {
+		place = "the outer wilds"
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s, a %s of %s, has seen %d years",
+		ctx.Name, strings.ToLower(ctx.Occupation), place, ctx.Age)
+	if ctx.Faction != "" {
+		fmt.Fprintf(&b, ", sworn to the %s", ctx.Faction)
+	}
+	b.WriteString(". ")
+
+	// Coherence/state flavor — the emanationist register, by band.
+	switch {
+	case ctx.Coherence >= 0.7:
+		b.WriteString("Theirs is a coherent soul, its clarity a quiet light among neighbors. ")
+	case ctx.Coherence >= 0.382:
+		b.WriteString("They walk the long valley of awakening, neither wholly bound to matter nor yet free of it. ")
+	default:
+		b.WriteString("Their days pass in the rhythm of labor, the soul still woven close to matter. ")
+	}
+
+	// Material standing.
+	switch {
+	case ctx.Wealth < 50:
+		b.WriteString("They hold little, living close to the bone.")
+	case ctx.Wealth < 1000:
+		b.WriteString("They keep a modest household.")
+	default:
+		b.WriteString("They have prospered, with crowns enough to spare.")
+	}
+
+	if len(ctx.Relationships) > 0 {
+		fmt.Fprintf(&b, " In the weave of the community they are %s.", ctx.Relationships[0])
+	}
+	return b.String()
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

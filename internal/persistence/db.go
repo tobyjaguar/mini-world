@@ -117,6 +117,12 @@ func (db *DB) migrate() error {
 		value TEXT NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS biographies (
+		agent_id INTEGER PRIMARY KEY,
+		biography TEXT NOT NULL,
+		generated_at TEXT NOT NULL DEFAULT ''
+	);
+
 	CREATE TABLE IF NOT EXISTS memories (
 		agent_id INTEGER NOT NULL,
 		tick INTEGER NOT NULL,
@@ -582,32 +588,32 @@ func (db *DB) HasWorldState() bool {
 // LoadAgents reads all agents from the database.
 func (db *DB) LoadAgents() ([]*agents.Agent, error) {
 	type agentRow struct {
-		ID               uint64  `db:"id"`
-		Name             string  `db:"name"`
-		Age              uint16  `db:"age"`
-		AgeMonths        uint8   `db:"age_months"`
-		Sex              uint8   `db:"sex"`
-		Health           float32 `db:"health"`
-		PosQ             int     `db:"pos_q"`
-		PosR             int     `db:"pos_r"`
-		HomeSettlementID *uint64 `db:"home_settlement_id"`
-		Occupation       uint8   `db:"occupation"`
-		Wealth           uint64  `db:"wealth"`
-		Tier             uint8   `db:"tier"`
-		Mood             float32 `db:"mood"`
-		Alive            int     `db:"alive"`
-		BornTick         uint64  `db:"born_tick"`
-		Role             uint8   `db:"role"`
-		FactionID        *uint64 `db:"faction_id"`
-		Archetype        *string `db:"archetype"`
-		SkillsJSON       string  `db:"skills_json"`
-		NeedsJSON        string  `db:"needs_json"`
-		SoulJSON         string  `db:"soul_json"`
-		InventoryJSON    string  `db:"inventory_json"`
-		Satisfaction        float32 `db:"satisfaction"`
-		Alignment           float32 `db:"alignment"`
-		LastWorkTick        uint64  `db:"last_work_tick"`
-		ProductionProgress  float32 `db:"production_progress"`
+		ID                 uint64  `db:"id"`
+		Name               string  `db:"name"`
+		Age                uint16  `db:"age"`
+		AgeMonths          uint8   `db:"age_months"`
+		Sex                uint8   `db:"sex"`
+		Health             float32 `db:"health"`
+		PosQ               int     `db:"pos_q"`
+		PosR               int     `db:"pos_r"`
+		HomeSettlementID   *uint64 `db:"home_settlement_id"`
+		Occupation         uint8   `db:"occupation"`
+		Wealth             uint64  `db:"wealth"`
+		Tier               uint8   `db:"tier"`
+		Mood               float32 `db:"mood"`
+		Alive              int     `db:"alive"`
+		BornTick           uint64  `db:"born_tick"`
+		Role               uint8   `db:"role"`
+		FactionID          *uint64 `db:"faction_id"`
+		Archetype          *string `db:"archetype"`
+		SkillsJSON         string  `db:"skills_json"`
+		NeedsJSON          string  `db:"needs_json"`
+		SoulJSON           string  `db:"soul_json"`
+		InventoryJSON      string  `db:"inventory_json"`
+		Satisfaction       float32 `db:"satisfaction"`
+		Alignment          float32 `db:"alignment"`
+		LastWorkTick       uint64  `db:"last_work_tick"`
+		ProductionProgress float32 `db:"production_progress"`
 	}
 
 	var rows []agentRow
@@ -920,6 +926,34 @@ func (db *DB) LoadStatsHistory(fromTick, toTick uint64, limit int) ([]StatsRow, 
 		 ORDER BY tick DESC LIMIT ?`,
 		fromTick, toTick, limit,
 	)
+	return rows, err
+}
+
+// BiographyRow is a persisted LLM-generated agent biography. (Tier-0 agents
+// get a deterministic template at request time and are not stored — only the
+// notable Tier 1+ biographies, which are LLM-generated, are persisted so they
+// survive restarts instead of being regenerated on next view.)
+type BiographyRow struct {
+	AgentID     uint64 `db:"agent_id"`
+	Biography   string `db:"biography"`
+	GeneratedAt string `db:"generated_at"`
+}
+
+// SaveBiography upserts one agent biography (write-through from the API cache).
+func (db *DB) SaveBiography(agentID uint64, biography, generatedAt string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO biographies (agent_id, biography, generated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(agent_id) DO UPDATE SET biography = excluded.biography, generated_at = excluded.generated_at`,
+		agentID, biography, generatedAt,
+	)
+	return err
+}
+
+// LoadBiographies returns all persisted biographies (loaded into the API cache
+// on startup).
+func (db *DB) LoadBiographies() ([]BiographyRow, error) {
+	var rows []BiographyRow
+	err := db.conn.Select(&rows, `SELECT agent_id, biography, generated_at FROM biographies`)
 	return rows, err
 }
 
